@@ -26,7 +26,7 @@ export class BookingResponseDto {
   @ApiProperty({ example: 'USD' })
   currency: string;
 
-  @ApiProperty({ enum: BookingStatus, example: BookingStatus.PENDING, description: 'Estado actual de la reserva' })
+  @ApiProperty({ enum: BookingStatus, example: BookingStatus.PENDIENTE, description: 'Estado actual de la reserva' })
   status: BookingStatus;
 
   @ApiProperty({ example: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d', description: 'Clave de idempotencia asociada' })
