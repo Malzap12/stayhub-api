@@ -39,7 +39,7 @@ describe('BookingsController', () => {
       idempotencyKey: '00000000-0000-0000-0000-000000000000',
     });
     expect(result).toBeDefined();
-    expect(result.status).toBe(BookingStatus.PENDING);
+    expect(result.status).toBe(BookingStatus.PENDIENTE);
   });
 
   it('should find one booking', async () => {
