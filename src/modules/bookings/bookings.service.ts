@@ -41,7 +41,7 @@ export class BookingsService {
       guests: bookingDto.guests,
       totalAmount: 518.00,
       currency: 'USD',
-      status: BookingStatus.PENDING,
+      status: BookingStatus.PENDIENTE,
       idempotencyKey: bookingDto.idempotencyKey,
       specialRequests: bookingDto.specialRequests,
       createdAt: new Date(),
@@ -58,7 +58,7 @@ export class BookingsService {
       guests: 2,
       totalAmount: 518.00,
       currency: 'USD',
-      status: BookingStatus.CONFIRMED,
+      status: BookingStatus.CONFIRMADA,
       idempotencyKey: 'sample-idempotency-key',
       createdAt: new Date(),
     };
