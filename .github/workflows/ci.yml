@@ -31,8 +31,19 @@ jobs:
       - name: Run automated tests with coverage (HU-064)
         run: npm run test:cov
 
+      - name: Verify SONAR_TOKEN Secret
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "::error::SONAR_TOKEN secret is NOT found or empty in GitHub Repository Secrets!"
+            exit 1
+          else
+            echo "SONAR_TOKEN is present (length: ${#SONAR_TOKEN})"
+          fi
+
       - name: SonarCloud Scan (HU-065)
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarqube-scan-action@v5.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
