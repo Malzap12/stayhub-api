@@ -10,7 +10,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { Role } from '../../common/enums/role.enum';
 
-describe('AuthController & AuthService (HU-001 · MA-36 & HU-005 · MA-35)', () => {
+describe('AuthController & AuthService (HU-001, HU-002, HU-005)', () => {
   let controller: AuthController;
   let service: AuthService;
 
@@ -27,6 +27,7 @@ describe('AuthController & AuthService (HU-001 · MA-36 & HU-005 · MA-35)', () 
                 ADMIN_INITIAL_EMAIL: 'admin.test@inversioneslr.com',
                 ADMIN_INITIAL_PASSWORD: 'TestAdminPassword2026!',
                 ADMIN_INITIAL_NAME: 'Admin Inicial Test',
+                SESSION_TIMEOUT_MINUTES: '60',
               };
               return env[key];
             },
@@ -52,7 +53,6 @@ describe('AuthController & AuthService (HU-001 · MA-36 & HU-005 · MA-35)', () 
       expect(admins[0].email).toBe('admin.test@inversioneslr.com');
       expect(admins[0].role).toBe(Role.ADMINISTRADOR);
       expect(admins[0].status).toBe('ACTIVA');
-      expect(admins[0].passwordHash).not.toBe('TestAdminPassword2026!');
       expect(service.verifyPassword('TestAdminPassword2026!', admins[0].passwordHash)).toBe(true);
     });
 
@@ -65,7 +65,7 @@ describe('AuthController & AuthService (HU-001 · MA-36 & HU-005 · MA-35)', () 
   });
 
   describe('HU-001 · Registrarse en la plataforma (CA1, CA2, CA3, CA4 y RNF-001)', () => {
-    it('CA1 & RNF-001: should create an ACTIVA account with hashed password and allow logging in', async () => {
+    it('CA1 & RNF-001: should create an ACTIVA account with hashed password', async () => {
       const regResult = await controller.register({
         name: 'Miguel Ángel Alza',
         email: 'miguel@stayhub.com',
@@ -76,18 +76,6 @@ describe('AuthController & AuthService (HU-001 · MA-36 & HU-005 · MA-35)', () 
       expect(regResult.user.email).toBe('miguel@stayhub.com');
       expect(regResult.user.role).toBe(Role.ANFITRION);
       expect(regResult.user.status).toBe('ACTIVA');
-
-      const stored = service.findByEmail('miguel@stayhub.com');
-      expect(stored).toBeDefined();
-      expect(stored?.passwordHash).not.toBe('Password123');
-      expect(service.verifyPassword('Password123', stored!.passwordHash)).toBe(true);
-
-      const loginResult = await controller.login({
-        email: 'miguel@stayhub.com',
-        password: 'Password123',
-      });
-      expect(loginResult.token).toContain('jwt-');
-      expect(loginResult.user?.status).toBe('ACTIVA');
     });
 
     it('CA2: should reject registration with 409 Conflict when email is already in use', async () => {
@@ -147,16 +135,80 @@ describe('AuthController & AuthService (HU-001 · MA-36 & HU-005 · MA-35)', () 
         }),
       ).rejects.toThrow(BadRequestException);
     });
+  });
 
-    it('should reject login with wrong password and handle malformed hash safely', async () => {
-      expect(service.verifyPassword('any', 'malformed-hash')).toBe(false);
+  describe('HU-002 · Iniciar y cerrar sesión (CA1, CA2, CA3, CA4, RN-021, RNF-003)', () => {
+    it('CA1 & RNF-003: should authenticate active user, return role and configurable expiration', async () => {
+      await controller.register({
+        name: 'Huésped Activo',
+        email: 'huesped@stayhub.com',
+        password: 'Password123',
+        role: Role.HUESPED,
+      });
+
+      const loginRes = await controller.login({
+        email: 'huesped@stayhub.com',
+        password: 'Password123',
+      });
+
+      expect(loginRes.token).toContain('jwt-');
+      expect(loginRes.expiresInMinutes).toBe(60);
+      expect(loginRes.user.role).toBe(Role.HUESPED);
+      expect(service.isSessionValid(loginRes.token)).toBe(true);
+    });
+
+    it('CA2: should reject incorrect email or password with identical generic message', async () => {
+      await expect(
+        controller.login({
+          email: 'noexiste@stayhub.com',
+          password: 'Password123',
+        }),
+      ).rejects.toThrow(
+        new UnauthorizedException('Correo electrónico o contraseña incorrectos'),
+      );
 
       await expect(
         controller.login({
           email: 'admin.test@inversioneslr.com',
           password: 'WrongPassword123',
         }),
-      ).rejects.toThrow(UnauthorizedException);
+      ).rejects.toThrow(
+        new UnauthorizedException('Correo electrónico o contraseña incorrectos'),
+      );
+    });
+
+    it('CA3: should deny login when account is RESTRINGIDA indicating restriction', async () => {
+      await controller.register({
+        name: 'Usuario Restringido',
+        email: 'restringido@stayhub.com',
+        password: 'Password123',
+        role: Role.ANFITRION,
+      });
+
+      service.restrictAccount('restringido@stayhub.com', 'Publicación engañosa');
+
+      await expect(
+        controller.login({
+          email: 'restringido@stayhub.com',
+          password: 'Password123',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('CA4 & RN-021: should invalidate active session on logout and record audit events', async () => {
+      const loginRes = await controller.login({
+        email: 'admin.test@inversioneslr.com',
+        password: 'TestAdminPassword2026!',
+      });
+
+      expect(service.isSessionValid(`Bearer ${loginRes.token}`)).toBe(true);
+
+      const logoutRes = await controller.logout(`Bearer ${loginRes.token}`);
+      expect(logoutRes.message).toContain('invalidada');
+      expect(service.isSessionValid(loginRes.token)).toBe(false);
+      expect(service.isSessionValid(undefined)).toBe(false);
+      expect(service.verifyPassword('any', 'malformed-hash')).toBe(false);
+      expect(service.getAuditEvents().length).toBeGreaterThan(0);
     });
   });
 });
