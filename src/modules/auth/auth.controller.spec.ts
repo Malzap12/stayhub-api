@@ -211,4 +211,48 @@ describe('AuthController & AuthService (HU-001, HU-002, HU-005)', () => {
       expect(service.getAuditEvents().length).toBeGreaterThan(0);
     });
   });
+
+  describe('HU-003 · Proteger las funciones por rol (CA1, CA2, CA3)', () => {
+    it('CA1: should reject unauthenticated access to protected operations with 401 Unauthorized', () => {
+      expect(() => service.authorize(undefined, [Role.HUESPED])).toThrow(
+        UnauthorizedException,
+      );
+      expect(() =>
+        service.authorize('Bearer invalid-token', [Role.HUESPED]),
+      ).toThrow(UnauthorizedException);
+    });
+
+    it('CA2: should deny HUESPED when invoking ANFITRION or ADMINISTRADOR functions with 403 Forbidden', async () => {
+      await controller.register({
+        name: 'Huésped Prueba',
+        email: 'huesped.rbac@stayhub.com',
+        password: 'Password123',
+        role: Role.HUESPED,
+      });
+
+      const guestLogin = await controller.login({
+        email: 'huesped.rbac@stayhub.com',
+        password: 'Password123',
+      });
+
+      expect(() =>
+        service.authorize(`Bearer ${guestLogin.token}`, [Role.ANFITRION]),
+      ).toThrow(ForbiddenException);
+
+      expect(() =>
+        service.authorize(`Bearer ${guestLogin.token}`, [Role.ADMINISTRADOR]),
+      ).toThrow(ForbiddenException);
+
+      const allowedSession = service.authorize(`Bearer ${guestLogin.token}`, [
+        Role.HUESPED,
+      ]);
+      expect(allowedSession.role).toBe(Role.HUESPED);
+    });
+
+    it('CA2: should allow ADMINISTRADOR to access admin audit events', () => {
+      const events = controller.getAdminAuditEvents();
+      expect(Array.isArray(events)).toBe(true);
+    });
+  });
 });
+

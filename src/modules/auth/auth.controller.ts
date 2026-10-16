@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Headers, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, Headers, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import {
@@ -9,6 +9,8 @@ import {
   LogoutDto,
   LogoutResponseDto,
 } from './dto/auth.dto';
+import { Public, Roles } from '../../common/decorators/roles.decorator';
+import { Role } from '../../common/enums/role.enum';
 
 @ApiTags('Autenticación (Auth)')
 @Controller('auth')
@@ -16,6 +18,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Iniciar sesión y obtener sesión autenticada · HU-002',
@@ -44,6 +47,7 @@ export class AuthController {
   }
 
   @Post('register')
+  @Public()
   @ApiOperation({
     summary: 'Registrar nuevo usuario (Huésped o Anfitrión) · HU-001',
     description: 'Crea una cuenta ACTIVA con rol HUESPED o ANFITRION, validando correo único y contraseña segura.',
@@ -55,4 +59,19 @@ export class AuthController {
   register(@Body() userData: RegisterDto): Promise<RegisterResponseDto> {
     return this.authService.register(userData);
   }
+
+  @Get('admin/audit')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Consultar bitácora de auditoría de seguridad · HU-003 (CA2)',
+    description: 'Operación exclusiva del rol ADMINISTRADOR. Cualquier invocación por HUESPED o ANFITRION responde 403 Forbidden.',
+  })
+  @ApiResponse({ status: 200, description: 'Eventos de auditoría retornados para ADMINISTRADOR' })
+  @ApiResponse({ status: 401, description: 'No autenticado (CA1)' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado: requiere rol ADMINISTRADOR (CA2)' })
+  getAdminAuditEvents() {
+    return this.authService.getAuditEvents();
+  }
 }
+
