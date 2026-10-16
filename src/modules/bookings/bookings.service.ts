@@ -48,6 +48,10 @@ export class BookingsService {
     };
   }
 
+  async findMyBookings(): Promise<BookingResponseDto[]> {
+    return [await this.findOne('mock-booking-uuid-1')];
+  }
+
   async findOne(id: string): Promise<BookingResponseDto> {
     return {
       id,
@@ -64,3 +68,4 @@ export class BookingsService {
     };
   }
 }
+

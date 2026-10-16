@@ -41,7 +41,14 @@ export interface ActiveSession {
 
 export interface AuthAuditEvent {
   actor: string;
-  action: 'REGISTER' | 'LOGIN_SUCCESS' | 'LOGIN_FAILED' | 'LOGIN_RESTRICTED' | 'LOGOUT';
+  action:
+    | 'REGISTER'
+    | 'LOGIN_SUCCESS'
+    | 'LOGIN_FAILED'
+    | 'LOGIN_RESTRICTED'
+    | 'LOGOUT'
+    | 'UNAUTHENTICATED_ACCESS'
+    | 'ACCESS_DENIED';
   entity: string;
   timestamp: Date;
   result: 'SUCCESS' | 'DENIED';
@@ -226,20 +233,43 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  isSessionValid(rawToken?: string): boolean {
+  getSession(rawToken?: string): ActiveSession | undefined {
     const cleanToken = rawToken?.replace(/^Bearer\s+/i, '').trim();
     if (!cleanToken) {
-      return false;
+      return undefined;
     }
     const session = this.activeSessions.get(cleanToken);
     if (!session) {
-      return false;
+      return undefined;
     }
     if (Date.now() > session.expiresAt) {
       this.activeSessions.delete(cleanToken);
-      return false;
+      return undefined;
     }
-    return true;
+    return session;
+  }
+
+  isSessionValid(rawToken?: string): boolean {
+    return Boolean(this.getSession(rawToken));
+  }
+
+  authorize(rawToken: string | undefined, requiredRoles: Role[]): ActiveSession {
+    const session = this.getSession(rawToken);
+    if (!session) {
+      this.recordAudit('anonymous', 'UNAUTHENTICATED_ACCESS', 'DENIED');
+      throw new UnauthorizedException(
+        'Debes iniciar sesión para acceder a este recurso',
+      );
+    }
+
+    if (requiredRoles.length > 0 && !requiredRoles.includes(session.role)) {
+      this.recordAudit(session.email, 'ACCESS_DENIED', 'DENIED');
+      throw new ForbiddenException(
+        'Acceso denegado: no cuentas con el rol requerido para esta función',
+      );
+    }
+
+    return session;
   }
 
   async register(userData: RegisterDto) {
