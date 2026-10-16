@@ -47,4 +47,11 @@ describe('BookingsController', () => {
     expect(result).toBeDefined();
     expect(result.id).toBe('test-booking');
   });
+
+  it('should list my bookings (HU-003 CA1)', async () => {
+    const result = await controller.findMyBookings();
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBeGreaterThan(0);
+  });
 });
+
