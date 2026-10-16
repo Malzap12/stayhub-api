@@ -1,0 +1,392 @@
+{
+  "info": {
+    "_postman_id": "a7b6c5d4-e3f2-4a1b-9c8d-7e6f5a4b3c2d",
+    "name": "Inversiones LR - StayHub API (HU-066 E2E Contract Suite)",
+    "description": "Colección de pruebas por servicio y flujo de extremo a extremo validando los contratos OpenAPI (HU-066).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "listingId",
+      "value": "mock-listing-uuid-1",
+      "type": "string"
+    },
+    {
+      "key": "bookingId",
+      "value": "mock-booking-uuid-1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Autenticación (Auth Service)",
+      "item": [
+        {
+          "name": "1.1 Registrar Usuario Anfitrión",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 201 Created según contrato', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Respuesta cumple contrato RegisterResponseDto', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('message').that.is.a('string');",
+                  "    pm.expect(json).to.have.property('user').that.is.an('object');",
+                  "    pm.expect(json.user).to.have.property('email', 'miguel@stayhub.com');",
+                  "    pm.expect(json.user).to.have.property('role', 'ANFITRION');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Miguel Ángel Alza\",\n  \"email\": \"miguel@stayhub.com\",\n  \"password\": \"Password123!\",\n  \"role\": \"ANFITRION\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "1.2 Iniciar Sesión y Obtener JWT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK según contrato', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respuesta cumple contrato LoginResponseDto y guarda JWT', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('message').that.is.a('string');",
+                  "    pm.expect(json).to.have.property('token').that.is.a('string');",
+                  "    pm.collectionVariables.set('authToken', json.token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"miguel@stayhub.com\",\n  \"password\": \"Password123!\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Alojamientos (Listings Service)",
+      "item": [
+        {
+          "name": "2.1 Publicar Nuevo Alojamiento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 201 Created según contrato', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Respuesta cumple contrato ListingResponseDto', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.include.all.keys('id', 'title', 'city', 'country', 'pricePerNight', 'maxGuests', 'bedrooms', 'bathrooms', 'amenities', 'images', 'hostId');",
+                  "    pm.collectionVariables.set('listingId', json.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Hermosa cabaña en la montaña\",\n  \"description\": \"Cabaña espaciosa con vista panorámica, chimenea y jacuzzi.\",\n  \"address\": \"Calle 10 # 43-20\",\n  \"city\": \"Medellín\",\n  \"country\": \"Colombia\",\n  \"pricePerNight\": 85.5,\n  \"maxGuests\": 4,\n  \"bedrooms\": 2,\n  \"bathrooms\": 2,\n  \"amenities\": [\"WIFI\", \"POOL\"],\n  \"images\": [\"https://storage.stayhub.com/img1.jpg\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/listings",
+              "host": ["{{baseUrl}}"],
+              "path": ["listings"]
+            }
+          }
+        },
+        {
+          "name": "2.2 Buscar Alojamientos (Paginado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK según contrato', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respuesta cumple contrato PaginatedListingsResponseDto', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data').that.is.an('array');",
+                  "    pm.expect(json).to.have.property('total').that.is.a('number');",
+                  "    pm.expect(json).to.have.property('page').that.is.a('number');",
+                  "    pm.expect(json).to.have.property('totalPages').that.is.a('number');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/listings/search?city=Medellín&guests=2&page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["listings", "search"],
+              "query": [
+                { "key": "city", "value": "Medellín" },
+                { "key": "guests", "value": "2" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2.3 Consultar Disponibilidad de Alojamiento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK según contrato', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respuesta cumple contrato AvailabilityResponseDto', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('listingId', pm.collectionVariables.get('listingId'));",
+                  "    pm.expect(json).to.have.property('isAvailable').that.is.a('boolean');",
+                  "    pm.expect(json).to.have.property('blockedDates').that.is.an('array');",
+                  "    pm.expect(json).to.have.property('pricePerNight').that.is.a('number');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/listings/{{listingId}}/availability?startDate=2026-11-01&endDate=2026-11-06",
+              "host": ["{{baseUrl}}"],
+              "path": ["listings", "{{listingId}}", "availability"],
+              "query": [
+                { "key": "startDate", "value": "2026-11-01" },
+                { "key": "endDate", "value": "2026-11-06" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2.4 Obtener Detalle de Alojamiento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK según contrato', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respuesta cumple contrato ListingResponseDto', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('id', pm.collectionVariables.get('listingId'));",
+                  "    pm.expect(json).to.have.property('pricePerNight').that.is.a('number');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/listings/{{listingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["listings", "{{listingId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Reservas y Cotizaciones (Bookings Service)",
+      "item": [
+        {
+          "name": "3.1 Cotizar Estancia",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK según contrato', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respuesta cumple contrato QuoteResponseDto', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.include.all.keys('listingId', 'checkIn', 'checkOut', 'nights', 'nightlyRate', 'baseAmount', 'cleaningFee', 'serviceFee', 'totalAmount', 'currency');",
+                  "    pm.expect(json.nights).to.eql(5);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"listingId\": \"{{listingId}}\",\n  \"checkIn\": \"2026-11-01\",\n  \"checkOut\": \"2026-11-06\",\n  \"guests\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/quote",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "quote"]
+            }
+          }
+        },
+        {
+          "name": "3.2 Crear Reserva Inmediata (Idempotente)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 201 Created según contrato', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Respuesta cumple contrato BookingResponseDto', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.include.all.keys('id', 'listingId', 'guestId', 'checkIn', 'checkOut', 'guests', 'totalAmount', 'currency', 'status', 'idempotencyKey', 'createdAt');",
+                  "    pm.collectionVariables.set('bookingId', json.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"listingId\": \"{{listingId}}\",\n  \"checkIn\": \"2026-11-01\",\n  \"checkOut\": \"2026-11-06\",\n  \"guests\": 2,\n  \"specialRequests\": \"Llegaremos alrededor de las 10 PM.\",\n  \"idempotencyKey\": \"9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/instant",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "instant"]
+            }
+          }
+        },
+        {
+          "name": "3.3 Consultar Estado de Reserva",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK según contrato', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Respuesta cumple contrato BookingResponseDto', function () {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('id', pm.collectionVariables.get('bookingId'));",
+                  "    pm.expect(json).to.have.property('status').that.is.a('string');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

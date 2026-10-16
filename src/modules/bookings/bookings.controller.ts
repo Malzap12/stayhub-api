@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
 import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
@@ -11,6 +11,7 @@ export class BookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
 
   @Post('quote')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cotizar estancia', description: 'Calcula el desglose completo del costo: noches x tarifa base + tarifa de limpieza + comisión de servicio = total.' })
   @ApiResponse({ status: 200, description: 'Cotización calculada exitosamente', type: QuoteResponseDto })
   @ApiResponse({ status: 400, description: 'Fechas o datos inválidos' })
