@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsString, MinLength } from 'class-validator';
 import { Role } from '../../../common/enums/role.enum';
 
 export class LoginDto {
@@ -32,9 +32,15 @@ export class RegisterDto {
   @MinLength(6)
   password: string;
 
-  @ApiProperty({ enum: Role, example: Role.ANFITRION, description: 'Rol asignado al usuario' })
-  @IsEnum(Role)
-  role: Role;
+  @ApiProperty({
+    enum: [Role.HUESPED, Role.ANFITRION],
+    example: Role.ANFITRION,
+    description: 'Rol público asignable en el registro (CA2: ADMINISTRADOR prohibido en registro público)',
+  })
+  @IsIn([Role.HUESPED, Role.ANFITRION], {
+    message: 'El registro público solo permite los roles HUESPED o ANFITRION',
+  })
+  role: Role.HUESPED | Role.ANFITRION;
 }
 
 export class LoginResponseDto {
