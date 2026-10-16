@@ -10,7 +10,13 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { Role } from '../../common/enums/role.enum';
-import { LoginDto, RegisterDto, RegisteredUserDto } from './dto/auth.dto';
+import {
+  LoginDto,
+  LoginResponseDto,
+  LogoutResponseDto,
+  RegisterDto,
+  RegisteredUserDto,
+} from './dto/auth.dto';
 
 export type AccountStatus = 'ACTIVA' | 'DESACTIVADA' | 'RESTRINGIDA';
 
@@ -21,18 +27,57 @@ export interface UserAccount {
   passwordHash: string;
   role: Role;
   status: AccountStatus;
+  restrictionReason?: string;
   createdAt: Date;
+}
+
+export interface ActiveSession {
+  token: string;
+  userId: string;
+  email: string;
+  role: Role;
+  expiresAt: number;
+}
+
+export interface AuthAuditEvent {
+  actor: string;
+  action: 'REGISTER' | 'LOGIN_SUCCESS' | 'LOGIN_FAILED' | 'LOGIN_RESTRICTED' | 'LOGOUT';
+  entity: string;
+  timestamp: Date;
+  result: 'SUCCESS' | 'DENIED';
 }
 
 @Injectable()
 export class AuthService implements OnModuleInit {
   private readonly users: Map<string, UserAccount> = new Map();
+  private readonly activeSessions: Map<string, ActiveSession> = new Map();
+  private readonly auditEvents: AuthAuditEvent[] = [];
   private static readonly PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+  private static readonly GENERIC_LOGIN_ERROR =
+    'Correo electrónico o contraseña incorrectos';
 
   constructor(@Optional() private readonly configService?: ConfigService) {}
 
   onModuleInit(): void {
     this.seedInitialAdmin();
+  }
+
+  private recordAudit(
+    actor: string,
+    action: AuthAuditEvent['action'],
+    result: AuthAuditEvent['result'],
+  ): void {
+    this.auditEvents.push({
+      actor,
+      action,
+      entity: 'AuthSession',
+      timestamp: new Date(),
+      result,
+    });
+  }
+
+  getAuditEvents(): AuthAuditEvent[] {
+    return [...this.auditEvents];
   }
 
   hashPassword(plainPassword: string): string {
@@ -103,6 +148,14 @@ export class AuthService implements OnModuleInit {
     return this.users.get(email.trim().toLowerCase());
   }
 
+  restrictAccount(email: string, reason = 'Incumplimiento de políticas'): void {
+    const account = this.findByEmail(email);
+    if (account) {
+      account.status = 'RESTRINGIDA';
+      account.restrictionReason = reason;
+    }
+  }
+
   private toPublicUser(account: UserAccount): RegisteredUserDto {
     return {
       id: account.id,
@@ -114,26 +167,79 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  async login(credentials: LoginDto) {
+  async login(credentials: LoginDto): Promise<LoginResponseDto> {
     const normalizedEmail = credentials.email?.trim().toLowerCase();
     const existing = normalizedEmail ? this.users.get(normalizedEmail) : undefined;
 
-    if (existing) {
-      const valid = this.verifyPassword(credentials.password, existing.passwordHash);
-      if (!valid) {
-        throw new UnauthorizedException('Credenciales inválidas');
-      }
-      return {
-        message: 'Login exitoso',
-        token: `jwt-${existing.id}-${existing.role}`,
-        user: this.toPublicUser(existing),
-      };
+    if (!existing || !this.verifyPassword(credentials.password, existing.passwordHash)) {
+      this.recordAudit(normalizedEmail || 'anonymous', 'LOGIN_FAILED', 'DENIED');
+      throw new UnauthorizedException(AuthService.GENERIC_LOGIN_ERROR);
     }
 
+    if (existing.status === 'RESTRINGIDA') {
+      this.recordAudit(existing.email, 'LOGIN_RESTRICTED', 'DENIED');
+      const reasonSuffix = existing.restrictionReason
+        ? `: ${existing.restrictionReason}`
+        : '';
+      throw new ForbiddenException(
+        `Acceso denegado: tu cuenta se encuentra restringida${reasonSuffix}`,
+      );
+    }
+
+    const timeoutMinutes = Number(
+      this.configService?.get<string>('SESSION_TIMEOUT_MINUTES') ??
+        process.env.SESSION_TIMEOUT_MINUTES ??
+        60,
+    );
+
+    const token = `jwt-${existing.id}-${existing.role}-${randomBytes(8).toString('hex')}`;
+    this.activeSessions.set(token, {
+      token,
+      userId: existing.id,
+      email: existing.email,
+      role: existing.role,
+      expiresAt: Date.now() + timeoutMinutes * 60 * 1000,
+    });
+
+    this.recordAudit(existing.email, 'LOGIN_SUCCESS', 'SUCCESS');
+
     return {
-      message: 'Login exitoso',
-      token: 'mock-jwt-token',
+      message: 'Inicio de sesión exitoso',
+      token,
+      expiresInMinutes: timeoutMinutes,
+      user: this.toPublicUser(existing),
     };
+  }
+
+  async logout(rawToken?: string): Promise<LogoutResponseDto> {
+    const cleanToken = rawToken?.replace(/^Bearer\s+/i, '').trim();
+    const session = cleanToken ? this.activeSessions.get(cleanToken) : undefined;
+
+    if (cleanToken) {
+      this.activeSessions.delete(cleanToken);
+    }
+
+    this.recordAudit(session?.email || 'authenticated-user', 'LOGOUT', 'SUCCESS');
+
+    return {
+      message: 'Sesión cerrada e invalidada correctamente',
+    };
+  }
+
+  isSessionValid(rawToken?: string): boolean {
+    const cleanToken = rawToken?.replace(/^Bearer\s+/i, '').trim();
+    if (!cleanToken) {
+      return false;
+    }
+    const session = this.activeSessions.get(cleanToken);
+    if (!session) {
+      return false;
+    }
+    if (Date.now() > session.expiresAt) {
+      this.activeSessions.delete(cleanToken);
+      return false;
+    }
+    return true;
   }
 
   async register(userData: RegisterDto) {
@@ -171,6 +277,7 @@ export class AuthService implements OnModuleInit {
     };
 
     this.users.set(normalizedEmail, newUser);
+    this.recordAudit(normalizedEmail, 'REGISTER', 'SUCCESS');
 
     return {
       message: 'Cuenta creada exitosamente',

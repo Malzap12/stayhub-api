@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsIn, IsNotEmpty, IsString, Matches, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 import { Role } from '../../../common/enums/role.enum';
 
 export class LoginDto {
@@ -59,10 +59,10 @@ export class RegisteredUserDto {
   @ApiProperty({ example: 'miguel@stayhub.com' })
   email: string;
 
-  @ApiProperty({ enum: [Role.HUESPED, Role.ANFITRION], example: Role.HUESPED })
+  @ApiProperty({ enum: Role, example: Role.HUESPED })
   role: Role;
 
-  @ApiProperty({ example: 'ACTIVA', description: 'Estado inicial de la cuenta (CA1)' })
+  @ApiProperty({ example: 'ACTIVA', description: 'Estado de la cuenta' })
   status: 'ACTIVA' | 'DESACTIVADA' | 'RESTRINGIDA';
 
   @ApiProperty()
@@ -70,14 +70,17 @@ export class RegisteredUserDto {
 }
 
 export class LoginResponseDto {
-  @ApiProperty({ example: 'Login exitoso' })
+  @ApiProperty({ example: 'Inicio de sesión exitoso' })
   message: string;
 
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' })
   token: string;
 
+  @ApiProperty({ example: 60, description: 'Tiempo de expiración por inactividad en minutos (RNF-003)' })
+  expiresInMinutes: number;
+
   @ApiProperty({ type: () => RegisteredUserDto })
-  user?: RegisteredUserDto;
+  user: RegisteredUserDto;
 }
 
 export class RegisterResponseDto {
@@ -86,4 +89,16 @@ export class RegisterResponseDto {
 
   @ApiProperty({ type: () => RegisteredUserDto })
   user: RegisteredUserDto;
+}
+
+export class LogoutDto {
+  @ApiPropertyOptional({ example: 'jwt-user-1-HUESPED', description: 'Token de sesión a invalidar (CA4)' })
+  @IsOptional()
+  @IsString()
+  token?: string;
+}
+
+export class LogoutResponseDto {
+  @ApiProperty({ example: 'Sesión cerrada e invalidada correctamente' })
+  message: string;
 }
