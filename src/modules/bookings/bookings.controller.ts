@@ -5,6 +5,8 @@ import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { ActiveSession } from '../auth/auth.service';
 import { Role } from '../../common/enums/role.enum';
 
 @ApiTags('Reservas y Cotizaciones (Bookings)')
@@ -44,8 +46,11 @@ export class BookingsController {
   @ApiResponse({ status: 400, description: 'Alojamiento no disponible o datos inválidos' })
   @ApiResponse({ status: 401, description: 'No autenticado (CA1)' })
   @ApiResponse({ status: 409, description: 'Conflicto de reserva o clave de idempotencia duplicada' })
-  createInstant(@Body() bookingDto: CreateBookingDto): Promise<BookingResponseDto> {
-    return this.bookingsService.createInstant(bookingDto);
+  createInstant(
+    @Body() bookingDto: CreateBookingDto,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<BookingResponseDto> {
+    return this.bookingsService.createInstant(bookingDto, user?.email);
   }
 
   @Get(':id')

@@ -3,11 +3,15 @@ import { CreateListingDto } from './dto/create-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
 import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
 import { CheckAvailabilityQueryDto, AvailabilityResponseDto } from './dto/availability.dto';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 
 @Injectable()
 export class ListingsService {
-  async create(createDto: CreateListingDto): Promise<ListingResponseDto> {
-    return {
+  constructor(private readonly auditService: AuditService) {}
+
+  async create(createDto: CreateListingDto, actor?: string): Promise<ListingResponseDto> {
+    const listing: ListingResponseDto = {
       id: 'mock-listing-uuid-1',
       ...createDto,
       rating: 0,
@@ -15,6 +19,17 @@ export class ListingsService {
       hostId: 'mock-host-uuid',
       createdAt: new Date(),
     };
+
+    this.auditService.record({
+      actor,
+      action: AuditAction.LISTING_STATUS_CHANGE,
+      entity: 'Listing',
+      entityId: listing.id,
+      result: AuditResult.EXITOSO,
+      detail: 'Publicación creada',
+    });
+
+    return listing;
   }
 
   async search(searchDto: SearchListingsDto): Promise<PaginatedListingsResponseDto> {

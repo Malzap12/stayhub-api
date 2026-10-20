@@ -3,9 +3,13 @@ import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 
 @Injectable()
 export class BookingsService {
+  constructor(private readonly auditService: AuditService) {}
+
   async quote(quoteDto: QuoteBookingDto): Promise<QuoteResponseDto> {
     const checkIn = new Date(quoteDto.checkIn);
     const checkOut = new Date(quoteDto.checkOut);
@@ -31,8 +35,8 @@ export class BookingsService {
     };
   }
 
-  async createInstant(bookingDto: CreateBookingDto): Promise<BookingResponseDto> {
-    return {
+  async createInstant(bookingDto: CreateBookingDto, actor?: string): Promise<BookingResponseDto> {
+    const booking: BookingResponseDto = {
       id: 'mock-booking-uuid-1',
       listingId: bookingDto.listingId,
       guestId: 'mock-guest-uuid',
@@ -46,6 +50,17 @@ export class BookingsService {
       specialRequests: bookingDto.specialRequests,
       createdAt: new Date(),
     };
+
+    this.auditService.record({
+      actor,
+      action: AuditAction.BOOKING_STATUS_CHANGE,
+      entity: 'Booking',
+      entityId: booking.id,
+      result: AuditResult.EXITOSO,
+      detail: `Reserva creada en estado ${booking.status}`,
+    });
+
+    return booking;
   }
 
   async findMyBookings(): Promise<BookingResponseDto[]> {
