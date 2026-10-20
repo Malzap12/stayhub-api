@@ -135,6 +135,27 @@ export class AuthService implements OnModuleInit {
     );
   }
 
+  isPasswordCompliant(plainPassword?: string): boolean {
+    return Boolean(plainPassword) && AuthService.PASSWORD_REGEX.test(plainPassword as string);
+  }
+
+  /**
+   * HU-004 CA2: actualiza la contraseña con hash e invalida las sesiones
+   * activas de la cuenta para obligar a ingresar con la nueva clave.
+   */
+  updatePassword(email: string, newPassword: string): void {
+    const account = this.findByEmail(email);
+    if (!account) {
+      return;
+    }
+    account.passwordHash = this.hashPassword(newPassword);
+    for (const [token, session] of this.activeSessions) {
+      if (session.userId === account.id) {
+        this.activeSessions.delete(token);
+      }
+    }
+  }
+
   findByEmail(email: string): UserAccount | undefined {
     return this.users.get(email.trim().toLowerCase());
   }
@@ -307,7 +328,7 @@ export class AuthService implements OnModuleInit {
       );
     }
 
-    if (!userData.password || !AuthService.PASSWORD_REGEX.test(userData.password)) {
+    if (!this.isPasswordCompliant(userData.password)) {
       throw new BadRequestException(
         'La contraseña debe tener al menos 8 caracteres y combinar letras y números',
       );
