@@ -57,4 +57,12 @@ describe('ListingsController', () => {
     expect(result).toBeDefined();
     expect(result.title).toBe(dto.title);
   });
+
+  it('should get public reviews of a listing without authentication (HU-003 CA3)', async () => {
+    const result = await controller.getReviews('test-id');
+    expect(result).toBeDefined();
+    expect(result.listingId).toBe('test-id');
+    expect(result.reviews.length).toBeGreaterThan(0);
+  });
 });
+
