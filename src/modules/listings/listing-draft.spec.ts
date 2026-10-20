@@ -66,7 +66,7 @@ describe('HU-010 · Crear una publicación en borrador (CA1, CA2, CA3, CA4, RF-0
 
   describe('CA1 · Publicación en BORRADOR asociada al anfitrión', () => {
     it('crea la publicación con toda la información básica, en BORRADOR y completa', async () => {
-      const listing = await controller.create(fullDraft, host);
+      const listing = controller.create(fullDraft, host);
 
       expect(listing).toMatchObject({
         ...fullDraft,
@@ -81,11 +81,11 @@ describe('HU-010 · Crear una publicación en borrador (CA1, CA2, CA3, CA4, RF-0
     });
 
     it('la publicación aparece entre las del anfitrión y no en la búsqueda pública', async () => {
-      const first = await controller.create(fullDraft, host);
-      const second = await controller.create({ title: 'Apartamento en Laureles' }, host);
-      await controller.create({ title: 'Casa de otro anfitrión' }, { ...host, userId: 'otro-host' });
+      const first = controller.create(fullDraft, host);
+      const second = controller.create({ title: 'Apartamento en Laureles' }, host);
+      controller.create({ title: 'Casa de otro anfitrión' }, { ...host, userId: 'otro-host' });
 
-      const mine = await controller.findMine(host);
+      const mine = controller.findMine(host);
       expect(mine.map((item) => item.id).sort()).toEqual([first.id, second.id].sort());
 
       const search = await controller.search({ page: 1, limit: 50 });
@@ -93,7 +93,7 @@ describe('HU-010 · Crear una publicación en borrador (CA1, CA2, CA3, CA4, RF-0
     });
 
     it('registra la creación en la auditoría con el anfitrión como actor', async () => {
-      const listing = await controller.create(fullDraft, host);
+      const listing = controller.create(fullDraft, host);
 
       const [event] = auditService.findAll({ action: AuditAction.LISTING_STATUS_CHANGE });
       expect(event).toMatchObject({ actor: host.email, entityId: listing.id });
@@ -156,7 +156,7 @@ describe('HU-010 · Crear una publicación en borrador (CA1, CA2, CA3, CA4, RF-0
     it('acepta solo el título y lista los campos pendientes', async () => {
       expect(await validateBody({ title: 'Apartamento en Laureles' })).toBeUndefined();
 
-      const listing = await controller.create({ title: '  Apartamento en Laureles  ' }, host);
+      const listing = controller.create({ title: '  Apartamento en Laureles  ' }, host);
 
       expect(listing).toMatchObject({
         title: 'Apartamento en Laureles',
@@ -184,7 +184,7 @@ describe('HU-010 · Crear una publicación en borrador (CA1, CA2, CA3, CA4, RF-0
     });
 
     it('trata como faltantes los textos vacíos y las listas sin elementos útiles', async () => {
-      const listing = await controller.create(
+      const listing = controller.create(
         { ...fullDraft, description: '   ', images: ['  '] },
         host,
       );

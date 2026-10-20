@@ -36,7 +36,7 @@ export class ListingsController {
   create(
     @Body() createDto: CreateListingDto,
     @CurrentUser() user?: ActiveSession,
-  ): Promise<ListingResponseDto> {
+  ): ListingResponseDto {
     return this.listingsService.create(createDto, user);
   }
 
@@ -49,7 +49,7 @@ export class ListingsController {
   })
   @ApiResponse({ status: 200, description: 'Publicaciones del anfitrión', type: [ListingResponseDto] })
   @ApiResponse({ status: 403, description: 'Acceso denegado para rol HUESPED' })
-  findMine(@CurrentUser() user?: ActiveSession): Promise<ListingResponseDto[]> {
+  findMine(@CurrentUser() user?: ActiveSession): ListingResponseDto[] {
     return this.listingsService.findMine(user?.userId ?? '');
   }
 

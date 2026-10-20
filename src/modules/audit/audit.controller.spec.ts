@@ -81,7 +81,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
     });
 
     it('registra el cambio de estado de una publicación', async () => {
-      const listing = await listingsService.create(
+      const listing = listingsService.create(
         {
           title: 'Cabaña',
           description: 'Vista al lago',

@@ -11,7 +11,7 @@ import {
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { PropertyType } from '../../common/enums/property-type.enum';
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import type { ActiveSession } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
@@ -164,7 +164,7 @@ export class ListingsService {
    * HU-010 CA1 y CA4: crea la publicación en BORRADOR asociada al anfitrión
    * autenticado e indica si le falta información básica.
    */
-  async create(createDto: CreateListingDto, host?: ActiveSession): Promise<ListingResponseDto> {
+  create(createDto: CreateListingDto, host?: ActiveSession): ListingResponseDto {
     const trimmed = (value?: string) => value?.trim() || undefined;
     const cleanList = (values?: string[]) =>
       (values ?? []).map((value) => value.trim()).filter((value) => value.length > 0);
@@ -203,7 +203,7 @@ export class ListingsService {
   }
 
   /** HU-010: publicaciones del anfitrión autenticado, las más recientes primero. */
-  async findMine(hostId: string): Promise<ListingResponseDto[]> {
+  findMine(hostId: string): ListingResponseDto[] {
     return this.listingsStore
       .filter((item) => item.hostId === hostId)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
