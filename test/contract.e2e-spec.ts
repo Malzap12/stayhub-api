@@ -342,5 +342,70 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(Array.isArray(reviewsBody.reviews)).toBe(true);
     });
   });
+  describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3)', () => {
+    const adminEmail = process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com';
+    const adminPassword = process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!';
+    let adminToken: string;
+
+    beforeAll(async () => {
+      const loginRes = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: adminEmail, password: adminPassword }),
+      });
+      adminToken = (await loginRes.json()).token;
+    });
+
+    it('5.1 (CA1, CA3): GET /api/audit/events lista eventos completos, incluido el login fallido', async () => {
+      await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: adminEmail, password: 'ClaveIncorrecta1' }),
+      });
+
+      const res = await fetch(`${baseUrl}/audit/events?action=LOGIN&result=FALLIDO`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const events = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(events.length).toBeGreaterThan(0);
+      expect(events[events.length - 1]).toEqual(
+        expect.objectContaining({
+          actor: adminEmail,
+          action: 'LOGIN',
+          entity: 'AuthSession',
+          occurredAt: expect.any(String),
+          result: 'FALLIDO',
+        }),
+      );
+    });
+
+    it('5.2 (CA2): PUT, PATCH y DELETE sobre /api/audit/events/:id responden 405', async () => {
+      const listRes = await fetch(`${baseUrl}/audit/events`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const [firstEvent] = await listRes.json();
+
+      for (const method of ['PUT', 'PATCH', 'DELETE']) {
+        const res = await fetch(`${baseUrl}/audit/events/${firstEvent.id}`, {
+          method,
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+        expect(res.status).toBe(405);
+      }
+
+      const afterRes = await fetch(`${baseUrl}/audit/events`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const [firstEventAfter] = await afterRes.json();
+      expect(firstEventAfter).toEqual(firstEvent);
+    });
+
+    it('5.3 GET /api/audit/events es exclusivo del ADMINISTRADOR', async () => {
+      const res = await fetch(`${baseUrl}/audit/events`);
+      expect(res.status).toBe(401);
+    });
+  });
 });
 

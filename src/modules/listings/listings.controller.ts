@@ -7,6 +7,8 @@ import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-
 import { CheckAvailabilityQueryDto, AvailabilityResponseDto } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { ActiveSession } from '../auth/auth.service';
 import { Role } from '../../common/enums/role.enum';
 
 @ApiTags('Alojamientos (Listings)')
@@ -25,8 +27,11 @@ export class ListingsController {
   @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
   @ApiResponse({ status: 401, description: 'No autenticado (CA1)' })
   @ApiResponse({ status: 403, description: 'Acceso denegado para rol HUESPED (CA2)' })
-  create(@Body() createDto: CreateListingDto): Promise<ListingResponseDto> {
-    return this.listingsService.create(createDto);
+  create(
+    @Body() createDto: CreateListingDto,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<ListingResponseDto> {
+    return this.listingsService.create(createDto, user?.email);
   }
 
   @Get('pending')
@@ -55,8 +60,11 @@ export class ListingsController {
   @ApiResponse({ status: 200, description: 'Publicación aprobada y activada', type: ListingModerationResponseDto })
   @ApiResponse({ status: 400, description: 'La publicación no está en estado PENDIENTE_REVISION' })
   @ApiResponse({ status: 404, description: 'Publicación no encontrada' })
-  approveListing(@Param('id') id: string): Promise<ListingModerationResponseDto> {
-    return this.listingsService.approveListing(id);
+  approveListing(
+    @Param('id') id: string,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<ListingModerationResponseDto> {
+    return this.listingsService.approveListing(id, user?.email);
   }
 
   @Patch(':id/return')
@@ -74,8 +82,9 @@ export class ListingsController {
   returnListing(
     @Param('id') id: string,
     @Body() dto: ReturnListingDto,
+    @CurrentUser() user?: ActiveSession,
   ): Promise<ListingModerationResponseDto> {
-    return this.listingsService.returnListing(id, dto);
+    return this.listingsService.returnListing(id, dto, user?.email);
   }
 
   @Get('notifications/host')

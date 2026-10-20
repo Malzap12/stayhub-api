@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
+import { AuditService } from '../audit/audit.service';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
 
 describe('BookingsController', () => {
@@ -9,7 +10,7 @@ describe('BookingsController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [BookingsController],
-      providers: [BookingsService],
+      providers: [BookingsService, AuditService],
     }).compile();
 
     controller = module.get<BookingsController>(BookingsController);

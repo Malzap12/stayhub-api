@@ -5,6 +5,8 @@ import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-
 import { CheckAvailabilityQueryDto, AvailabilityResponseDto } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 
 @Injectable()
 export class ListingsService {
@@ -73,7 +75,25 @@ export class ListingsService {
 
   private hostNotifications: HostNotificationDto[] = [];
 
-  async create(createDto: CreateListingDto): Promise<ListingResponseDto> {
+  constructor(private readonly auditService: AuditService) {}
+
+  private recordStatusChange(
+    actor: string | undefined,
+    listingId: string,
+    result: AuditResult,
+    detail: string,
+  ): void {
+    this.auditService.record({
+      actor,
+      action: AuditAction.LISTING_STATUS_CHANGE,
+      entity: 'Listing',
+      entityId: listingId,
+      result,
+      detail,
+    });
+  }
+
+  async create(createDto: CreateListingDto, actor?: string): Promise<ListingResponseDto> {
     const now = new Date();
     const created: ListingResponseDto = {
       id: 'mock-listing-uuid-1',
@@ -86,6 +106,12 @@ export class ListingsService {
       createdAt: now,
     };
     this.listingsStore.push(created);
+    this.recordStatusChange(
+      actor,
+      created.id,
+      AuditResult.EXITOSO,
+      `Publicación creada en estado ${created.status}`,
+    );
     return created;
   }
 
@@ -107,19 +133,26 @@ export class ListingsService {
    * HU-050 CA2: Aprobar una publicación pendiente -> pasa a ACTIVA,
    * aparece en las búsquedas y se notifica al anfitrión.
    */
-  async approveListing(id: string): Promise<ListingModerationResponseDto> {
+  async approveListing(id: string, actor?: string): Promise<ListingModerationResponseDto> {
     const listing = this.listingsStore.find((item) => item.id === id);
     if (!listing) {
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, 'Aprobación rechazada: publicación no encontrada');
       throw new NotFoundException(`Publicación con id ${id} no encontrada`);
     }
     if (listing.status !== ListingStatus.PENDIENTE_REVISION) {
-      throw new BadRequestException(
-        `Solo se pueden aprobar publicaciones en estado PENDIENTE_REVISION (actual: ${listing.status})`,
-      );
+      const message = `Solo se pueden aprobar publicaciones en estado PENDIENTE_REVISION (actual: ${listing.status})`;
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, message);
+      throw new BadRequestException(message);
     }
 
     listing.status = ListingStatus.ACTIVA;
     listing.returnReason = undefined;
+    this.recordStatusChange(
+      actor,
+      id,
+      AuditResult.EXITOSO,
+      `${ListingStatus.PENDIENTE_REVISION} -> ${ListingStatus.ACTIVA}`,
+    );
 
     const notification: HostNotificationDto = {
       id: `notif-${Date.now()}`,
@@ -142,24 +175,36 @@ export class ListingsService {
    * HU-050 CA3: Devolver una publicación pendiente con un motivo ->
    * pasa a BORRADOR y el anfitrión ve el motivo.
    */
-  async returnListing(id: string, dto: ReturnListingDto): Promise<ListingModerationResponseDto> {
+  async returnListing(
+    id: string,
+    dto: ReturnListingDto,
+    actor?: string,
+  ): Promise<ListingModerationResponseDto> {
     const reason = dto?.reason?.trim();
     if (!reason) {
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, 'Devolución rechazada: motivo obligatorio');
       throw new BadRequestException('El motivo de devolución es obligatorio');
     }
 
     const listing = this.listingsStore.find((item) => item.id === id);
     if (!listing) {
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, 'Devolución rechazada: publicación no encontrada');
       throw new NotFoundException(`Publicación con id ${id} no encontrada`);
     }
     if (listing.status !== ListingStatus.PENDIENTE_REVISION) {
-      throw new BadRequestException(
-        `Solo se pueden devolver publicaciones en estado PENDIENTE_REVISION (actual: ${listing.status})`,
-      );
+      const message = `Solo se pueden devolver publicaciones en estado PENDIENTE_REVISION (actual: ${listing.status})`;
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, message);
+      throw new BadRequestException(message);
     }
 
     listing.status = ListingStatus.BORRADOR;
     listing.returnReason = reason;
+    this.recordStatusChange(
+      actor,
+      id,
+      AuditResult.EXITOSO,
+      `${ListingStatus.PENDIENTE_REVISION} -> ${ListingStatus.BORRADOR}. Motivo: ${reason}`,
+    );
 
     const notification: HostNotificationDto = {
       id: `notif-${Date.now()}`,

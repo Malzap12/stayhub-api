@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { Role } from '../../common/enums/role.enum';
+import { AuditService } from '../audit/audit.service';
 
 describe('AuthController & AuthService (HU-001, HU-002, HU-005)', () => {
   let controller: AuthController;
@@ -19,6 +20,7 @@ describe('AuthController & AuthService (HU-001, HU-002, HU-005)', () => {
       controllers: [AuthController],
       providers: [
         AuthService,
+        AuditService,
         {
           provide: ConfigService,
           useValue: {
