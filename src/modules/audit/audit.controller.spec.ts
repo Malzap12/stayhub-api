@@ -1,5 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditController } from './audit.controller';
 import { ANONYMOUS_ACTOR, AuditService } from './audit.service';
@@ -100,6 +106,31 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
         entityId: listing.id,
         result: AuditResult.EXITOSO,
       });
+    });
+
+    it('registra la aprobación y la devolución de publicaciones por el administrador (HU-050)', async () => {
+      await listingsService.approveListing('pending-listing-1', ADMIN_EMAIL);
+      await listingsService.returnListing(
+        'pending-listing-2',
+        { reason: 'Fotos borrosas' },
+        ADMIN_EMAIL,
+      );
+
+      const events = controller.findAll({ action: AuditAction.LISTING_STATUS_CHANGE });
+      expect(events).toEqual([
+        expect.objectContaining({
+          actor: ADMIN_EMAIL,
+          entityId: 'pending-listing-1',
+          result: AuditResult.EXITOSO,
+          detail: 'PENDIENTE_REVISION -> ACTIVA',
+        }),
+        expect.objectContaining({
+          actor: ADMIN_EMAIL,
+          entityId: 'pending-listing-2',
+          result: AuditResult.EXITOSO,
+          detail: expect.stringContaining('BORRADOR. Motivo: Fotos borrosas'),
+        }),
+      ]);
     });
 
     it('registra el cambio de estado de una reserva', async () => {
@@ -234,6 +265,29 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
         action: AuditAction.LOGIN,
         result: AuditResult.FALLIDO,
       });
+    });
+
+    it('registra con resultado FALLIDO los cambios de estado de publicación rechazados', async () => {
+      await expect(listingsService.approveListing('no-existe', ADMIN_EMAIL)).rejects.toThrow(
+        NotFoundException,
+      );
+      await listingsService.approveListing('pending-listing-1', ADMIN_EMAIL);
+      await expect(
+        listingsService.approveListing('pending-listing-1', ADMIN_EMAIL),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        listingsService.returnListing('pending-listing-2', { reason: '  ' }, ADMIN_EMAIL),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        listingsService.returnListing('no-existe', { reason: 'x' }, ADMIN_EMAIL),
+      ).rejects.toThrow(NotFoundException);
+      await expect(
+        listingsService.returnListing('pending-listing-1', { reason: 'x' }, ADMIN_EMAIL),
+      ).rejects.toThrow(BadRequestException);
+
+      const failed = controller.findAll({ entity: 'Listing', result: AuditResult.FALLIDO });
+      expect(failed).toHaveLength(5);
+      failed.forEach((event) => expect(event.actor).toBe(ADMIN_EMAIL));
     });
 
     it('registra el acceso sin sesión con resultado FALLIDO', () => {

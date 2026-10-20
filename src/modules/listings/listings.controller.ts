@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Body, Query, Param } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Query, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { ListingsService } from './listings.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
 import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
 import { CheckAvailabilityQueryDto, AvailabilityResponseDto } from './dto/availability.dto';
+import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { ActiveSession } from '../auth/auth.service';
@@ -33,11 +34,76 @@ export class ListingsController {
     return this.listingsService.create(createDto, user?.email);
   }
 
+  @Get('pending')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Cola de revisión de publicaciones pendientes · HU-050 (CA1)',
+    description:
+      'Retorna las publicaciones en estado PENDIENTE_REVISION ordenadas por fecha de solicitud (más antiguas primero). Exclusivo para ADMINISTRADOR.',
+  })
+  @ApiResponse({ status: 200, description: 'Cola de publicaciones pendientes ordenada por fecha de solicitud', type: [ListingResponseDto] })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ADMINISTRADOR)' })
+  findPendingQueue(): Promise<ListingResponseDto[]> {
+    return this.listingsService.findPendingReviewQueue();
+  }
+
+  @Patch(':id/approve')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Aprobar una publicación pendiente · HU-050 (CA2)',
+    description:
+      'Cambia el estado de la publicación de PENDIENTE_REVISION a ACTIVA, la habilita en las búsquedas públicas y genera notificación para el anfitrión.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación pendiente' })
+  @ApiResponse({ status: 200, description: 'Publicación aprobada y activada', type: ListingModerationResponseDto })
+  @ApiResponse({ status: 400, description: 'La publicación no está en estado PENDIENTE_REVISION' })
+  @ApiResponse({ status: 404, description: 'Publicación no encontrada' })
+  approveListing(
+    @Param('id') id: string,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<ListingModerationResponseDto> {
+    return this.listingsService.approveListing(id, user?.email);
+  }
+
+  @Patch(':id/return')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Devolver una publicación pendiente con motivo · HU-050 (CA3)',
+    description:
+      'Cambia el estado de la publicación de PENDIENTE_REVISION a BORRADOR, registra el motivo de devolución y notifica al anfitrión.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación pendiente' })
+  @ApiResponse({ status: 200, description: 'Publicación devuelta a BORRADOR con motivo', type: ListingModerationResponseDto })
+  @ApiResponse({ status: 400, description: 'Falta motivo o la publicación no está pendiente' })
+  @ApiResponse({ status: 404, description: 'Publicación no encontrada' })
+  returnListing(
+    @Param('id') id: string,
+    @Body() dto: ReturnListingDto,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<ListingModerationResponseDto> {
+    return this.listingsService.returnListing(id, dto, user?.email);
+  }
+
+  @Get('notifications/host')
+  @Roles(Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Consultar notificaciones de moderación del anfitrión · HU-050 (CA2, CA3)',
+    description: 'Permite al anfitrión ver las notificaciones de aprobación o el motivo de devolución de sus publicaciones.',
+  })
+  @ApiResponse({ status: 200, description: 'Listado de notificaciones del anfitrión', type: [HostNotificationDto] })
+  getHostNotifications(@Query('hostId') hostId?: string): Promise<HostNotificationDto[]> {
+    return this.listingsService.getHostNotifications(hostId);
+  }
+
   @Get('search')
   @Public()
   @ApiOperation({
-    summary: 'Buscar y filtrar alojamientos (Público · HU-003 CA3)',
-    description: 'Búsqueda pública por ciudad, fechas de estancia, número de huéspedes y rango de precio sin iniciar sesión.',
+    summary: 'Buscar y filtrar alojamientos (Público · HU-003 CA3 / HU-050 CA2)',
+    description: 'Búsqueda pública por ciudad, fechas de estancia, número de huéspedes y rango de precio sin iniciar sesión (solo publicaciones ACTIVAS).',
   })
   @ApiResponse({ status: 200, description: 'Listado de alojamientos disponibles', type: PaginatedListingsResponseDto })
   search(@Query() searchDto: SearchListingsDto): Promise<PaginatedListingsResponseDto> {
@@ -85,4 +151,3 @@ export class ListingsController {
     return this.listingsService.findOne(id);
   }
 }
-

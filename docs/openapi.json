@@ -203,11 +203,183 @@
         ]
       }
     },
+    "/api/listings/pending": {
+      "get": {
+        "operationId": "ListingsController_findPendingQueue",
+        "summary": "Cola de revisión de publicaciones pendientes · HU-050 (CA1)",
+        "description": "Retorna las publicaciones en estado PENDIENTE_REVISION ordenadas por fecha de solicitud (más antiguas primero). Exclusivo para ADMINISTRADOR.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Cola de publicaciones pendientes ordenada por fecha de solicitud",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ListingResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ADMINISTRADOR)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/{id}/approve": {
+      "patch": {
+        "operationId": "ListingsController_approveListing",
+        "summary": "Aprobar una publicación pendiente · HU-050 (CA2)",
+        "description": "Cambia el estado de la publicación de PENDIENTE_REVISION a ACTIVA, la habilita en las búsquedas públicas y genera notificación para el anfitrión.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación pendiente",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publicación aprobada y activada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingModerationResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "La publicación no está en estado PENDIENTE_REVISION"
+          },
+          "404": {
+            "description": "Publicación no encontrada"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/{id}/return": {
+      "patch": {
+        "operationId": "ListingsController_returnListing",
+        "summary": "Devolver una publicación pendiente con motivo · HU-050 (CA3)",
+        "description": "Cambia el estado de la publicación de PENDIENTE_REVISION a BORRADOR, registra el motivo de devolución y notifica al anfitrión.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación pendiente",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnListingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Publicación devuelta a BORRADOR con motivo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingModerationResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Falta motivo o la publicación no está pendiente"
+          },
+          "404": {
+            "description": "Publicación no encontrada"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/notifications/host": {
+      "get": {
+        "operationId": "ListingsController_getHostNotifications",
+        "summary": "Consultar notificaciones de moderación del anfitrión · HU-050 (CA2, CA3)",
+        "description": "Permite al anfitrión ver las notificaciones de aprobación o el motivo de devolución de sus publicaciones.",
+        "parameters": [
+          {
+            "name": "hostId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listado de notificaciones del anfitrión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HostNotificationDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings/search": {
       "get": {
         "operationId": "ListingsController_search",
-        "summary": "Buscar y filtrar alojamientos (Público · HU-003 CA3)",
-        "description": "Búsqueda pública por ciudad, fechas de estancia, número de huéspedes y rango de precio sin iniciar sesión.",
+        "summary": "Buscar y filtrar alojamientos (Público · HU-003 CA3 / HU-050 CA2)",
+        "description": "Búsqueda pública por ciudad, fechas de estancia, número de huéspedes y rango de precio sin iniciar sesión (solo publicaciones ACTIVAS).",
         "parameters": [
           {
             "name": "city",
@@ -1123,6 +1295,34 @@
             "example": "uuid-user-host-123",
             "description": "ID del anfitrión"
           },
+          "hostName": {
+            "type": "string",
+            "example": "Laura Restrepo",
+            "description": "Nombre del anfitrión"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "BORRADOR",
+              "PENDIENTE_REVISION",
+              "ACTIVA",
+              "PAUSADA",
+              "BLOQUEADA"
+            ],
+            "example": "ACTIVA",
+            "description": "Estado de la publicación (HU-050)"
+          },
+          "requestedAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-14T10:00:00.000Z",
+            "description": "Fecha de solicitud de revisión (HU-050 CA1)"
+          },
+          "returnReason": {
+            "type": "string",
+            "example": "Faltan fotografías del exterior",
+            "description": "Motivo de devolución visible para el anfitrión (HU-050 CA3)"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string",
@@ -1145,6 +1345,97 @@
           "reviewCount",
           "hostId",
           "createdAt"
+        ]
+      },
+      "HostNotificationDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "notif-uuid-1"
+          },
+          "hostId": {
+            "type": "string",
+            "example": "uuid-user-host-123"
+          },
+          "listingId": {
+            "type": "string",
+            "example": "uuid-1234-listing"
+          },
+          "type": {
+            "type": "string",
+            "example": "APROBADA",
+            "enum": [
+              "APROBADA",
+              "DEVUELTA"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "example": "Tu publicación \"Villa en Barú\" fue aprobada y ya está ACTIVA en las búsquedas."
+          },
+          "reason": {
+            "type": "string",
+            "example": "Faltan fotos del baño."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-19T15:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "hostId",
+          "listingId",
+          "type",
+          "message",
+          "createdAt"
+        ]
+      },
+      "ListingModerationResponseDto": {
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "example": "uuid-1234-listing"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "BORRADOR",
+              "PENDIENTE_REVISION",
+              "ACTIVA",
+              "PAUSADA",
+              "BLOQUEADA"
+            ],
+            "example": "ACTIVA"
+          },
+          "returnReason": {
+            "type": "string",
+            "example": "Las fotos no cumplen la resolución mínima."
+          },
+          "notification": {
+            "$ref": "#/components/schemas/HostNotificationDto"
+          }
+        },
+        "required": [
+          "listingId",
+          "status",
+          "notification"
+        ]
+      },
+      "ReturnListingDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "Las fotografías de la habitación principal están borrosas y falta especificar normas de la casa.",
+            "description": "Motivo de devolución que verá el anfitrión (HU-050 CA3)"
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "PaginatedListingsResponseDto": {
