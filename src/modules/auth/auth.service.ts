@@ -10,6 +10,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { Role } from '../../common/enums/role.enum';
+import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
+import { AuditEvent, AuditService } from '../audit/audit.service';
 import {
   LoginDto,
   LoginResponseDto,
@@ -39,52 +41,34 @@ export interface ActiveSession {
   expiresAt: number;
 }
 
-export interface AuthAuditEvent {
-  actor: string;
-  action:
-    | 'REGISTER'
-    | 'LOGIN_SUCCESS'
-    | 'LOGIN_FAILED'
-    | 'LOGIN_RESTRICTED'
-    | 'LOGOUT'
-    | 'UNAUTHENTICATED_ACCESS'
-    | 'ACCESS_DENIED';
-  entity: string;
-  timestamp: Date;
-  result: 'SUCCESS' | 'DENIED';
-}
-
 @Injectable()
 export class AuthService implements OnModuleInit {
   private readonly users: Map<string, UserAccount> = new Map();
   private readonly activeSessions: Map<string, ActiveSession> = new Map();
-  private readonly auditEvents: AuthAuditEvent[] = [];
   private static readonly PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
   private static readonly GENERIC_LOGIN_ERROR =
     'Correo electrónico o contraseña incorrectos';
 
-  constructor(@Optional() private readonly configService?: ConfigService) {}
+  constructor(
+    private readonly auditService: AuditService,
+    @Optional() private readonly configService?: ConfigService,
+  ) {}
 
   onModuleInit(): void {
     this.seedInitialAdmin();
   }
 
   private recordAudit(
-    actor: string,
-    action: AuthAuditEvent['action'],
-    result: AuthAuditEvent['result'],
+    actor: string | undefined,
+    action: AuditAction,
+    result: AuditResult,
+    detail?: string,
   ): void {
-    this.auditEvents.push({
-      actor,
-      action,
-      entity: 'AuthSession',
-      timestamp: new Date(),
-      result,
-    });
+    this.auditService.record({ actor, action, entity: 'AuthSession', result, detail });
   }
 
-  getAuditEvents(): AuthAuditEvent[] {
-    return [...this.auditEvents];
+  getAuditEvents(): AuditEvent[] {
+    return this.auditService.findAll();
   }
 
   hashPassword(plainPassword: string): string {
@@ -155,11 +139,23 @@ export class AuthService implements OnModuleInit {
     return this.users.get(email.trim().toLowerCase());
   }
 
-  restrictAccount(email: string, reason = 'Incumplimiento de políticas'): void {
+  restrictAccount(
+    email: string,
+    reason = 'Incumplimiento de políticas',
+    actor?: string,
+  ): void {
     const account = this.findByEmail(email);
     if (account) {
       account.status = 'RESTRINGIDA';
       account.restrictionReason = reason;
+      this.auditService.record({
+        actor,
+        action: AuditAction.ADMIN_ACTION,
+        entity: 'UserAccount',
+        entityId: account.id,
+        result: AuditResult.EXITOSO,
+        detail: `Cuenta restringida: ${reason}`,
+      });
     }
   }
 
@@ -179,12 +175,22 @@ export class AuthService implements OnModuleInit {
     const existing = normalizedEmail ? this.users.get(normalizedEmail) : undefined;
 
     if (!existing || !this.verifyPassword(credentials.password, existing.passwordHash)) {
-      this.recordAudit(normalizedEmail || 'anonymous', 'LOGIN_FAILED', 'DENIED');
+      this.recordAudit(
+        normalizedEmail,
+        AuditAction.LOGIN,
+        AuditResult.FALLIDO,
+        AuthService.GENERIC_LOGIN_ERROR,
+      );
       throw new UnauthorizedException(AuthService.GENERIC_LOGIN_ERROR);
     }
 
     if (existing.status === 'RESTRINGIDA') {
-      this.recordAudit(existing.email, 'LOGIN_RESTRICTED', 'DENIED');
+      this.recordAudit(
+        existing.email,
+        AuditAction.LOGIN,
+        AuditResult.FALLIDO,
+        'Cuenta restringida',
+      );
       const reasonSuffix = existing.restrictionReason
         ? `: ${existing.restrictionReason}`
         : '';
@@ -208,7 +214,7 @@ export class AuthService implements OnModuleInit {
       expiresAt: Date.now() + timeoutMinutes * 60 * 1000,
     });
 
-    this.recordAudit(existing.email, 'LOGIN_SUCCESS', 'SUCCESS');
+    this.recordAudit(existing.email, AuditAction.LOGIN, AuditResult.EXITOSO);
 
     return {
       message: 'Inicio de sesión exitoso',
@@ -226,7 +232,7 @@ export class AuthService implements OnModuleInit {
       this.activeSessions.delete(cleanToken);
     }
 
-    this.recordAudit(session?.email || 'authenticated-user', 'LOGOUT', 'SUCCESS');
+    this.recordAudit(session?.email, AuditAction.LOGOUT, AuditResult.EXITOSO);
 
     return {
       message: 'Sesión cerrada e invalidada correctamente',
@@ -256,14 +262,24 @@ export class AuthService implements OnModuleInit {
   authorize(rawToken: string | undefined, requiredRoles: Role[]): ActiveSession {
     const session = this.getSession(rawToken);
     if (!session) {
-      this.recordAudit('anonymous', 'UNAUTHENTICATED_ACCESS', 'DENIED');
+      this.recordAudit(
+        undefined,
+        AuditAction.ACCESS_DENIED,
+        AuditResult.FALLIDO,
+        'Sin sesión activa',
+      );
       throw new UnauthorizedException(
         'Debes iniciar sesión para acceder a este recurso',
       );
     }
 
     if (requiredRoles.length > 0 && !requiredRoles.includes(session.role)) {
-      this.recordAudit(session.email, 'ACCESS_DENIED', 'DENIED');
+      this.recordAudit(
+        session.email,
+        AuditAction.ACCESS_DENIED,
+        AuditResult.FALLIDO,
+        'Rol no autorizado para la función',
+      );
       throw new ForbiddenException(
         'Acceso denegado: no cuentas con el rol requerido para esta función',
       );
@@ -274,6 +290,12 @@ export class AuthService implements OnModuleInit {
 
   async register(userData: RegisterDto) {
     if ((userData.role as Role) === Role.ADMINISTRADOR) {
+      this.recordAudit(
+        userData.email?.trim().toLowerCase(),
+        AuditAction.REGISTER,
+        AuditResult.FALLIDO,
+        'Intento de registro público con rol ADMINISTRADOR',
+      );
       throw new ForbiddenException(
         'No está permitido asignarse el rol ADMINISTRADOR mediante el registro público',
       );
@@ -307,7 +329,7 @@ export class AuthService implements OnModuleInit {
     };
 
     this.users.set(normalizedEmail, newUser);
-    this.recordAudit(normalizedEmail, 'REGISTER', 'SUCCESS');
+    this.recordAudit(normalizedEmail, AuditAction.REGISTER, AuditResult.EXITOSO);
 
     return {
       message: 'Cuenta creada exitosamente',
