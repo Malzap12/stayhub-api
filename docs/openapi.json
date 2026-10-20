@@ -156,6 +156,111 @@
         ]
       }
     },
+    "/api/auth/password-recovery": {
+      "post": {
+        "operationId": "PasswordRecoveryController_requestRecovery",
+        "summary": "Solicitar recuperación de contraseña · HU-004 (CA1, CA4)",
+        "description": "Genera un token de un solo uso con vencimiento y lo deja en el buzón simulado. Responde el mismo mensaje exista o no el correo.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestPasswordRecoveryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Confirmación genérica (CA4)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Autenticación (Auth)"
+        ]
+      }
+    },
+    "/api/auth/password-recovery/mailbox": {
+      "get": {
+        "operationId": "PasswordRecoveryController_getMailbox",
+        "summary": "Consultar el buzón simulado · HU-004 (CA1)",
+        "description": "Muestra los mensajes de recuperación enviados a un correo. Sustituye al correo real (AMB-33, SUP-11).",
+        "parameters": [
+          {
+            "name": "email",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "example": "usuario@stayhub.com",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mensajes del buzón simulado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SimulatedMailDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Autenticación (Auth)"
+        ]
+      }
+    },
+    "/api/auth/password-recovery/reset": {
+      "post": {
+        "operationId": "PasswordRecoveryController_resetPassword",
+        "summary": "Definir nueva contraseña con el token · HU-004 (CA2, CA3)",
+        "description": "Actualiza la contraseña si el token es vigente y la clave cumple la política; luego invalida el token. Un token vencido o usado se rechaza con canRequestNewToken = true.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Contraseña actualizada y token invalidado (CA2)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Token vencido, usado o inválido (CA3), o contraseña fuera de política"
+          }
+        },
+        "tags": [
+          "Autenticación (Auth)"
+        ]
+      }
+    },
     "/api/listings": {
       "post": {
         "operationId": "ListingsController_create",
@@ -788,6 +893,8 @@
                 "REGISTER",
                 "LOGIN",
                 "LOGOUT",
+                "PASSWORD_RECOVERY_REQUEST",
+                "PASSWORD_RESET",
                 "ACCESS_DENIED",
                 "LISTING_STATUS_CHANGE",
                 "BOOKING_STATUS_CHANGE",
@@ -1127,6 +1234,93 @@
         "required": [
           "message",
           "user"
+        ]
+      },
+      "RequestPasswordRecoveryDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "usuario@stayhub.com",
+            "description": "Correo de la cuenta a recuperar"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "MessageResponseDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Si el correo está registrado, recibirás un enlace de recuperación en tu buzón."
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "SimulatedMailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "0b6f1c2e-6d0a-4a63-9a43-7a0d5c1e2f10"
+          },
+          "to": {
+            "type": "string",
+            "example": "usuario@stayhub.com"
+          },
+          "subject": {
+            "type": "string",
+            "example": "Recupera tu contraseña · Inversiones LR"
+          },
+          "body": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "Token de un solo uso (CA1)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "example": "2026-10-20T04:00:00.000Z",
+            "description": "Vencimiento del token (CA1)"
+          },
+          "sentAt": {
+            "type": "string",
+            "example": "2026-10-20T03:30:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "to",
+          "subject",
+          "body",
+          "token",
+          "expiresAt",
+          "sentAt"
+        ]
+      },
+      "ResetPasswordDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "9f2c...e1",
+            "description": "Token de un solo uso recibido en el buzón simulado"
+          },
+          "newPassword": {
+            "type": "string",
+            "example": "NuevaClave2026",
+            "description": "Nueva contraseña: al menos 8 caracteres combinando letras y números",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "token",
+          "newPassword"
         ]
       },
       "CreateListingDto": {
@@ -1743,6 +1937,8 @@
               "REGISTER",
               "LOGIN",
               "LOGOUT",
+              "PASSWORD_RECOVERY_REQUEST",
+              "PASSWORD_RESET",
               "ACCESS_DENIED",
               "LISTING_STATUS_CHANGE",
               "BOOKING_STATUS_CHANGE",
