@@ -2,7 +2,12 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { CreateListingDto } from './dto/create-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
 import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
-import { CheckAvailabilityQueryDto, AvailabilityResponseDto } from './dto/availability.dto';
+import {
+  CheckAvailabilityQueryDto,
+  AvailabilityResponseDto,
+  CreateAvailabilityPeriodDto,
+  AvailabilityPeriodResponseDto,
+} from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { AuditService } from '../audit/audit.service';
@@ -74,6 +79,7 @@ export class ListingsService {
   ];
 
   private hostNotifications: HostNotificationDto[] = [];
+  private availabilityPeriodsStore: AvailabilityPeriodResponseDto[] = [];
 
   constructor(private readonly auditService: AuditService) {}
 
@@ -91,6 +97,22 @@ export class ListingsService {
       result,
       detail,
     });
+  }
+
+  private normalizeDateOnly(dateInput: string): string {
+    const trimmed = dateInput?.trim();
+    if (!trimmed) {
+      throw new BadRequestException('La fecha proporcionada es inválida');
+    }
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException(`Formato de fecha inválido: ${dateInput}`);
+    }
+    return trimmed.slice(0, 10);
+  }
+
+  private getTodayDateOnly(): string {
+    return new Date().toISOString().slice(0, 10);
   }
 
   async create(createDto: CreateListingDto, actor?: string): Promise<ListingResponseDto> {
@@ -113,6 +135,65 @@ export class ListingsService {
       `Publicación creada en estado ${created.status}`,
     );
     return created;
+  }
+
+  /**
+   * HU-019 · Registrar periodos disponibles (CA1, CA2, CA3)
+   */
+  async registerAvailabilityPeriod(
+    listingId: string,
+    dto: CreateAvailabilityPeriodDto,
+  ): Promise<AvailabilityPeriodResponseDto> {
+    const startDate = this.normalizeDateOnly(dto?.startDate);
+    const endDate = this.normalizeDateOnly(dto?.endDate);
+    const today = this.getTodayDateOnly();
+
+    // CA2: Dado que el periodo termina antes de empezar o comienza en el pasado, el sistema lo rechaza.
+    if (endDate <= startDate) {
+      throw new BadRequestException(
+        'La fecha de fin debe ser posterior a la fecha de inicio del periodo.',
+      );
+    }
+
+    if (startDate < today) {
+      throw new BadRequestException(
+        'La fecha de inicio del periodo no puede estar en el pasado.',
+      );
+    }
+
+    // CA3: Dado que el periodo se superpone con otro ya registrado, el sistema lo rechaza e indica el periodo existente.
+    const existingPeriods = this.availabilityPeriodsStore.filter(
+      (period) => period.listingId === listingId,
+    );
+
+    const overlapping = existingPeriods.find(
+      (existing) => startDate <= existing.endDate && endDate >= existing.startDate,
+    );
+
+    if (overlapping) {
+      throw new BadRequestException(
+        `El periodo solicitado se superpone con el periodo existente del ${overlapping.startDate} al ${overlapping.endDate}.`,
+      );
+    }
+
+    // CA1: El periodo queda disponible para reservas.
+    const createdPeriod: AvailabilityPeriodResponseDto = {
+      id: `period-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      listingId,
+      startDate,
+      endDate,
+      availableForBooking: true,
+      createdAt: new Date(),
+    };
+
+    this.availabilityPeriodsStore.push(createdPeriod);
+    return createdPeriod;
+  }
+
+  async getAvailabilityPeriods(listingId: string): Promise<AvailabilityPeriodResponseDto[]> {
+    return this.availabilityPeriodsStore
+      .filter((period) => period.listingId === listingId)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
   }
 
   /**
@@ -284,11 +365,18 @@ export class ListingsService {
   }
 
   async getAvailability(id: string, query: CheckAvailabilityQueryDto): Promise<AvailabilityResponseDto> {
+    const periods = await this.getAvailabilityPeriods(id);
+    const hasRegisteredPeriods = periods.length > 0;
+    const isAvailable = hasRegisteredPeriods
+      ? periods.some((p) => query.startDate >= p.startDate && query.endDate <= p.endDate)
+      : true;
+
     return {
       listingId: id,
-      isAvailable: true,
+      isAvailable,
       blockedDates: [],
       pricePerNight: 90,
+      availablePeriods: periods,
     };
   }
 
