@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { createAppValidationPipe } from './common/pipes/app-validation.pipe';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -9,13 +9,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
   app.enableCors();
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  app.useGlobalPipes(createAppValidationPipe());
 
   const config = new DocumentBuilder()
     .setTitle('Inversiones LR - API Marketplace')

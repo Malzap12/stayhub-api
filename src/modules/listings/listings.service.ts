@@ -10,23 +10,60 @@ import {
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
+import { PropertyType } from '../../common/enums/property-type.enum';
+import { randomUUID } from 'crypto';
+import type { ActiveSession } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 
+type ListingData = Omit<ListingResponseDto, 'isComplete' | 'missingFields'>;
+
+/** HU-010 CA4: información básica que debe tener una publicación para considerarse completa. */
+const REQUIRED_FOR_COMPLETENESS: Array<keyof ListingData> = [
+  'description',
+  'city',
+  'department',
+  'address',
+  'propertyType',
+  'maxGuests',
+  'pricePerNight',
+  'amenities',
+  'rules',
+  'images',
+];
+
+export function withCompleteness(listing: ListingData): ListingResponseDto {
+  const missingFields = REQUIRED_FOR_COMPLETENESS.filter((field) => {
+    const value = listing[field];
+    if (Array.isArray(value)) {
+      return value.length === 0;
+    }
+    if (typeof value === 'string') {
+      return value.trim().length === 0;
+    }
+    return value === undefined || value === null;
+  });
+  return { ...listing, isComplete: missingFields.length === 0, missingFields };
+}
+
 @Injectable()
 export class ListingsService {
-  private listingsStore: ListingResponseDto[] = [
+  private listingsStore: ListingResponseDto[] = ([
     {
       id: 'pending-listing-2',
       title: 'Cabaña Alpina en Santa Elena',
       description: 'Cabaña rodeada de bosque nativo con chimenea y deck panorámico.',
       city: 'Medellín',
+      department: 'Antioquia',
+      address: 'Vereda Media Luna, Santa Elena',
+      propertyType: PropertyType.CABANA,
       country: 'Colombia',
       pricePerNight: 120,
       maxGuests: 4,
       bedrooms: 2,
       bathrooms: 2,
       amenities: ['WIFI', 'FIREPLACE', 'PARKING'],
+      rules: ['No fumar', 'No se admiten fiestas'],
       images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1000&q=80'],
       rating: 0,
       reviewCount: 0,
@@ -41,12 +78,16 @@ export class ListingsService {
       title: 'Ático Minimalista en Laureles',
       description: 'Iluminación cenital, terraza privada y estudio insonorizado.',
       city: 'Medellín',
+      department: 'Antioquia',
+      address: 'Carrera 76 # 33-10, Laureles',
+      propertyType: PropertyType.APARTAMENTO,
       country: 'Colombia',
       pricePerNight: 95,
       maxGuests: 2,
       bedrooms: 1,
       bathrooms: 1,
       amenities: ['WIFI', 'AC', 'WORKSPACE'],
+      rules: ['No fumar', 'No se admiten fiestas'],
       images: ['https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1000&q=80'],
       rating: 0,
       reviewCount: 0,
@@ -61,12 +102,16 @@ export class ListingsService {
       title: 'Casa Colonial frente al Mar',
       description: 'Arquitectura republicana restaurada con piscina interior.',
       city: 'Cartagena',
+      department: 'Bolívar',
+      address: 'Calle del Arsenal, Getsemaní',
+      propertyType: PropertyType.CASA,
       country: 'Colombia',
       pricePerNight: 210,
       maxGuests: 6,
       bedrooms: 3,
       bathrooms: 3,
       amenities: ['WIFI', 'POOL', 'AC'],
+      rules: ['No fumar', 'No se admiten fiestas'],
       images: ['https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1000&q=80'],
       rating: 0,
       reviewCount: 0,
@@ -76,7 +121,7 @@ export class ListingsService {
       requestedAt: new Date('2026-10-18T19:45:00.000Z'),
       createdAt: new Date('2026-10-18T12:00:00.000Z'),
     },
-  ];
+  ] as ListingData[]).map(withCompleteness);
 
   private hostNotifications: HostNotificationDto[] = [];
   private availabilityPeriodsStore: AvailabilityPeriodResponseDto[] = [];
@@ -115,26 +160,53 @@ export class ListingsService {
     return new Date().toISOString().slice(0, 10);
   }
 
-  async create(createDto: CreateListingDto, actor?: string): Promise<ListingResponseDto> {
-    const now = new Date();
-    const created: ListingResponseDto = {
-      id: 'mock-listing-uuid-1',
-      ...createDto,
+  /**
+   * HU-010 CA1 y CA4: crea la publicación en BORRADOR asociada al anfitrión
+   * autenticado e indica si le falta información básica.
+   */
+  async create(createDto: CreateListingDto, host?: ActiveSession): Promise<ListingResponseDto> {
+    const trimmed = (value?: string) => value?.trim() || undefined;
+    const cleanList = (values?: string[]) =>
+      (values ?? []).map((value) => value.trim()).filter((value) => value.length > 0);
+
+    const created = withCompleteness({
+      id: `listing-${randomUUID()}`,
+      title: createDto.title.trim(),
+      description: trimmed(createDto.description),
+      city: trimmed(createDto.city),
+      department: trimmed(createDto.department),
+      address: trimmed(createDto.address),
+      country: trimmed(createDto.country) ?? 'Colombia',
+      propertyType: createDto.propertyType,
+      maxGuests: createDto.maxGuests,
+      pricePerNight: createDto.pricePerNight,
+      bedrooms: createDto.bedrooms,
+      bathrooms: createDto.bathrooms,
+      amenities: cleanList(createDto.amenities),
+      rules: cleanList(createDto.rules),
+      images: cleanList(createDto.images),
       rating: 0,
       reviewCount: 0,
-      hostId: 'mock-host-uuid',
-      status: ListingStatus.PENDIENTE_REVISION,
-      requestedAt: now,
-      createdAt: now,
-    };
+      hostId: host?.userId ?? 'mock-host-uuid',
+      status: ListingStatus.BORRADOR,
+      createdAt: new Date(),
+    });
+
     this.listingsStore.push(created);
     this.recordStatusChange(
-      actor,
+      host?.email,
       created.id,
       AuditResult.EXITOSO,
-      `Publicación creada en estado ${created.status}`,
+      `Publicación creada en estado ${created.status}${created.isComplete ? '' : ' (incompleta)'}`,
     );
     return created;
+  }
+
+  /** HU-010: publicaciones del anfitrión autenticado, las más recientes primero. */
+  async findMine(hostId: string): Promise<ListingResponseDto[]> {
+    return this.listingsStore
+      .filter((item) => item.hostId === hostId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   /**
@@ -316,10 +388,10 @@ export class ListingsService {
   async search(searchDto: SearchListingsDto): Promise<PaginatedListingsResponseDto> {
     const activeListings = this.listingsStore.filter((item) => item.status === ListingStatus.ACTIVA);
     const filtered = activeListings.filter((item) => {
-      if (searchDto.city && item.city.toLowerCase() !== searchDto.city.toLowerCase()) {
+      if (searchDto.city && item.city?.toLowerCase() !== searchDto.city.toLowerCase()) {
         return false;
       }
-      if (searchDto.guests && item.maxGuests < searchDto.guests) {
+      if (searchDto.guests && (item.maxGuests ?? 0) < searchDto.guests) {
         return false;
       }
       return true;
@@ -344,24 +416,28 @@ export class ListingsService {
       return existing;
     }
 
-    return {
+    return withCompleteness({
       id,
       title: 'Alojamiento de prueba',
       description: 'Vista al mar y piscina',
       city: 'Medellín',
+      department: 'Antioquia',
+      address: 'Calle 10 # 43-20',
       country: 'Colombia',
+      propertyType: PropertyType.APARTAMENTO,
       pricePerNight: 90,
       maxGuests: 4,
       bedrooms: 2,
       bathrooms: 2,
       amenities: ['WIFI', 'POOL'],
+      rules: ['No fumar'],
       images: ['https://storage.stayhub.com/sample.jpg'],
       rating: 4.9,
       reviewCount: 15,
       hostId: 'mock-host-uuid',
       status: ListingStatus.ACTIVA,
       createdAt: new Date(),
-    };
+    });
   }
 
   async getAvailability(id: string, query: CheckAvailabilityQueryDto): Promise<AvailabilityResponseDto> {
