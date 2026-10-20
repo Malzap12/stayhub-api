@@ -3,9 +3,11 @@ import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PasswordRecoveryService } from './password-recovery.service';
 import {
   MessageResponseDto,
+  RecoveryRequestResponseDto,
   RequestPasswordRecoveryDto,
   ResetPasswordDto,
   SimulatedMailDto,
+  TokenStatusDto,
 } from './dto/password-recovery.dto';
 import { Public } from '../../common/decorators/roles.decorator';
 
@@ -18,12 +20,12 @@ export class PasswordRecoveryController {
   @Post()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Solicitar recuperación de contraseña · HU-004 (CA1, CA4)',
+    summary: 'Solicitar recuperación de contraseña · HU-004 / HU-004A (CA1, CA4)',
     description:
-      'Genera un token de un solo uso con vencimiento y lo deja en el buzón simulado. Responde el mismo mensaje exista o no el correo.',
+      'Genera un token de un solo uso con vencimiento y lo envía al correo (SMTP) o al buzón simulado. Responde el mismo mensaje exista o no el correo.',
   })
-  @ApiResponse({ status: 200, description: 'Confirmación genérica (CA4)', type: MessageResponseDto })
-  requestRecovery(@Body() dto: RequestPasswordRecoveryDto): MessageResponseDto {
+  @ApiResponse({ status: 200, description: 'Confirmación genérica (CA4)', type: RecoveryRequestResponseDto })
+  requestRecovery(@Body() dto: RequestPasswordRecoveryDto): RecoveryRequestResponseDto {
     return this.passwordRecoveryService.requestRecovery(dto.email);
   }
 
@@ -36,6 +38,17 @@ export class PasswordRecoveryController {
   @ApiResponse({ status: 200, description: 'Mensajes del buzón simulado', type: [SimulatedMailDto] })
   getMailbox(@Query('email') email: string): SimulatedMailDto[] {
     return this.passwordRecoveryService.getMailbox(email);
+  }
+
+  @Get('token-status')
+  @ApiOperation({
+    summary: 'Validar el enlace recibido por correo · HU-004A',
+    description: 'Indica si el token sigue vigente sin consumirlo ni revelar la cuenta asociada.',
+  })
+  @ApiQuery({ name: 'token' })
+  @ApiResponse({ status: 200, description: 'Estado del enlace', type: TokenStatusDto })
+  getTokenStatus(@Query('token') token: string): TokenStatusDto {
+    return this.passwordRecoveryService.getTokenStatus(token);
   }
 
   @Post('reset')

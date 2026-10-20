@@ -159,8 +159,8 @@
     "/api/auth/password-recovery": {
       "post": {
         "operationId": "PasswordRecoveryController_requestRecovery",
-        "summary": "Solicitar recuperación de contraseña · HU-004 (CA1, CA4)",
-        "description": "Genera un token de un solo uso con vencimiento y lo deja en el buzón simulado. Responde el mismo mensaje exista o no el correo.",
+        "summary": "Solicitar recuperación de contraseña · HU-004 / HU-004A (CA1, CA4)",
+        "description": "Genera un token de un solo uso con vencimiento y lo envía al correo (SMTP) o al buzón simulado. Responde el mismo mensaje exista o no el correo.",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -178,7 +178,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MessageResponseDto"
+                  "$ref": "#/components/schemas/RecoveryRequestResponseDto"
                 }
               }
             }
@@ -215,6 +215,38 @@
                   "items": {
                     "$ref": "#/components/schemas/SimulatedMailDto"
                   }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Autenticación (Auth)"
+        ]
+      }
+    },
+    "/api/auth/password-recovery/token-status": {
+      "get": {
+        "operationId": "PasswordRecoveryController_getTokenStatus",
+        "summary": "Validar el enlace recibido por correo · HU-004A",
+        "description": "Indica si el token sigue vigente sin consumirlo ni revelar la cuenta asociada.",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado del enlace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenStatusDto"
                 }
               }
             }
@@ -1373,16 +1405,26 @@
           "email"
         ]
       },
-      "MessageResponseDto": {
+      "RecoveryRequestResponseDto": {
         "type": "object",
         "properties": {
           "message": {
             "type": "string",
             "example": "Si el correo está registrado, recibirás un enlace de recuperación en tu buzón."
+          },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "EMAIL",
+              "SIMULATED"
+            ],
+            "example": "EMAIL",
+            "description": "Canal de entrega configurado: correo real (HU-004A) o buzón simulado (HU-004)"
           }
         },
         "required": [
-          "message"
+          "message",
+          "delivery"
         ]
       },
       "SimulatedMailDto": {
@@ -1427,6 +1469,27 @@
           "sentAt"
         ]
       },
+      "TokenStatusDto": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "example": true,
+            "description": "Indica si el enlace sigue vigente (HU-004A)"
+          },
+          "expiresAt": {
+            "type": "string",
+            "example": "2026-10-20T04:00:00.000Z"
+          },
+          "message": {
+            "type": "string",
+            "example": "El enlace de recuperación no es válido, venció o ya fue usado. Solicita uno nuevo."
+          }
+        },
+        "required": [
+          "valid"
+        ]
+      },
       "ResetPasswordDto": {
         "type": "object",
         "properties": {
@@ -1445,6 +1508,18 @@
         "required": [
           "token",
           "newPassword"
+        ]
+      },
+      "MessageResponseDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Si el correo está registrado, recibirás un enlace de recuperación en tu buzón."
+          }
+        },
+        "required": [
+          "message"
         ]
       },
       "CreateListingDto": {

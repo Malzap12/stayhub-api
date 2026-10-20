@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsNotEmpty, IsString, Matches, MinLength } from 'class-validator';
 
 export class RequestPasswordRecoveryDto {
@@ -31,6 +31,26 @@ export class ResetPasswordDto {
 export class MessageResponseDto {
   @ApiProperty({ example: 'Si el correo está registrado, recibirás un enlace de recuperación en tu buzón.' })
   message: string;
+}
+
+export class RecoveryRequestResponseDto extends MessageResponseDto {
+  @ApiProperty({
+    enum: ['EMAIL', 'SIMULATED'],
+    example: 'EMAIL',
+    description: 'Canal de entrega configurado: correo real (HU-004A) o buzón simulado (HU-004)',
+  })
+  delivery: 'EMAIL' | 'SIMULATED';
+}
+
+export class TokenStatusDto {
+  @ApiProperty({ example: true, description: 'Indica si el enlace sigue vigente (HU-004A)' })
+  valid: boolean;
+
+  @ApiPropertyOptional({ example: '2026-10-20T04:00:00.000Z' })
+  expiresAt?: string;
+
+  @ApiPropertyOptional({ example: 'El enlace de recuperación no es válido, venció o ya fue usado. Solicita uno nuevo.' })
+  message?: string;
 }
 
 export class SimulatedMailDto {
