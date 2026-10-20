@@ -4,7 +4,12 @@ import { ListingsService } from './listings.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
 import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
-import { CheckAvailabilityQueryDto, AvailabilityResponseDto } from './dto/availability.dto';
+import {
+  CheckAvailabilityQueryDto,
+  AvailabilityResponseDto,
+  CreateAvailabilityPeriodDto,
+  AvailabilityPeriodResponseDto,
+} from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -99,6 +104,37 @@ export class ListingsController {
     return this.listingsService.getHostNotifications(hostId);
   }
 
+  @Post(':id/availability-periods')
+  @Roles(Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Registrar un periodo disponible para reservas · HU-019 (CA1, CA2, CA3)',
+    description:
+      'Registra un rango de fechas disponible en el alojamiento. Rechaza rangos inválidos, en el pasado o superpuestos con periodos existentes.',
+  })
+  @ApiParam({ name: 'id', description: 'ID del alojamiento' })
+  @ApiResponse({ status: 201, description: 'Periodo disponible registrado con éxito (CA1)', type: AvailabilityPeriodResponseDto })
+  @ApiResponse({ status: 400, description: 'Fechas inválidas, en el pasado (CA2) o superpuestas con periodo existente (CA3)' })
+  registerAvailabilityPeriod(
+    @Param('id') id: string,
+    @Body() dto: CreateAvailabilityPeriodDto,
+  ): Promise<AvailabilityPeriodResponseDto> {
+    return this.listingsService.registerAvailabilityPeriod(id, dto);
+  }
+
+  @Get(':id/availability-periods')
+  @Roles(Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Listar periodos disponibles registrados de un alojamiento · HU-019',
+    description: 'Retorna todos los periodos de disponibilidad registrados para el alojamiento ordenados por fecha de inicio.',
+  })
+  @ApiParam({ name: 'id', description: 'ID del alojamiento' })
+  @ApiResponse({ status: 200, description: 'Lista de periodos disponibles', type: [AvailabilityPeriodResponseDto] })
+  getAvailabilityPeriods(@Param('id') id: string): Promise<AvailabilityPeriodResponseDto[]> {
+    return this.listingsService.getAvailabilityPeriods(id);
+  }
+
   @Get('search')
   @Public()
   @ApiOperation({
@@ -113,8 +149,8 @@ export class ListingsController {
   @Get(':id/availability')
   @Public()
   @ApiOperation({
-    summary: 'Consultar disponibilidad de un alojamiento (Público · HU-003 CA3)',
-    description: 'Retorna si el alojamiento está disponible en el rango de fechas y la lista de días bloqueados.',
+    summary: 'Consultar disponibilidad de un alojamiento (Público · HU-003 CA3 / HU-019 CA1)',
+    description: 'Retorna si el alojamiento está disponible en el rango de fechas y los periodos registrados.',
   })
   @ApiParam({ name: 'id', description: 'ID del alojamiento' })
   @ApiResponse({ status: 200, description: 'Información de disponibilidad', type: AvailabilityResponseDto })
