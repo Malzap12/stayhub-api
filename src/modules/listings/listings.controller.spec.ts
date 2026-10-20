@@ -59,7 +59,7 @@ describe('ListingsController', () => {
     const result = await controller.create(dto);
     expect(result).toBeDefined();
     expect(result.title).toBe(dto.title);
-    expect(result.status).toBe(ListingStatus.PENDIENTE_REVISION);
+    expect(result.status).toBe(ListingStatus.BORRADOR);
   });
 
   it('should get public reviews of a listing without authentication (HU-003 CA3)', async () => {

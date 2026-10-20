@@ -264,8 +264,8 @@
     "/api/listings": {
       "post": {
         "operationId": "ListingsController_create",
-        "summary": "Publicar un nuevo alojamiento · HU-003 (CA2)",
-        "description": "Crea un nuevo alojamiento en el marketplace. Requiere rol ANFITRION o ADMINISTRADOR.",
+        "summary": "Crear una publicación en borrador · HU-010 (CA1, CA2, CA3, CA4)",
+        "description": "Crea la publicación en estado BORRADOR asociada al anfitrión autenticado. Solo el título es obligatorio; si falta información básica queda marcada como incompleta (isComplete = false, missingFields). Requiere rol ANFITRION o ADMINISTRADOR.",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -279,7 +279,7 @@
         },
         "responses": {
           "201": {
-            "description": "Alojamiento publicado con éxito",
+            "description": "Publicación creada en BORRADOR (CA1, CA4)",
             "content": {
               "application/json": {
                 "schema": {
@@ -289,13 +289,47 @@
             }
           },
           "400": {
-            "description": "Datos de entrada inválidos"
+            "description": "Capacidad o precio por noche inválidos; el detalle por campo va en fieldErrors (CA2)"
           },
           "401": {
-            "description": "No autenticado (CA1)"
+            "description": "No autenticado"
           },
           "403": {
-            "description": "Acceso denegado para rol HUESPED (CA2)"
+            "description": "Acceso denegado para rol HUESPED (CA3)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/mine": {
+      "get": {
+        "operationId": "ListingsController_findMine",
+        "summary": "Listar mis publicaciones · HU-010",
+        "description": "Retorna las publicaciones del anfitrión autenticado, incluidos los borradores, de la más reciente a la más antigua.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Publicaciones del anfitrión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ListingResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acceso denegado para rol HUESPED"
           }
         },
         "tags": [
@@ -480,6 +514,96 @@
         ]
       }
     },
+    "/api/listings/{id}/availability-periods": {
+      "post": {
+        "operationId": "ListingsController_registerAvailabilityPeriod",
+        "summary": "Registrar un periodo disponible para reservas · HU-019 (CA1, CA2, CA3)",
+        "description": "Registra un rango de fechas disponible en el alojamiento. Rechaza rangos inválidos, en el pasado o superpuestos con periodos existentes.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAvailabilityPeriodDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Periodo disponible registrado con éxito (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityPeriodResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Fechas inválidas, en el pasado (CA2) o superpuestas con periodo existente (CA3)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "ListingsController_getAvailabilityPeriods",
+        "summary": "Listar periodos disponibles registrados de un alojamiento · HU-019",
+        "description": "Retorna todos los periodos de disponibilidad registrados para el alojamiento ordenados por fecha de inicio.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de periodos disponibles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AvailabilityPeriodResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings/search": {
       "get": {
         "operationId": "ListingsController_search",
@@ -590,8 +714,8 @@
     "/api/listings/{id}/availability": {
       "get": {
         "operationId": "ListingsController_getAvailability",
-        "summary": "Consultar disponibilidad de un alojamiento (Público · HU-003 CA3)",
-        "description": "Retorna si el alojamiento está disponible en el rango de fechas y la lista de días bloqueados.",
+        "summary": "Consultar disponibilidad de un alojamiento (Público · HU-003 CA3 / HU-019 CA1)",
+        "description": "Retorna si el alojamiento está disponible en el rango de fechas y los periodos registrados.",
         "parameters": [
           {
             "name": "id",
@@ -1338,53 +1462,81 @@
             "example": "Cabaña espaciosa con vista panorámica, chimenea y jacuzzi.",
             "description": "Descripción detallada"
           },
-          "address": {
-            "type": "string",
-            "example": "Calle 10 # 43-20",
-            "description": "Dirección física"
-          },
           "city": {
             "type": "string",
             "example": "Medellín",
-            "description": "Ciudad del alojamiento"
+            "description": "Ciudad del alojamiento (AMB-18)"
+          },
+          "department": {
+            "type": "string",
+            "example": "Antioquia",
+            "description": "Departamento del alojamiento (AMB-18)"
+          },
+          "address": {
+            "type": "string",
+            "example": "Calle 10 # 43-20 · frente al parque",
+            "description": "Dirección o referencia"
           },
           "country": {
             "type": "string",
             "example": "Colombia",
-            "description": "País del alojamiento"
+            "description": "País del alojamiento",
+            "default": "Colombia"
           },
-          "pricePerNight": {
-            "type": "number",
-            "example": 85.5,
-            "description": "Precio por noche en USD",
-            "minimum": 1
+          "propertyType": {
+            "type": "string",
+            "enum": [
+              "CASA",
+              "APARTAMENTO",
+              "CABANA",
+              "FINCA",
+              "HABITACION",
+              "OTRO"
+            ],
+            "example": "CABANA",
+            "description": "Tipo de alojamiento"
           },
           "maxGuests": {
             "type": "number",
             "example": 4,
-            "description": "Capacidad máxima de huéspedes",
+            "description": "Capacidad máxima de huéspedes (CA2: mayor que 0)",
             "minimum": 1
+          },
+          "pricePerNight": {
+            "type": "number",
+            "example": 320000,
+            "description": "Precio por noche (CA2: mayor que 0)"
           },
           "bedrooms": {
             "type": "number",
             "example": 2,
             "description": "Cantidad de habitaciones",
-            "minimum": 1
+            "minimum": 0
           },
           "bathrooms": {
             "type": "number",
             "example": 2,
             "description": "Cantidad de baños",
-            "minimum": 1
+            "minimum": 0
           },
           "amenities": {
             "example": [
               "WIFI",
-              "AIR_CONDITIONING",
-              "KITCHEN",
-              "POOL"
+              "COCINA",
+              "PISCINA"
             ],
-            "description": "Lista de amenidades",
+            "description": "Servicios del alojamiento",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rules": {
+            "example": [
+              "No fumar",
+              "No se admiten fiestas"
+            ],
+            "description": "Reglas de la casa",
             "type": "array",
             "items": {
               "type": "string"
@@ -1394,7 +1546,7 @@
             "example": [
               "https://storage.stayhub.com/img1.jpg"
             ],
-            "description": "URLs de fotos del alojamiento",
+            "description": "URLs de las imágenes",
             "type": "array",
             "items": {
               "type": "string"
@@ -1402,17 +1554,7 @@
           }
         },
         "required": [
-          "title",
-          "description",
-          "address",
-          "city",
-          "country",
-          "pricePerNight",
-          "maxGuests",
-          "bedrooms",
-          "bathrooms",
-          "amenities",
-          "images"
+          "title"
         ]
       },
       "ListingResponseDto": {
@@ -1435,9 +1577,32 @@
             "type": "string",
             "example": "Medellín"
           },
+          "department": {
+            "type": "string",
+            "example": "Antioquia",
+            "description": "Departamento (HU-010)"
+          },
+          "address": {
+            "type": "string",
+            "example": "Calle 10 # 43-20 · frente al parque",
+            "description": "Dirección o referencia (HU-010)"
+          },
           "country": {
             "type": "string",
             "example": "Colombia"
+          },
+          "propertyType": {
+            "type": "string",
+            "enum": [
+              "CASA",
+              "APARTAMENTO",
+              "CABANA",
+              "FINCA",
+              "HABITACION",
+              "OTRO"
+            ],
+            "example": "CABANA",
+            "description": "Tipo de alojamiento (HU-010)"
           },
           "pricePerNight": {
             "type": "number",
@@ -1465,10 +1630,36 @@
               "type": "string"
             }
           },
+          "rules": {
+            "example": [
+              "No fumar"
+            ],
+            "description": "Reglas de la casa (HU-010)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "images": {
             "example": [
               "https://storage.stayhub.com/img1.jpg"
             ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isComplete": {
+            "type": "boolean",
+            "example": false,
+            "description": "Indica si la publicación tiene toda la información básica (HU-010 CA4)"
+          },
+          "missingFields": {
+            "example": [
+              "description",
+              "images"
+            ],
+            "description": "Campos pendientes por completar (HU-010 CA4)",
             "type": "array",
             "items": {
               "type": "string"
@@ -1526,15 +1717,11 @@
         "required": [
           "id",
           "title",
-          "description",
-          "city",
-          "country",
-          "pricePerNight",
-          "maxGuests",
-          "bedrooms",
-          "bathrooms",
           "amenities",
+          "rules",
           "images",
+          "isComplete",
+          "missingFields",
           "rating",
           "reviewCount",
           "hostId",
@@ -1632,6 +1819,68 @@
           "reason"
         ]
       },
+      "CreateAvailabilityPeriodDto": {
+        "type": "object",
+        "properties": {
+          "startDate": {
+            "type": "string",
+            "example": "2026-12-01",
+            "description": "Fecha de inicio del periodo disponible (YYYY-MM-DD) · HU-019"
+          },
+          "endDate": {
+            "type": "string",
+            "example": "2026-12-15",
+            "description": "Fecha de fin del periodo disponible (YYYY-MM-DD) · HU-019"
+          }
+        },
+        "required": [
+          "startDate",
+          "endDate"
+        ]
+      },
+      "AvailabilityPeriodResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "period-uuid-1",
+            "description": "ID único del periodo de disponibilidad"
+          },
+          "listingId": {
+            "type": "string",
+            "example": "uuid-1234-listing",
+            "description": "ID del alojamiento"
+          },
+          "startDate": {
+            "type": "string",
+            "example": "2026-12-01",
+            "description": "Fecha de inicio del periodo disponible"
+          },
+          "endDate": {
+            "type": "string",
+            "example": "2026-12-15",
+            "description": "Fecha de fin del periodo disponible"
+          },
+          "availableForBooking": {
+            "type": "boolean",
+            "example": true,
+            "description": "Indica que el periodo quedó habilitado para recibir reservas (HU-019 CA1)"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-19T22:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "listingId",
+          "startDate",
+          "endDate",
+          "availableForBooking",
+          "createdAt"
+        ]
+      },
       "PaginatedListingsResponseDto": {
         "type": "object",
         "properties": {
@@ -1692,6 +1941,13 @@
             "type": "number",
             "example": 85.5,
             "description": "Tarifa base actual por noche"
+          },
+          "availablePeriods": {
+            "description": "Periodos disponibles registrados por el anfitrión (HU-019)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityPeriodResponseDto"
+            }
           }
         },
         "required": [
