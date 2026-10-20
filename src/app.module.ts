@@ -9,6 +9,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { MailModule } from './modules/mail/mail.module';
 import { RolesGuard } from './common/guards/roles.guard';
 
 @Module({
@@ -22,6 +23,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     ReviewsModule,
     ReportsModule,
     AuditModule,
+    MailModule,
   ],
   providers: [
     {

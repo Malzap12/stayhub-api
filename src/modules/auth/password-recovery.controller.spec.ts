@@ -5,6 +5,7 @@ import { PasswordRecoveryController } from './password-recovery.controller';
 import { PasswordRecoveryService } from './password-recovery.service';
 import { AuthService } from './auth.service';
 import { AuditService } from '../audit/audit.service';
+import { MailService } from '../mail/mail.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { Role } from '../../common/enums/role.enum';
 
@@ -24,6 +25,7 @@ describe('HU-004 · Recuperar la contraseña (simulado) (CA1, CA2, CA3, CA4, RF-
         PasswordRecoveryService,
         AuthService,
         AuditService,
+        MailService,
         {
           provide: ConfigService,
           useValue: { get: (key: string) => ({ PASSWORD_RESET_TOKEN_MINUTES: '15' })[key] },
