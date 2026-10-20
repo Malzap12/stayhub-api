@@ -1,16 +1,783 @@
 {
   "openapi": "3.0.0",
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "operationId": "AuthController_login",
+        "summary": "Iniciar sesión y obtener sesión autenticada · HU-002",
+        "description": "Valida credenciales contra cuentas ACTIVAS (CA1), retorna mensaje genérico ante fallos (CA2) y bloquea cuentas RESTRINGIDAS (CA3).",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Inicio de sesión exitoso (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Correo electrónico o contraseña incorrectos (CA2)"
+          },
+          "403": {
+            "description": "Cuenta restringida por un administrador (CA3)"
+          }
+        },
+        "tags": [
+          "Autenticación (Auth)"
+        ]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "AuthController_logout",
+        "summary": "Cerrar sesión e invalidar token · HU-002 (CA4)",
+        "description": "Invalida la sesión activa del usuario y registra el evento de auditoría (RN-021).",
+        "parameters": [
+          {
+            "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sesión invalidada correctamente (CA4)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Autenticación (Auth)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "operationId": "AuthController_register",
+        "summary": "Registrar nuevo usuario (Huésped o Anfitrión) · HU-001",
+        "description": "Crea una cuenta ACTIVA con rol HUESPED o ANFITRION, validando correo único y contraseña segura.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Cuenta ACTIVA creada exitosamente (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Contraseña débil (<8 caracteres o sin letras y números) o datos inválidos (CA3)"
+          },
+          "403": {
+            "description": "Rol ADMINISTRADOR no permitido en registro público (CA4)"
+          },
+          "409": {
+            "description": "El correo electrónico ya está en uso (CA2)"
+          }
+        },
+        "tags": [
+          "Autenticación (Auth)"
+        ]
+      }
+    },
+    "/api/auth/admin/audit": {
+      "get": {
+        "operationId": "AuthController_getAdminAuditEvents",
+        "summary": "Consultar bitácora de auditoría de seguridad · HU-003 (CA2)",
+        "description": "Operación exclusiva del rol ADMINISTRADOR. Cualquier invocación por HUESPED o ANFITRION responde 403 Forbidden.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Eventos de auditoría retornados para ADMINISTRADOR"
+          },
+          "401": {
+            "description": "No autenticado (CA1)"
+          },
+          "403": {
+            "description": "Acceso denegado: requiere rol ADMINISTRADOR (CA2)"
+          }
+        },
+        "tags": [
+          "Autenticación (Auth)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings": {
+      "post": {
+        "operationId": "ListingsController_create",
+        "summary": "Publicar un nuevo alojamiento · HU-003 (CA2)",
+        "description": "Crea un nuevo alojamiento en el marketplace. Requiere rol ANFITRION o ADMINISTRADOR.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateListingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Alojamiento publicado con éxito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Datos de entrada inválidos"
+          },
+          "401": {
+            "description": "No autenticado (CA1)"
+          },
+          "403": {
+            "description": "Acceso denegado para rol HUESPED (CA2)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/search": {
+      "get": {
+        "operationId": "ListingsController_search",
+        "summary": "Buscar y filtrar alojamientos (Público · HU-003 CA3)",
+        "description": "Búsqueda pública por ciudad, fechas de estancia, número de huéspedes y rango de precio sin iniciar sesión.",
+        "parameters": [
+          {
+            "name": "city",
+            "required": false,
+            "in": "query",
+            "description": "Ciudad de destino",
+            "schema": {
+              "example": "Medellín",
+              "type": "string"
+            }
+          },
+          {
+            "name": "checkIn",
+            "required": false,
+            "in": "query",
+            "description": "Fecha de llegada (YYYY-MM-DD)",
+            "schema": {
+              "example": "2026-11-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "checkOut",
+            "required": false,
+            "in": "query",
+            "description": "Fecha de salida (YYYY-MM-DD)",
+            "schema": {
+              "example": "2026-11-07",
+              "type": "string"
+            }
+          },
+          {
+            "name": "guests",
+            "required": false,
+            "in": "query",
+            "description": "Número de huéspedes",
+            "schema": {
+              "minimum": 1,
+              "example": 2,
+              "type": "number"
+            }
+          },
+          {
+            "name": "minPrice",
+            "required": false,
+            "in": "query",
+            "description": "Precio mínimo por noche",
+            "schema": {
+              "example": 30,
+              "type": "number"
+            }
+          },
+          {
+            "name": "maxPrice",
+            "required": false,
+            "in": "query",
+            "description": "Precio máximo por noche",
+            "schema": {
+              "example": 300,
+              "type": "number"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Número de página",
+            "schema": {
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Elementos por página",
+            "schema": {
+              "default": 10,
+              "example": 10,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listado de alojamientos disponibles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedListingsResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ]
+      }
+    },
+    "/api/listings/{id}/availability": {
+      "get": {
+        "operationId": "ListingsController_getAvailability",
+        "summary": "Consultar disponibilidad de un alojamiento (Público · HU-003 CA3)",
+        "description": "Retorna si el alojamiento está disponible en el rango de fechas y la lista de días bloqueados.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "startDate",
+            "required": true,
+            "in": "query",
+            "description": "Fecha de inicio del rango (YYYY-MM-DD)",
+            "schema": {
+              "example": "2026-11-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "required": true,
+            "in": "query",
+            "description": "Fecha de fin del rango (YYYY-MM-DD)",
+            "schema": {
+              "example": "2026-11-30",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Información de disponibilidad",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Alojamiento no encontrado"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ]
+      }
+    },
+    "/api/listings/{id}/reviews": {
+      "get": {
+        "operationId": "ListingsController_getReviews",
+        "summary": "Consultar reseñas públicas de un alojamiento · HU-003 (CA3)",
+        "description": "Permite a cualquier visitante ver las reseñas y calificación promedio de una publicación sin iniciar sesión.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listado público de reseñas del alojamiento"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ]
+      }
+    },
+    "/api/listings/{id}": {
+      "get": {
+        "operationId": "ListingsController_findOne",
+        "summary": "Obtener detalle de un alojamiento (Público · HU-003 CA3)",
+        "description": "Retorna toda la información de un alojamiento específico por su ID sin exigir inicio de sesión.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detalle del alojamiento",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Alojamiento no encontrado"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ]
+      }
+    },
+    "/api/bookings/quote": {
+      "post": {
+        "operationId": "BookingsController_quote",
+        "summary": "Cotizar estancia",
+        "description": "Calcula el desglose completo del costo: noches x tarifa base + tarifa de limpieza + comisión de servicio = total.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuoteBookingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cotización calculada exitosamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Fechas o datos inválidos"
+          },
+          "404": {
+            "description": "Alojamiento no encontrado"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ]
+      }
+    },
+    "/api/bookings/my": {
+      "get": {
+        "operationId": "BookingsController_findMyBookings",
+        "summary": "Consultar mis reservas · HU-003 (CA1)",
+        "description": "Ruta protegida que exige sesión activa. Si el visitante no ha iniciado sesión, responde 401 Unauthorized.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Listado de reservas del usuario autenticado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BookingResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Debes iniciar sesión para acceder a mis reservas (CA1)"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/bookings/instant": {
+      "post": {
+        "operationId": "BookingsController_createInstant",
+        "summary": "Crear reserva inmediata",
+        "description": "Crea una reserva garantizando idempotencia (idempotencyKey) para evitar cobros y reservas duplicadas.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBookingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reserva creada exitosamente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Alojamiento no disponible o datos inválidos"
+          },
+          "401": {
+            "description": "No autenticado (CA1)"
+          },
+          "409": {
+            "description": "Conflicto de reserva o clave de idempotencia duplicada"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/bookings/{id}": {
+      "get": {
+        "operationId": "BookingsController_findOne",
+        "summary": "Consultar estado de reserva",
+        "description": "Retorna el detalle y estado actual de una reserva.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la reserva",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detalle de la reserva",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado (CA1)"
+          },
+          "404": {
+            "description": "Reserva no encontrada"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/audit/events": {
+      "get": {
+        "operationId": "AuditController_findAll",
+        "summary": "Consultar eventos de auditoría · HU-061 (CA1, CA3)",
+        "description": "Retorna los eventos registrados (actor, acción, entidad, fecha y hora, resultado), incluidos los fallidos. Exclusivo del rol ADMINISTRADOR.",
+        "parameters": [
+          {
+            "name": "actor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "admin@inversioneslr.com",
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "REGISTER",
+                "LOGIN",
+                "LOGOUT",
+                "ACCESS_DENIED",
+                "LISTING_STATUS_CHANGE",
+                "BOOKING_STATUS_CHANGE",
+                "BOOKING_CANCELLATION",
+                "REVIEW_CREATED",
+                "ADMIN_ACTION",
+                "EXPORT",
+                "AUDIT_TAMPER_ATTEMPT"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "entity",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "Booking",
+              "type": "string"
+            }
+          },
+          {
+            "name": "result",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "EXITOSO",
+                "FALLIDO"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Eventos de auditoría",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuditEventDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Requiere rol ADMINISTRADOR"
+          }
+        },
+        "tags": [
+          "Auditoría (Audit)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/audit/events/{id}": {
+      "put": {
+        "operationId": "AuditController_replace",
+        "summary": "Intentar reemplazar un evento · HU-061 (CA2)",
+        "description": "Rechazado: la auditoría es de solo inserción.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del evento de auditoría",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "405": {
+            "description": "La bitácora no admite modificaciones (CA2)"
+          }
+        },
+        "tags": [
+          "Auditoría (Audit)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "AuditController_update",
+        "summary": "Intentar modificar un evento · HU-061 (CA2)",
+        "description": "Rechazado: la auditoría es de solo inserción.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del evento de auditoría",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "405": {
+            "description": "La bitácora no admite modificaciones (CA2)"
+          }
+        },
+        "tags": [
+          "Auditoría (Audit)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "AuditController_remove",
+        "summary": "Intentar eliminar un evento · HU-061 (CA2)",
+        "description": "Rechazado: la auditoría es de solo inserción.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del evento de auditoría",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "405": {
+            "description": "La bitácora no admite eliminaciones (CA2)"
+          }
+        },
+        "tags": [
+          "Auditoría (Audit)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    }
+  },
   "info": {
     "title": "Inversiones LR - API Marketplace",
     "description": "Especificación OpenAPI 3.0 de los servicios del Marketplace de Alojamientos (HU-066)",
     "version": "1.0.0",
     "contact": {}
   },
-  "tags": [
-    { "name": "Autenticación (Auth)", "description": "" },
-    { "name": "Alojamientos (Listings)", "description": "" },
-    { "name": "Reservas y Cotizaciones (Bookings)", "description": "" }
-  ],
+  "tags": [],
   "servers": [
     {
       "url": "http://localhost:3000",
@@ -36,20 +803,107 @@
           },
           "password": {
             "type": "string",
-            "example": "Password123!",
+            "example": "Password123",
             "description": "Contraseña del usuario",
-            "minLength": 6
+            "minLength": 8
           }
         },
-        "required": ["email", "password"]
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "RegisteredUserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "user-1"
+          },
+          "name": {
+            "type": "string",
+            "example": "Miguel Ángel Alza"
+          },
+          "email": {
+            "type": "string",
+            "example": "miguel@stayhub.com"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "HUESPED",
+              "ANFITRION",
+              "ADMINISTRADOR"
+            ],
+            "example": "HUESPED"
+          },
+          "status": {
+            "type": "string",
+            "example": "ACTIVA",
+            "description": "Estado de la cuenta"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "role",
+          "status",
+          "createdAt"
+        ]
       },
       "LoginResponseDto": {
         "type": "object",
         "properties": {
-          "message": { "type": "string", "example": "Login exitoso" },
-          "token": { "type": "string", "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." }
+          "message": {
+            "type": "string",
+            "example": "Inicio de sesión exitoso"
+          },
+          "token": {
+            "type": "string",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          },
+          "expiresInMinutes": {
+            "type": "number",
+            "example": 60,
+            "description": "Tiempo de expiración por inactividad en minutos (RNF-003)"
+          },
+          "user": {
+            "$ref": "#/components/schemas/RegisteredUserDto"
+          }
         },
-        "required": ["message", "token"]
+        "required": [
+          "message",
+          "token",
+          "expiresInMinutes",
+          "user"
+        ]
+      },
+      "LogoutDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "jwt-user-1-HUESPED",
+            "description": "Token de sesión a invalidar (CA4)"
+          }
+        }
+      },
+      "LogoutResponseDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Sesión cerrada e invalidada correctamente"
+          }
+        },
+        "required": [
+          "message"
+        ]
       },
       "RegisterDto": {
         "type": "object",
@@ -66,26 +920,42 @@
           },
           "password": {
             "type": "string",
-            "example": "Password123!",
-            "description": "Contraseña de acceso",
-            "minLength": 6
+            "example": "Password123",
+            "description": "Contraseña de al menos 8 caracteres que combine letras y números (CA3)",
+            "minLength": 8
           },
           "role": {
             "type": "string",
-            "enum": ["HUESPED", "ANFITRION", "ADMINISTRADOR"],
-            "example": "ANFITRION",
-            "description": "Rol asignado al usuario"
+            "enum": [
+              "HUESPED",
+              "ANFITRION"
+            ],
+            "example": "HUESPED",
+            "description": "Rol público asignable en el registro: HUESPED o ANFITRION (CA4)"
           }
         },
-        "required": ["name", "email", "password", "role"]
+        "required": [
+          "name",
+          "email",
+          "password",
+          "role"
+        ]
       },
       "RegisterResponseDto": {
         "type": "object",
         "properties": {
-          "message": { "type": "string", "example": "Usuario registrado correctamente" },
-          "user": { "$ref": "#/components/schemas/RegisterDto" }
+          "message": {
+            "type": "string",
+            "example": "Cuenta creada exitosamente"
+          },
+          "user": {
+            "$ref": "#/components/schemas/RegisteredUserDto"
+          }
         },
-        "required": ["message", "user"]
+        "required": [
+          "message",
+          "user"
+        ]
       },
       "CreateListingDto": {
         "type": "object",
@@ -142,16 +1012,27 @@
             "minimum": 1
           },
           "amenities": {
+            "example": [
+              "WIFI",
+              "AIR_CONDITIONING",
+              "KITCHEN",
+              "POOL"
+            ],
+            "description": "Lista de amenidades",
             "type": "array",
-            "items": { "type": "string" },
-            "example": ["WIFI", "AIR_CONDITIONING", "KITCHEN", "POOL"],
-            "description": "Lista de amenidades"
+            "items": {
+              "type": "string"
+            }
           },
           "images": {
+            "example": [
+              "https://storage.stayhub.com/img1.jpg"
+            ],
+            "description": "URLs de fotos del alojamiento",
             "type": "array",
-            "items": { "type": "string" },
-            "example": ["https://storage.stayhub.com/img1.jpg"],
-            "description": "URLs de fotos del alojamiento"
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -171,29 +1052,82 @@
       "ListingResponseDto": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "example": "uuid-1234-5678" },
-          "title": { "type": "string", "example": "Hermosa cabaña en la montaña" },
-          "description": { "type": "string", "example": "Cabaña espaciosa con vista panorámica." },
-          "city": { "type": "string", "example": "Medellín" },
-          "country": { "type": "string", "example": "Colombia" },
-          "pricePerNight": { "type": "number", "example": 85.5 },
-          "maxGuests": { "type": "number", "example": 4 },
-          "bedrooms": { "type": "number", "example": 2 },
-          "bathrooms": { "type": "number", "example": 2 },
+          "id": {
+            "type": "string",
+            "example": "uuid-1234-listing",
+            "description": "Identificador único del alojamiento"
+          },
+          "title": {
+            "type": "string",
+            "example": "Hermosa cabaña en la montaña"
+          },
+          "description": {
+            "type": "string",
+            "example": "Cabaña espaciosa con vista panorámica..."
+          },
+          "city": {
+            "type": "string",
+            "example": "Medellín"
+          },
+          "country": {
+            "type": "string",
+            "example": "Colombia"
+          },
+          "pricePerNight": {
+            "type": "number",
+            "example": 85.5
+          },
+          "maxGuests": {
+            "type": "number",
+            "example": 4
+          },
+          "bedrooms": {
+            "type": "number",
+            "example": 2
+          },
+          "bathrooms": {
+            "type": "number",
+            "example": 2
+          },
           "amenities": {
+            "example": [
+              "WIFI",
+              "POOL"
+            ],
             "type": "array",
-            "items": { "type": "string" },
-            "example": ["WIFI", "POOL"]
+            "items": {
+              "type": "string"
+            }
           },
           "images": {
+            "example": [
+              "https://storage.stayhub.com/img1.jpg"
+            ],
             "type": "array",
-            "items": { "type": "string" },
-            "example": ["https://storage.stayhub.com/img1.jpg"]
+            "items": {
+              "type": "string"
+            }
           },
-          "rating": { "type": "number", "example": 4.8 },
-          "reviewCount": { "type": "number", "example": 24 },
-          "hostId": { "type": "string", "example": "uuid-host-999" },
-          "createdAt": { "type": "string", "format": "date-time" }
+          "rating": {
+            "type": "number",
+            "example": 4.85,
+            "description": "Calificación promedio"
+          },
+          "reviewCount": {
+            "type": "number",
+            "example": 24,
+            "description": "Total de reseñas"
+          },
+          "hostId": {
+            "type": "string",
+            "example": "uuid-user-host-123",
+            "description": "ID del anfitrión"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-05T00:00:00.000Z"
+          }
         },
         "required": [
           "id",
@@ -218,51 +1152,152 @@
         "properties": {
           "data": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/ListingResponseDto" }
+            "items": {
+              "$ref": "#/components/schemas/ListingResponseDto"
+            }
           },
-          "total": { "type": "number", "example": 45 },
-          "page": { "type": "number", "example": 1 },
-          "totalPages": { "type": "number", "example": 5 }
+          "total": {
+            "type": "number",
+            "example": 50,
+            "description": "Total de resultados encontrados"
+          },
+          "page": {
+            "type": "number",
+            "example": 1,
+            "description": "Página actual"
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 5,
+            "description": "Total de páginas"
+          }
         },
-        "required": ["data", "total", "page", "totalPages"]
+        "required": [
+          "data",
+          "total",
+          "page",
+          "totalPages"
+        ]
       },
       "AvailabilityResponseDto": {
         "type": "object",
         "properties": {
-          "listingId": { "type": "string", "example": "uuid-1234-5678" },
-          "isAvailable": { "type": "boolean", "example": true },
-          "blockedDates": {
-            "type": "array",
-            "items": { "type": "string" },
-            "example": ["2026-11-10", "2026-11-11"]
+          "listingId": {
+            "type": "string",
+            "example": "uuid-1234-listing",
+            "description": "ID del alojamiento"
           },
-          "pricePerNight": { "type": "number", "example": 85.5 }
+          "isAvailable": {
+            "type": "boolean",
+            "example": true,
+            "description": "Indica si está disponible en las fechas especificadas"
+          },
+          "blockedDates": {
+            "example": [
+              "2026-11-05",
+              "2026-11-06"
+            ],
+            "description": "Fechas bloqueadas u ocupadas en el rango",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pricePerNight": {
+            "type": "number",
+            "example": 85.5,
+            "description": "Tarifa base actual por noche"
+          }
         },
-        "required": ["listingId", "isAvailable", "blockedDates", "pricePerNight"]
+        "required": [
+          "listingId",
+          "isAvailable",
+          "blockedDates",
+          "pricePerNight"
+        ]
       },
       "QuoteBookingDto": {
         "type": "object",
         "properties": {
-          "listingId": { "type": "string", "example": "uuid-1234-listing", "description": "ID del alojamiento a cotizar" },
-          "checkIn": { "type": "string", "example": "2026-11-01", "description": "Fecha de llegada (YYYY-MM-DD)" },
-          "checkOut": { "type": "string", "example": "2026-11-06", "description": "Fecha de salida (YYYY-MM-DD)" },
-          "guests": { "type": "number", "example": 2, "minimum": 1, "description": "Número de huéspedes" }
+          "listingId": {
+            "type": "string",
+            "example": "uuid-1234-listing",
+            "description": "ID del alojamiento a cotizar"
+          },
+          "checkIn": {
+            "type": "string",
+            "example": "2026-11-01",
+            "description": "Fecha de llegada (YYYY-MM-DD)"
+          },
+          "checkOut": {
+            "type": "string",
+            "example": "2026-11-06",
+            "description": "Fecha de salida (YYYY-MM-DD)"
+          },
+          "guests": {
+            "type": "number",
+            "example": 2,
+            "description": "Número de huéspedes",
+            "minimum": 1
+          }
         },
-        "required": ["listingId", "checkIn", "checkOut", "guests"]
+        "required": [
+          "listingId",
+          "checkIn",
+          "checkOut",
+          "guests"
+        ]
       },
       "QuoteResponseDto": {
         "type": "object",
         "properties": {
-          "listingId": { "type": "string", "example": "uuid-1234-listing" },
-          "checkIn": { "type": "string", "example": "2026-11-01" },
-          "checkOut": { "type": "string", "example": "2026-11-06" },
-          "nights": { "type": "number", "example": 5 },
-          "nightlyRate": { "type": "number", "example": 85.5 },
-          "baseAmount": { "type": "number", "example": 427.5 },
-          "cleaningFee": { "type": "number", "example": 35.0 },
-          "serviceFee": { "type": "number", "example": 51.3 },
-          "totalAmount": { "type": "number", "example": 513.8 },
-          "currency": { "type": "string", "example": "USD" }
+          "listingId": {
+            "type": "string",
+            "example": "uuid-1234-listing"
+          },
+          "checkIn": {
+            "type": "string",
+            "example": "2026-11-01"
+          },
+          "checkOut": {
+            "type": "string",
+            "example": "2026-11-06"
+          },
+          "nights": {
+            "type": "number",
+            "example": 5,
+            "description": "Número total de noches"
+          },
+          "nightlyRate": {
+            "type": "number",
+            "example": 85.5,
+            "description": "Precio base por noche en USD"
+          },
+          "baseAmount": {
+            "type": "number",
+            "example": 427.5,
+            "description": "Subtotal noches (noches x tarifa)"
+          },
+          "cleaningFee": {
+            "type": "number",
+            "example": 35,
+            "description": "Tarifa de limpieza fija"
+          },
+          "serviceFee": {
+            "type": "number",
+            "example": 55.5,
+            "description": "Comisión de servicio de la plataforma (12%)"
+          },
+          "totalAmount": {
+            "type": "number",
+            "example": 518,
+            "description": "Monto total a pagar en USD"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD",
+            "description": "Moneda"
+          }
         },
         "required": [
           "listingId",
@@ -277,41 +1312,70 @@
           "currency"
         ]
       },
-      "CreateBookingDto": {
-        "type": "object",
-        "properties": {
-          "listingId": { "type": "string", "example": "uuid-1234-listing" },
-          "checkIn": { "type": "string", "example": "2026-11-01" },
-          "checkOut": { "type": "string", "example": "2026-11-06" },
-          "guests": { "type": "number", "example": 2, "minimum": 1 },
-          "specialRequests": { "type": "string", "example": "Llegaremos tarde alrededor de las 10 PM." },
-          "idempotencyKey": {
-            "type": "string",
-            "example": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
-            "description": "Clave de idempotencia única para prevenir cobros/reservas duplicadas"
-          }
-        },
-        "required": ["listingId", "checkIn", "checkOut", "guests", "idempotencyKey"]
-      },
       "BookingResponseDto": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "example": "uuid-booking-999" },
-          "listingId": { "type": "string", "example": "uuid-1234-listing" },
-          "guestId": { "type": "string", "example": "uuid-guest-111" },
-          "checkIn": { "type": "string", "example": "2026-11-01" },
-          "checkOut": { "type": "string", "example": "2026-11-06" },
-          "guests": { "type": "number", "example": 2 },
-          "totalAmount": { "type": "number", "example": 518.0 },
-          "currency": { "type": "string", "example": "USD" },
+          "id": {
+            "type": "string",
+            "example": "uuid-reserva-789",
+            "description": "ID único de la reserva"
+          },
+          "listingId": {
+            "type": "string",
+            "example": "uuid-1234-listing",
+            "description": "ID del alojamiento reservado"
+          },
+          "guestId": {
+            "type": "string",
+            "example": "uuid-huesped-456",
+            "description": "ID del usuario huésped"
+          },
+          "checkIn": {
+            "type": "string",
+            "example": "2026-11-01"
+          },
+          "checkOut": {
+            "type": "string",
+            "example": "2026-11-06"
+          },
+          "guests": {
+            "type": "number",
+            "example": 2
+          },
+          "totalAmount": {
+            "type": "number",
+            "example": 518,
+            "description": "Monto total facturado"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
           "status": {
             "type": "string",
-            "enum": ["PENDIENTE", "CONFIRMADA", "CANCELADA", "COMPLETADA"],
-            "example": "PENDIENTE"
+            "enum": [
+              "PENDIENTE",
+              "CONFIRMADA",
+              "CANCELADA",
+              "COMPLETADA"
+            ],
+            "example": "PENDIENTE",
+            "description": "Estado actual de la reserva"
           },
-          "idempotencyKey": { "type": "string", "example": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d" },
-          "specialRequests": { "type": "string", "example": "Llegaremos tarde." },
-          "createdAt": { "type": "string", "format": "date-time" }
+          "idempotencyKey": {
+            "type": "string",
+            "example": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+            "description": "Clave de idempotencia asociada"
+          },
+          "specialRequests": {
+            "type": "string",
+            "example": "Llegaremos tarde alrededor de las 10 PM."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-05T09:50:00.000Z"
+          }
         },
         "required": [
           "id",
@@ -326,247 +1390,117 @@
           "idempotencyKey",
           "createdAt"
         ]
-      }
-    }
-  },
-  "paths": {
-    "/api/auth/login": {
-      "post": {
-        "operationId": "AuthController_login",
-        "summary": "Iniciar sesión y obtener JWT",
-        "description": "Valida credenciales del usuario y retorna un token JWT.",
-        "tags": ["Autenticación (Auth)"],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/LoginDto" }
-            }
+      },
+      "CreateBookingDto": {
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "example": "uuid-1234-listing",
+            "description": "ID del alojamiento"
+          },
+          "checkIn": {
+            "type": "string",
+            "example": "2026-11-01",
+            "description": "Fecha de llegada (YYYY-MM-DD)"
+          },
+          "checkOut": {
+            "type": "string",
+            "example": "2026-11-06",
+            "description": "Fecha de salida (YYYY-MM-DD)"
+          },
+          "guests": {
+            "type": "number",
+            "example": 2,
+            "description": "Cantidad de huéspedes",
+            "minimum": 1
+          },
+          "specialRequests": {
+            "type": "string",
+            "example": "Llegaremos tarde alrededor de las 10 PM.",
+            "description": "Peticiones o notas para el anfitrión"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "example": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+            "description": "Clave de idempotencia única para prevenir cobros/reservas duplicadas"
           }
         },
-        "responses": {
-          "200": {
-            "description": "Inicio de sesión exitoso",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/LoginResponseDto" }
-              }
-            }
+        "required": [
+          "listingId",
+          "checkIn",
+          "checkOut",
+          "guests",
+          "idempotencyKey"
+        ]
+      },
+      "AuditEventDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "3f1c2b4e-8a1d-4c55-9f0e-2b7a1c9d0e11"
           },
-          "400": { "description": "Credenciales con formato inválido" },
-          "401": { "description": "Credenciales inválidas" }
-        }
-      }
-    },
-    "/api/auth/register": {
-      "post": {
-        "operationId": "AuthController_register",
-        "summary": "Registrar nuevo usuario (Huésped o Anfitrión)",
-        "description": "Registra una nueva cuenta de usuario con su rol respectivo.",
-        "tags": ["Autenticación (Auth)"],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/RegisterDto" }
-            }
+          "actor": {
+            "type": "string",
+            "example": "admin@inversioneslr.com",
+            "description": "Quién ejecutó la acción (CA1)"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "REGISTER",
+              "LOGIN",
+              "LOGOUT",
+              "ACCESS_DENIED",
+              "LISTING_STATUS_CHANGE",
+              "BOOKING_STATUS_CHANGE",
+              "BOOKING_CANCELLATION",
+              "REVIEW_CREATED",
+              "ADMIN_ACTION",
+              "EXPORT",
+              "AUDIT_TAMPER_ATTEMPT"
+            ],
+            "example": "LOGIN",
+            "description": "Acción ejecutada (CA1)"
+          },
+          "entity": {
+            "type": "string",
+            "example": "AuthSession",
+            "description": "Entidad afectada (CA1)"
+          },
+          "entityId": {
+            "type": "string",
+            "example": "mock-listing-uuid-1",
+            "description": "Identificador de la entidad afectada"
+          },
+          "occurredAt": {
+            "type": "string",
+            "example": "2026-10-19T21:30:00.000Z",
+            "description": "Fecha y hora del evento (CA1)"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "EXITOSO",
+              "FALLIDO"
+            ],
+            "example": "EXITOSO",
+            "description": "Resultado de la acción (CA1, CA3)"
+          },
+          "detail": {
+            "type": "string",
+            "example": "Correo electrónico o contraseña incorrectos"
           }
         },
-        "responses": {
-          "201": {
-            "description": "Usuario registrado exitosamente",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/RegisterResponseDto" }
-              }
-            }
-          },
-          "400": { "description": "Datos de registro inválidos" }
-        }
-      }
-    },
-    "/api/listings": {
-      "post": {
-        "operationId": "ListingsController_create",
-        "summary": "Publicar un nuevo alojamiento",
-        "description": "Crea un nuevo alojamiento en el marketplace. Requiere rol ANFITRIÓN.",
-        "tags": ["Alojamientos (Listings)"],
-        "security": [{ "bearer": [] }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateListingDto" }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Alojamiento publicado con éxito",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ListingResponseDto" }
-              }
-            }
-          },
-          "400": { "description": "Datos de entrada inválidos" },
-          "401": { "description": "No autorizado" }
-        }
-      }
-    },
-    "/api/listings/search": {
-      "get": {
-        "operationId": "ListingsController_search",
-        "summary": "Buscar y filtrar alojamientos",
-        "description": "Búsqueda por ciudad, fechas de estancia, número de huéspedes y rango de precio con paginación.",
-        "tags": ["Alojamientos (Listings)"],
-        "parameters": [
-          { "name": "city", "required": false, "in": "query", "schema": { "type": "string" } },
-          { "name": "checkIn", "required": false, "in": "query", "schema": { "type": "string" } },
-          { "name": "checkOut", "required": false, "in": "query", "schema": { "type": "string" } },
-          { "name": "guests", "required": false, "in": "query", "schema": { "type": "number" } },
-          { "name": "minPrice", "required": false, "in": "query", "schema": { "type": "number" } },
-          { "name": "maxPrice", "required": false, "in": "query", "schema": { "type": "number" } },
-          { "name": "page", "required": false, "in": "query", "schema": { "type": "number", "default": 1 } },
-          { "name": "limit", "required": false, "in": "query", "schema": { "type": "number", "default": 10 } }
-        ],
-        "responses": {
-          "200": {
-            "description": "Listado de alojamientos disponibles",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/PaginatedListingsResponseDto" }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/listings/{id}/availability": {
-      "get": {
-        "operationId": "ListingsController_getAvailability",
-        "summary": "Consultar disponibilidad de un alojamiento",
-        "description": "Retorna si el alojamiento está disponible en el rango de fechas y la lista de días bloqueados.",
-        "tags": ["Alojamientos (Listings)"],
-        "parameters": [
-          { "name": "id", "required": true, "in": "path", "description": "ID del alojamiento", "schema": { "type": "string" } },
-          { "name": "startDate", "required": true, "in": "query", "schema": { "type": "string" } },
-          { "name": "endDate", "required": true, "in": "query", "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "description": "Información de disponibilidad",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/AvailabilityResponseDto" }
-              }
-            }
-          },
-          "404": { "description": "Alojamiento no encontrado" }
-        }
-      }
-    },
-    "/api/listings/{id}": {
-      "get": {
-        "operationId": "ListingsController_findOne",
-        "summary": "Obtener detalle de un alojamiento",
-        "description": "Retorna toda la información de un alojamiento específico por su ID.",
-        "tags": ["Alojamientos (Listings)"],
-        "parameters": [
-          { "name": "id", "required": true, "in": "path", "description": "ID del alojamiento", "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "description": "Detalle del alojamiento",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ListingResponseDto" }
-              }
-            }
-          },
-          "404": { "description": "Alojamiento no encontrado" }
-        }
-      }
-    },
-    "/api/bookings/quote": {
-      "post": {
-        "operationId": "BookingsController_quote",
-        "summary": "Cotizar estancia",
-        "description": "Calcula el desglose completo del costo: noches x tarifa base + tarifa de limpieza + comisión de servicio = total.",
-        "tags": ["Reservas y Cotizaciones (Bookings)"],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/QuoteBookingDto" }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Cotización calculada exitosamente",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/QuoteResponseDto" }
-              }
-            }
-          },
-          "400": { "description": "Fechas o datos inválidos" },
-          "404": { "description": "Alojamiento no encontrado" }
-        }
-      }
-    },
-    "/api/bookings/instant": {
-      "post": {
-        "operationId": "BookingsController_createInstant",
-        "summary": "Crear reserva inmediata",
-        "description": "Crea una reserva garantizando idempotencia (idempotencyKey) para evitar cobros y reservas duplicadas.",
-        "tags": ["Reservas y Cotizaciones (Bookings)"],
-        "security": [{ "bearer": [] }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateBookingDto" }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Reserva creada exitosamente",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/BookingResponseDto" }
-              }
-            }
-          },
-          "400": { "description": "Alojamiento no disponible o datos inválidos" },
-          "401": { "description": "No autorizado" },
-          "409": { "description": "Conflicto de reserva o clave de idempotencia duplicada" }
-        }
-      }
-    },
-    "/api/bookings/{id}": {
-      "get": {
-        "operationId": "BookingsController_findOne",
-        "summary": "Consultar estado de reserva",
-        "description": "Retorna el detalle y estado actual de una reserva.",
-        "tags": ["Reservas y Cotizaciones (Bookings)"],
-        "security": [{ "bearer": [] }],
-        "parameters": [
-          { "name": "id", "required": true, "in": "path", "description": "ID de la reserva", "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "description": "Detalle de la reserva",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/BookingResponseDto" }
-              }
-            }
-          },
-          "404": { "description": "Reserva no encontrada" }
-        }
+        "required": [
+          "id",
+          "actor",
+          "action",
+          "entity",
+          "occurredAt",
+          "result"
+        ]
       }
     }
   }
