@@ -1,4 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ListingStatus } from '../../../common/enums/listing-status.enum';
 
 export class ListingResponseDto {
   @ApiProperty({ example: 'uuid-1234-listing', description: 'Identificador único del alojamiento' })
@@ -42,6 +43,18 @@ export class ListingResponseDto {
 
   @ApiProperty({ example: 'uuid-user-host-123', description: 'ID del anfitrión' })
   hostId: string;
+
+  @ApiPropertyOptional({ example: 'Laura Restrepo', description: 'Nombre del anfitrión' })
+  hostName?: string;
+
+  @ApiPropertyOptional({ enum: ListingStatus, example: ListingStatus.ACTIVA, description: 'Estado de la publicación (HU-050)' })
+  status?: ListingStatus;
+
+  @ApiPropertyOptional({ example: '2026-10-14T10:00:00.000Z', description: 'Fecha de solicitud de revisión (HU-050 CA1)' })
+  requestedAt?: Date;
+
+  @ApiPropertyOptional({ example: 'Faltan fotografías del exterior', description: 'Motivo de devolución visible para el anfitrión (HU-050 CA3)' })
+  returnReason?: string;
 
   @ApiProperty({ example: '2026-10-05T00:00:00.000Z' })
   createdAt: Date;
