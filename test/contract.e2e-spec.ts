@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { INestApplication } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { createAppValidationPipe } from '../src/common/pipes/app-validation.pipe';
 import { AppModule } from '../src/app.module';
 
 describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
@@ -17,13 +18,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api');
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
+    app.useGlobalPipes(createAppValidationPipe());
 
     await app.listen(0);
     const url = await app.getUrl();
@@ -451,6 +446,80 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       });
       expect(reuseRes.status).toBe(400);
       expect((await reuseRes.json()).canRequestNewToken).toBe(true);
+    });
+  });
+  describe('HU-010 · Crear una publicación en borrador (CA1, CA2, CA3, CA4)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const loginAs = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: email, email, password: 'Password123', role }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return (await res.json()).token as string;
+    };
+    const createListing = (token: string, body: unknown) =>
+      fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: { ...json, Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+
+    it('7.1 (CA1, CA4) el anfitrión crea borradores asociados a él, completos o incompletos', async () => {
+      const token = await loginAs('anfitrion.hu010@stayhub.com', 'ANFITRION');
+
+      const completeRes = await createListing(token, {
+        title: 'Cabaña del Bosque',
+        description: 'Cabaña de madera con chimenea.',
+        city: 'Guatapé',
+        department: 'Antioquia',
+        address: 'Vereda El Roble',
+        propertyType: 'CABANA',
+        maxGuests: 4,
+        pricePerNight: 320000,
+        amenities: ['WIFI'],
+        rules: ['No fumar'],
+        images: ['https://storage.stayhub.com/cabana-1.jpg'],
+      });
+      const complete = await completeRes.json();
+      expect(completeRes.status).toBe(201);
+      expect(complete).toMatchObject({ status: 'BORRADOR', isComplete: true, missingFields: [] });
+
+      const titleOnlyRes = await createListing(token, { title: 'Apartamento en Laureles' });
+      const titleOnly = await titleOnlyRes.json();
+      expect(titleOnlyRes.status).toBe(201);
+      expect(titleOnly).toMatchObject({ status: 'BORRADOR', isComplete: false });
+      expect(titleOnly.missingFields).toContain('pricePerNight');
+
+      const mineRes = await fetch(`${baseUrl}/listings/mine`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const mine = await mineRes.json();
+      expect(mine.map((item: { id: string }) => item.id)).toEqual([titleOnly.id, complete.id]);
+      expect(new Set(mine.map((item: { hostId: string }) => item.hostId)).size).toBe(1);
+    });
+
+    it('7.2 (CA2) rechaza capacidad 0 y precio <= 0 con mensaje por campo', async () => {
+      const token = await loginAs('anfitrion2.hu010@stayhub.com', 'ANFITRION');
+      const res = await createListing(token, { title: 'Cabaña del Bosque', maxGuests: 0, pricePerNight: 0 });
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.fieldErrors).toEqual({
+        maxGuests: ['La capacidad debe ser mayor que 0'],
+        pricePerNight: ['El precio por noche debe ser mayor que 0'],
+      });
+    });
+
+    it('7.3 (CA3) el huésped no puede crear publicaciones', async () => {
+      const token = await loginAs('huesped.hu010@stayhub.com', 'HUESPED');
+      const res = await createListing(token, { title: 'Intento de huésped' });
+      expect(res.status).toBe(403);
     });
   });
 });

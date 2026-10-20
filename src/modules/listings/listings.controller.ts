@@ -25,18 +25,32 @@ export class ListingsController {
   @Roles(Role.ANFITRION, Role.ADMINISTRADOR)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Publicar un nuevo alojamiento · HU-003 (CA2)',
-    description: 'Crea un nuevo alojamiento en el marketplace. Requiere rol ANFITRION o ADMINISTRADOR.',
+    summary: 'Crear una publicación en borrador · HU-010 (CA1, CA2, CA3, CA4)',
+    description:
+      'Crea la publicación en estado BORRADOR asociada al anfitrión autenticado. Solo el título es obligatorio; si falta información básica queda marcada como incompleta (isComplete = false, missingFields). Requiere rol ANFITRION o ADMINISTRADOR.',
   })
-  @ApiResponse({ status: 201, description: 'Alojamiento publicado con éxito', type: ListingResponseDto })
-  @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
-  @ApiResponse({ status: 401, description: 'No autenticado (CA1)' })
-  @ApiResponse({ status: 403, description: 'Acceso denegado para rol HUESPED (CA2)' })
+  @ApiResponse({ status: 201, description: 'Publicación creada en BORRADOR (CA1, CA4)', type: ListingResponseDto })
+  @ApiResponse({ status: 400, description: 'Capacidad o precio por noche inválidos; el detalle por campo va en fieldErrors (CA2)' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado para rol HUESPED (CA3)' })
   create(
     @Body() createDto: CreateListingDto,
     @CurrentUser() user?: ActiveSession,
-  ): Promise<ListingResponseDto> {
-    return this.listingsService.create(createDto, user?.email);
+  ): ListingResponseDto {
+    return this.listingsService.create(createDto, user);
+  }
+
+  @Get('mine')
+  @Roles(Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Listar mis publicaciones · HU-010',
+    description: 'Retorna las publicaciones del anfitrión autenticado, incluidos los borradores, de la más reciente a la más antigua.',
+  })
+  @ApiResponse({ status: 200, description: 'Publicaciones del anfitrión', type: [ListingResponseDto] })
+  @ApiResponse({ status: 403, description: 'Acceso denegado para rol HUESPED' })
+  findMine(@CurrentUser() user?: ActiveSession): ListingResponseDto[] {
+    return this.listingsService.findMine(user?.userId ?? '');
   }
 
   @Get('pending')
