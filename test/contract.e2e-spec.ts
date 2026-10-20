@@ -407,5 +407,51 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(res.status).toBe(401);
     });
   });
+  describe('HU-004 · Recuperar la contraseña (simulado) (CA1, CA2, CA3, CA4)', () => {
+    const post = (path: string, body: unknown) =>
+      fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    it('6.1 solicita, lee el buzón simulado, cambia la contraseña y rechaza el token reutilizado', async () => {
+      const email = 'recupera.e2e@stayhub.com';
+      await post('/auth/register', {
+        name: 'Recupera E2E',
+        email,
+        password: 'Password123',
+        role: 'HUESPED',
+      });
+
+      const known = await post('/auth/password-recovery', { email });
+      const unknown = await post('/auth/password-recovery', { email: 'nadie.e2e@stayhub.com' });
+      expect(known.status).toBe(200);
+      expect(unknown.status).toBe(200);
+      expect(await unknown.json()).toEqual(await known.json());
+
+      const mailboxRes = await fetch(`${baseUrl}/auth/password-recovery/mailbox?email=${email}`);
+      const [mail] = await mailboxRes.json();
+      expect(mail).toEqual(
+        expect.objectContaining({ to: email, token: expect.any(String), expiresAt: expect.any(String) }),
+      );
+
+      const resetRes = await post('/auth/password-recovery/reset', {
+        token: mail.token,
+        newPassword: 'NuevaClave2026',
+      });
+      expect(resetRes.status).toBe(200);
+
+      const loginRes = await post('/auth/login', { email, password: 'NuevaClave2026' });
+      expect(loginRes.status).toBe(200);
+
+      const reuseRes = await post('/auth/password-recovery/reset', {
+        token: mail.token,
+        newPassword: 'OtraClave2026',
+      });
+      expect(reuseRes.status).toBe(400);
+      expect((await reuseRes.json()).canRequestNewToken).toBe(true);
+    });
+  });
 });
 
