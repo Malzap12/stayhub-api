@@ -1,21 +1,31 @@
 import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import { AuthService } from './auth.service';
 import { AuditService } from '../audit/audit.service';
+import { MailService } from '../mail/mail.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
-import { MessageResponseDto, SimulatedMailDto } from './dto/password-recovery.dto';
+import {
+  MessageResponseDto,
+  RecoveryRequestResponseDto,
+  SimulatedMailDto,
+  TokenStatusDto,
+} from './dto/password-recovery.dto';
 
 interface PasswordResetToken {
-  token: string;
+  tokenHash: string;
   email: string;
   expiresAt: number;
   used: boolean;
 }
 
+const escapeHtml = (value: string): string =>
+  value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
+
 /**
  * HU-004 · Recuperar la contraseña (simulado) · RF-006.
- * Los enlaces se entregan en un buzón simulado en memoria, sin correo real (AMB-33, SUP-11).
+ * HU-004A · Recuperar la contraseña por correo electrónico: con SMTP configurado
+ * el enlace se envía al correo real; sin SMTP se usa el buzón simulado (AMB-33, SUP-11).
  */
 @Injectable()
 export class PasswordRecoveryService {
@@ -25,38 +35,82 @@ export class PasswordRecoveryService {
     'El enlace de recuperación no es válido, venció o ya fue usado. Solicita uno nuevo.';
   static readonly PASSWORD_POLICY_MESSAGE =
     'La contraseña debe tener al menos 8 caracteres y combinar letras y números';
+  static readonly RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 
   private readonly tokens: Map<string, PasswordResetToken> = new Map();
   private readonly mailbox: SimulatedMailDto[] = [];
+  private readonly requestLog: Map<string, number[]> = new Map();
 
   constructor(
     private readonly authService: AuthService,
     private readonly auditService: AuditService,
+    private readonly mailService: MailService,
     @Optional() private readonly configService?: ConfigService,
   ) {}
 
+  private setting(key: string, fallback: number): number {
+    return Number(this.configService?.get<string>(key) ?? process.env[key] ?? fallback);
+  }
+
   private get tokenTtlMinutes(): number {
-    return Number(
-      this.configService?.get<string>('PASSWORD_RESET_TOKEN_MINUTES') ??
-        process.env.PASSWORD_RESET_TOKEN_MINUTES ??
-        30,
+    return this.setting('PASSWORD_RESET_TOKEN_MINUTES', 30);
+  }
+
+  private get maxRequestsPerWindow(): number {
+    return this.setting('PASSWORD_RECOVERY_MAX_REQUESTS', 3);
+  }
+
+  private static hash(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private findValidToken(rawToken?: string): PasswordResetToken | undefined {
+    const resetToken = rawToken ? this.tokens.get(PasswordRecoveryService.hash(rawToken.trim())) : undefined;
+    if (!resetToken || resetToken.used || Date.now() > resetToken.expiresAt) {
+      return undefined;
+    }
+    return resetToken;
+  }
+
+  /** HU-004A RNF: limita las solicitudes por correo dentro de la ventana configurada. */
+  private isRateLimited(email: string): boolean {
+    const now = Date.now();
+    const recent = (this.requestLog.get(email) ?? []).filter(
+      (time) => now - time < PasswordRecoveryService.RATE_LIMIT_WINDOW_MS,
     );
+    recent.push(now);
+    this.requestLog.set(email, recent);
+    return recent.length > this.maxRequestsPerWindow;
+  }
+
+  private recordRequest(email: string | undefined, result: AuditResult, detail?: string, entityId?: string) {
+    this.auditService.record({
+      actor: email,
+      action: AuditAction.PASSWORD_RECOVERY_REQUEST,
+      entity: 'UserAccount',
+      entityId,
+      result,
+      detail,
+    });
   }
 
   /** CA1 y CA4: genera un token de un solo uso con vencimiento y responde siempre igual. */
-  requestRecovery(rawEmail: string): MessageResponseDto {
+  requestRecovery(rawEmail: string): RecoveryRequestResponseDto {
     const email = rawEmail?.trim().toLowerCase();
-    const account = email ? this.authService.findByEmail(email) : undefined;
+    const response: RecoveryRequestResponseDto = {
+      message: PasswordRecoveryService.REQUEST_CONFIRMATION,
+      delivery: this.mailService.delivery,
+    };
 
+    if (email && this.isRateLimited(email)) {
+      this.recordRequest(email, AuditResult.FALLIDO, 'Límite de solicitudes alcanzado');
+      return response;
+    }
+
+    const account = email ? this.authService.findByEmail(email) : undefined;
     if (!account) {
-      this.auditService.record({
-        actor: email,
-        action: AuditAction.PASSWORD_RECOVERY_REQUEST,
-        entity: 'UserAccount',
-        result: AuditResult.FALLIDO,
-        detail: 'Correo no registrado',
-      });
-      return { message: PasswordRecoveryService.REQUEST_CONFIRMATION };
+      this.recordRequest(email, AuditResult.FALLIDO, 'Correo no registrado');
+      return response;
     }
 
     for (const pending of this.tokens.values()) {
@@ -67,42 +121,80 @@ export class PasswordRecoveryService {
 
     const token = randomBytes(32).toString('hex');
     const expiresAt = Date.now() + this.tokenTtlMinutes * 60 * 1000;
-    this.tokens.set(token, { token, email: account.email, expiresAt, used: false });
-
-    this.mailbox.push({
-      id: randomUUID(),
-      to: account.email,
-      subject: 'Recupera tu contraseña · Inversiones LR',
-      body: `Hola ${account.name}, usa este enlace de un solo uso para definir una nueva contraseña. Vence en ${this.tokenTtlMinutes} minutos.`,
-      token,
-      expiresAt: new Date(expiresAt).toISOString(),
-      sentAt: new Date().toISOString(),
+    this.tokens.set(PasswordRecoveryService.hash(token), {
+      tokenHash: PasswordRecoveryService.hash(token),
+      email: account.email,
+      expiresAt,
+      used: false,
     });
 
-    this.auditService.record({
-      actor: account.email,
-      action: AuditAction.PASSWORD_RECOVERY_REQUEST,
-      entity: 'UserAccount',
-      entityId: account.id,
-      result: AuditResult.EXITOSO,
-    });
+    const subject = 'Recupera tu contraseña · Inversiones LR';
+    const body = `Hola ${account.name}, usa este enlace de un solo uso para definir una nueva contraseña. Vence en ${this.tokenTtlMinutes} minutos.`;
 
-    return { message: PasswordRecoveryService.REQUEST_CONFIRMATION };
+    if (this.mailService.delivery === 'SIMULATED') {
+      this.mailbox.push({
+        id: randomUUID(),
+        to: account.email,
+        subject,
+        body,
+        token,
+        expiresAt: new Date(expiresAt).toISOString(),
+        sentAt: new Date().toISOString(),
+      });
+      this.recordRequest(account.email, AuditResult.EXITOSO, 'Enlace en buzón simulado', account.id);
+      return response;
+    }
+
+    const link = `${this.mailService.appBaseUrl}/auth/recuperar?token=${token}`;
+    this.mailService
+      .send({
+        to: account.email,
+        subject,
+        text: `${body}\n\n${link}\n\nSi no solicitaste este cambio, ignora este correo.`,
+        html: `<p>Hola ${escapeHtml(account.name)},</p>
+<p>Recibimos una solicitud para recuperar tu contraseña en Inversiones LR.</p>
+<p><a href="${link}" style="display:inline-block;padding:12px 20px;border-radius:10px;background:#1d1d1f;color:#ffffff;text-decoration:none;font-weight:600">Definir nueva contraseña</a></p>
+<p>El enlace es de un solo uso y vence en ${this.tokenTtlMinutes} minutos.</p>
+<p>Si no solicitaste este cambio, ignora este correo: tu contraseña no cambiará.</p>`,
+      })
+      .then((sent) =>
+        this.recordRequest(
+          account.email,
+          sent ? AuditResult.EXITOSO : AuditResult.FALLIDO,
+          sent ? 'Enlace enviado por correo' : 'Error al enviar el correo',
+          account.id,
+        ),
+      )
+      .catch(() => undefined);
+
+    return response;
   }
 
-  /** Buzón simulado: mensajes recibidos por un correo, del más reciente al más antiguo. */
+  /** Buzón simulado: solo disponible sin SMTP, para no exponer enlaces de correos reales. */
   getMailbox(rawEmail: string): SimulatedMailDto[] {
+    if (this.mailService.delivery !== 'SIMULATED') {
+      return [];
+    }
     const email = rawEmail?.trim().toLowerCase();
     return this.mailbox.filter((mail) => mail.to === email).reverse();
   }
 
+  /** HU-004A: indica si el enlace sigue vigente sin consumirlo ni revelar la cuenta. */
+  getTokenStatus(rawToken: string): TokenStatusDto {
+    const resetToken = this.findValidToken(rawToken);
+    return resetToken
+      ? { valid: true, expiresAt: new Date(resetToken.expiresAt).toISOString() }
+      : { valid: false, message: PasswordRecoveryService.INVALID_TOKEN_MESSAGE };
+  }
+
   /** CA2 y CA3: cambia la contraseña con un token vigente y lo invalida. */
   resetPassword(rawToken: string, newPassword: string): MessageResponseDto {
-    const resetToken = this.tokens.get(rawToken?.trim());
+    const resetToken = this.findValidToken(rawToken);
 
-    if (!resetToken || resetToken.used || Date.now() > resetToken.expiresAt) {
+    if (!resetToken) {
+      const known = rawToken ? this.tokens.get(PasswordRecoveryService.hash(rawToken.trim())) : undefined;
       this.auditService.record({
-        actor: resetToken?.email,
+        actor: known?.email,
         action: AuditAction.PASSWORD_RESET,
         entity: 'UserAccount',
         result: AuditResult.FALLIDO,
@@ -123,13 +215,25 @@ export class PasswordRecoveryService {
     this.authService.updatePassword(resetToken.email, newPassword);
     resetToken.used = true;
 
+    const account = this.authService.findByEmail(resetToken.email);
     this.auditService.record({
       actor: resetToken.email,
       action: AuditAction.PASSWORD_RESET,
       entity: 'UserAccount',
-      entityId: this.authService.findByEmail(resetToken.email)?.id,
+      entityId: account?.id,
       result: AuditResult.EXITOSO,
     });
+
+    if (this.mailService.delivery === 'EMAIL') {
+      this.mailService
+        .send({
+          to: resetToken.email,
+          subject: 'Tu contraseña fue cambiada · Inversiones LR',
+          text: 'Tu contraseña de Inversiones LR se cambió correctamente. Si no fuiste tú, recupera tu cuenta de inmediato.',
+          html: '<p>Tu contraseña de Inversiones LR se cambió correctamente.</p><p>Si no fuiste tú, recupera tu cuenta de inmediato.</p>',
+        })
+        .catch(() => undefined);
+    }
 
     return { message: 'Tu contraseña fue actualizada. Ya puedes iniciar sesión.' };
   }
