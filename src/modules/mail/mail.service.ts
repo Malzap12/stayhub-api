@@ -32,7 +32,11 @@ export class MailService {
   }
 
   get appBaseUrl(): string {
-    return (this.env('APP_BASE_URL') ?? 'http://localhost:4200').replace(/\/+$/, '');
+    let url = this.env('APP_BASE_URL') ?? 'http://localhost:4200';
+    while (url.endsWith('/')) {
+      url = url.slice(0, -1);
+    }
+    return url;
   }
 
   private getTransporter(): Transporter {

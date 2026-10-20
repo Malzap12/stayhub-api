@@ -20,6 +20,11 @@ describe('MailService (HU-004A)', () => {
     expect(service.appBaseUrl).toBe('http://localhost:4200');
   });
 
+  it('quita todas las barras finales de APP_BASE_URL', () => {
+    const service = new MailService(configWith({ APP_BASE_URL: 'https://app.inversioneslr.com///' }));
+    expect(service.appBaseUrl).toBe('https://app.inversioneslr.com');
+  });
+
   it('envía por SMTP con la configuración del entorno', async () => {
     sendMail.mockResolvedValue({});
     const service = new MailService(
