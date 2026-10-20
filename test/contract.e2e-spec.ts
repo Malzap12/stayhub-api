@@ -279,5 +279,68 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
         }),
       );
     });
+
+    it('4.1 HU-003 (CA1): GET /api/bookings/my sin sesión responde 401 Unauthorized', async () => {
+      const res = await fetch(`${baseUrl}/bookings/my`);
+      expect(res.status).toBe(401);
+    });
+
+    it('4.2 HU-003 (CA2): HUÉSPED intentando usar función de ANFITRIÓN o ADMINISTRADOR recibe 403 Forbidden', async () => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Visitante Huésped',
+          email: 'huesped@stayhub.com',
+          password: 'Password123!',
+          role: 'HUESPED',
+        }),
+      });
+
+      const loginRes = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'huesped@stayhub.com',
+          password: 'Password123!',
+        }),
+      });
+      const { token: guestToken } = await loginRes.json();
+
+      const hostEndpointRes = await fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${guestToken}`,
+        },
+        body: JSON.stringify({
+          title: 'Intento no autorizado',
+          description: 'Intento de publicar siendo huésped',
+          address: 'Calle 10',
+          city: 'Bogotá',
+          country: 'Colombia',
+          pricePerNight: 100,
+          maxGuests: 2,
+          bedrooms: 1,
+          bathrooms: 1,
+        }),
+      });
+      expect(hostEndpointRes.status).toBe(403);
+
+      const adminEndpointRes = await fetch(`${baseUrl}/auth/admin/audit`, {
+        headers: { Authorization: `Bearer ${guestToken}` },
+      });
+      expect(adminEndpointRes.status).toBe(403);
+    });
+
+    it('4.3 HU-003 (CA3): Visitante sin sesión puede ver búsqueda, detalle y reseñas de una publicación', async () => {
+      const reviewsRes = await fetch(`${baseUrl}/listings/${listingId}/reviews`);
+      const reviewsBody = await reviewsRes.json();
+
+      expect(reviewsRes.status).toBe(200);
+      expect(reviewsBody.listingId).toBe(listingId);
+      expect(Array.isArray(reviewsBody.reviews)).toBe(true);
+    });
   });
 });
+

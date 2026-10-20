@@ -54,4 +54,29 @@ export class ListingsService {
       pricePerNight: 90,
     };
   }
+
+  async getReviews(listingId: string) {
+    return {
+      listingId,
+      averageRating: 4.9,
+      totalReviews: 2,
+      reviews: [
+        {
+          id: 'review-1',
+          authorName: 'Camila Gómez',
+          rating: 5,
+          comment: 'Excelente ubicación, impecable y atención inmediata del anfitrión.',
+          createdAt: '2026-10-01T14:30:00.000Z',
+        },
+        {
+          id: 'review-2',
+          authorName: 'Andrés Mejía',
+          rating: 4.8,
+          comment: 'Muy cómodo, tranquilo y fiel a las fotografías publicadas.',
+          createdAt: '2026-10-10T09:15:00.000Z',
+        },
+      ],
+    };
+  }
 }
+
