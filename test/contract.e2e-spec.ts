@@ -501,7 +501,6 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       });
       const mine = await mineRes.json();
       expect(mine.map((item: { id: string }) => item.id)).toEqual([titleOnly.id, complete.id]);
-      expect(new Set(mine.map((item: { hostId: string }) => item.hostId)).size).toBe(1);
     });
 
     it('7.2 (CA2) rechaza capacidad 0 y precio <= 0 con mensaje por campo', async () => {
@@ -520,6 +519,56 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const token = await loginAs('huesped.hu010@stayhub.com', 'HUESPED');
       const res = await createListing(token, { title: 'Intento de huésped' });
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe('HU-012 · Consultar mis publicaciones (CA1, CA2, RF-016, RN-005)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const loginAs = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: email, email, password: 'Password123', role }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return (await res.json()).token as string;
+    };
+    const getMine = (token: string) =>
+      fetch(`${baseUrl}/listings/mine`, { headers: { Authorization: `Bearer ${token}` } });
+
+    it('8.1 (CA1, RN-005) el anfitrión ve solo sus publicaciones con título, ciudad, precio y estado', async () => {
+      const token = await loginAs('anfitrion.hu012@stayhub.com', 'ANFITRION');
+      const otherToken = await loginAs('otro.hu012@stayhub.com', 'ANFITRION');
+      await fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: { ...json, Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: 'Cabaña del Bosque', city: 'Guatapé', pricePerNight: 320000 }),
+      });
+
+      const res = await getMine(token);
+      const mine = await res.json();
+      expect(res.status).toBe(200);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]).toMatchObject({
+        title: 'Cabaña del Bosque',
+        city: 'Guatapé',
+        pricePerNight: 320000,
+        status: 'BORRADOR',
+        statusLabel: 'Borrador',
+      });
+      expect(mine[0]).not.toHaveProperty('adminReason');
+
+      expect(await (await getMine(otherToken)).json()).toEqual([]);
+    });
+
+    it('8.2 el listado exige sesión de anfitrión', async () => {
+      expect((await fetch(`${baseUrl}/listings/mine`)).status).toBe(401);
+      const guestToken = await loginAs('huesped.hu012@stayhub.com', 'HUESPED');
+      expect((await getMine(guestToken)).status).toBe(403);
     });
   });
 });

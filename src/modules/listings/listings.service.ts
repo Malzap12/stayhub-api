@@ -9,6 +9,7 @@ import {
   AvailabilityPeriodResponseDto,
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
+import { MyListingDto } from './dto/my-listing.dto';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { PropertyType } from '../../common/enums/property-type.enum';
 import { randomUUID } from 'node:crypto';
@@ -44,6 +45,45 @@ export function withCompleteness(listing: ListingData): ListingResponseDto {
     return value === undefined || value === null;
   });
   return { ...listing, isComplete: missingFields.length === 0, missingFields };
+}
+
+/** HU-012: nombre del estado tal como lo ve el anfitrión. */
+export const LISTING_STATUS_LABELS: Record<ListingStatus, string> = {
+  [ListingStatus.BORRADOR]: 'Borrador',
+  [ListingStatus.PENDIENTE_REVISION]: 'En revisión',
+  [ListingStatus.ACTIVA]: 'Activa',
+  [ListingStatus.PAUSADA]: 'Pausada',
+  [ListingStatus.BLOQUEADA]: 'Bloqueada',
+};
+
+/**
+ * HU-012 CA1 y CA2: resumen de la publicación para «Mis publicaciones», con el motivo
+ * del administrador cuando fue bloqueada o devuelta a borrador (RN-005).
+ */
+export function toMyListing(listing: ListingResponseDto): MyListingDto {
+  const status = listing.status ?? ListingStatus.BORRADOR;
+  const blockReason = listing.blockReason?.trim();
+  const returnReason = listing.returnReason?.trim();
+
+  let adminReason: Pick<MyListingDto, 'adminReasonType' | 'adminReason'> = {};
+  if (status === ListingStatus.BLOQUEADA && blockReason) {
+    adminReason = { adminReasonType: 'BLOQUEADA', adminReason: blockReason };
+  } else if (status === ListingStatus.BORRADOR && returnReason) {
+    adminReason = { adminReasonType: 'DEVUELTA', adminReason: returnReason };
+  }
+
+  return {
+    id: listing.id,
+    title: listing.title,
+    city: listing.city,
+    pricePerNight: listing.pricePerNight,
+    status,
+    statusLabel: LISTING_STATUS_LABELS[status],
+    ...adminReason,
+    isComplete: listing.isComplete,
+    missingFields: listing.missingFields,
+    createdAt: listing.createdAt,
+  };
 }
 
 @Injectable()
@@ -202,11 +242,15 @@ export class ListingsService {
     return created;
   }
 
-  /** HU-010: publicaciones del anfitrión autenticado, las más recientes primero. */
-  findMine(hostId: string): ListingResponseDto[] {
+  /**
+   * HU-010 y HU-012 · Mis publicaciones (RF-016): solo las del anfitrión autenticado,
+   * las más recientes primero, con título, ciudad, precio, estado y motivo del administrador.
+   */
+  findMine(hostId: string): MyListingDto[] {
     return this.listingsStore
       .filter((item) => item.hostId === hostId)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map(toMyListing);
   }
 
   /**

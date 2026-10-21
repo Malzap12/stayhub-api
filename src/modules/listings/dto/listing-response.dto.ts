@@ -75,6 +75,9 @@ export class ListingResponseDto {
   @ApiPropertyOptional({ example: 'Faltan fotografías del exterior', description: 'Motivo de devolución visible para el anfitrión (HU-050 CA3)' })
   returnReason?: string;
 
+  @ApiPropertyOptional({ example: 'Fotografías que no corresponden al inmueble', description: 'Motivo de bloqueo indicado por el administrador (HU-012 CA2)' })
+  blockReason?: string;
+
   @ApiProperty({ example: '2026-10-05T00:00:00.000Z' })
   createdAt: Date;
 }
