@@ -143,15 +143,16 @@ export class AuthService implements OnModuleInit {
   /**
    * HU-004 CA2: actualiza la contraseña con hash e invalida las sesiones
    * activas de la cuenta para obligar a ingresar con la nueva clave.
+   * HU-007 CA2: `keepToken` conserva la sesión desde la que el usuario hizo el cambio.
    */
-  updatePassword(email: string, newPassword: string): void {
+  updatePassword(email: string, newPassword: string, keepToken?: string): void {
     const account = this.findByEmail(email);
     if (!account) {
       return;
     }
     account.passwordHash = this.hashPassword(newPassword);
     for (const [token, session] of this.activeSessions) {
-      if (session.userId === account.id) {
+      if (session.userId === account.id && token !== keepToken) {
         this.activeSessions.delete(token);
       }
     }
