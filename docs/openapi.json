@@ -644,7 +644,17 @@
             }
           },
           "400": {
-            "description": "Fechas inválidas, en el pasado (CA2) o superpuestas con periodo existente (CA3)"
+            "description": "Fechas inválidas o en el pasado (CA2), o superpuestas con un periodo existente: en ese caso conflictingPeriod indica cuál (CA3)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityOverlapErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El alojamiento no existe o pertenece a otro anfitrión"
           }
         },
         "tags": [
@@ -684,6 +694,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "El alojamiento no existe o pertenece a otro anfitrión"
           }
         },
         "tags": [
@@ -1113,6 +1126,7 @@
                 "PASSWORD_RESET",
                 "ACCESS_DENIED",
                 "LISTING_STATUS_CHANGE",
+                "AVAILABILITY_PERIOD_CREATE",
                 "BOOKING_STATUS_CHANGE",
                 "BOOKING_CANCELLATION",
                 "REVIEW_CREATED",
@@ -2147,6 +2161,58 @@
           "createdAt"
         ]
       },
+      "ConflictingPeriodDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "period-uuid-1"
+          },
+          "startDate": {
+            "type": "string",
+            "example": "2026-12-01"
+          },
+          "endDate": {
+            "type": "string",
+            "example": "2026-12-15"
+          }
+        },
+        "required": [
+          "id",
+          "startDate",
+          "endDate"
+        ]
+      },
+      "AvailabilityOverlapErrorDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 400
+          },
+          "error": {
+            "type": "string",
+            "example": "Bad Request"
+          },
+          "message": {
+            "type": "string",
+            "example": "El periodo solicitado se superpone con el periodo existente del 2026-12-01 al 2026-12-15."
+          },
+          "conflictingPeriod": {
+            "description": "Periodo ya registrado con el que se superpone (CA3)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConflictingPeriodDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "statusCode",
+          "error",
+          "message"
+        ]
+      },
       "PaginatedListingsResponseDto": {
         "type": "object",
         "properties": {
@@ -2463,6 +2529,7 @@
               "PASSWORD_RESET",
               "ACCESS_DENIED",
               "LISTING_STATUS_CHANGE",
+              "AVAILABILITY_PERIOD_CREATE",
               "BOOKING_STATUS_CHANGE",
               "BOOKING_CANCELLATION",
               "REVIEW_CREATED",

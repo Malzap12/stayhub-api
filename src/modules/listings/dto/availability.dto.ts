@@ -33,6 +33,34 @@ export class AvailabilityPeriodResponseDto {
   createdAt: Date;
 }
 
+export class ConflictingPeriodDto {
+  @ApiProperty({ example: 'period-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: '2026-12-01' })
+  startDate: string;
+
+  @ApiProperty({ example: '2026-12-15' })
+  endDate: string;
+}
+
+/** HU-019 CA3 · Respuesta 400 cuando el periodo se superpone con otro ya registrado. */
+export class AvailabilityOverlapErrorDto {
+  @ApiProperty({ example: 400 })
+  statusCode: number;
+
+  @ApiProperty({ example: 'Bad Request' })
+  error: string;
+
+  @ApiProperty({
+    example: 'El periodo solicitado se superpone con el periodo existente del 2026-12-01 al 2026-12-15.',
+  })
+  message: string;
+
+  @ApiPropertyOptional({ type: ConflictingPeriodDto, description: 'Periodo ya registrado con el que se superpone (CA3)' })
+  conflictingPeriod?: ConflictingPeriodDto;
+}
+
 export class CheckAvailabilityQueryDto {
   @ApiProperty({ example: '2026-11-01', description: 'Fecha de inicio del rango (YYYY-MM-DD)' })
   @IsNotEmpty()

@@ -9,6 +9,7 @@ import {
   AvailabilityResponseDto,
   CreateAvailabilityPeriodDto,
   AvailabilityPeriodResponseDto,
+  AvailabilityOverlapErrorDto,
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
@@ -153,12 +154,19 @@ export class ListingsController {
   })
   @ApiParam({ name: 'id', description: 'ID del alojamiento' })
   @ApiResponse({ status: 201, description: 'Periodo disponible registrado con éxito (CA1)', type: AvailabilityPeriodResponseDto })
-  @ApiResponse({ status: 400, description: 'Fechas inválidas, en el pasado (CA2) o superpuestas con periodo existente (CA3)' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Fechas inválidas o en el pasado (CA2), o superpuestas con un periodo existente: en ese caso conflictingPeriod indica cuál (CA3)',
+    type: AvailabilityOverlapErrorDto,
+  })
+  @ApiResponse({ status: 404, description: 'El alojamiento no existe o pertenece a otro anfitrión' })
   registerAvailabilityPeriod(
     @Param('id') id: string,
     @Body() dto: CreateAvailabilityPeriodDto,
+    @CurrentUser() user?: ActiveSession,
   ): Promise<AvailabilityPeriodResponseDto> {
-    return this.listingsService.registerAvailabilityPeriod(id, dto);
+    return this.listingsService.registerAvailabilityPeriod(id, dto, user);
   }
 
   @Get(':id/availability-periods')
@@ -170,8 +178,12 @@ export class ListingsController {
   })
   @ApiParam({ name: 'id', description: 'ID del alojamiento' })
   @ApiResponse({ status: 200, description: 'Lista de periodos disponibles', type: [AvailabilityPeriodResponseDto] })
-  getAvailabilityPeriods(@Param('id') id: string): Promise<AvailabilityPeriodResponseDto[]> {
-    return this.listingsService.getAvailabilityPeriods(id);
+  @ApiResponse({ status: 404, description: 'El alojamiento no existe o pertenece a otro anfitrión' })
+  getAvailabilityPeriods(
+    @Param('id') id: string,
+    @CurrentUser() user?: ActiveSession,
+  ): AvailabilityPeriodResponseDto[] {
+    return this.listingsService.getAvailabilityPeriods(id, user);
   }
 
   @Get('search')
@@ -197,7 +209,7 @@ export class ListingsController {
   getAvailability(
     @Param('id') id: string,
     @Query() query: CheckAvailabilityQueryDto,
-  ): Promise<AvailabilityResponseDto> {
+  ): AvailabilityResponseDto {
     return this.listingsService.getAvailability(id, query);
   }
 
