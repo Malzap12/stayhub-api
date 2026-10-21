@@ -293,6 +293,81 @@
         ]
       }
     },
+    "/api/users/me": {
+      "get": {
+        "operationId": "UsersController_getMyProfile",
+        "summary": "Consultar mi perfil · HU-006 (CA1)",
+        "description": "Retorna nombre, correo, teléfono, rol y estado de la cuenta del usuario autenticado (RF-009).",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Perfil del usuario autenticado (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/users/{id}": {
+      "get": {
+        "operationId": "UsersController_getProfileById",
+        "summary": "Consultar un perfil por identificador · HU-006 (CA2)",
+        "description": "Solo permite consultar el propio perfil; el perfil de otro usuario responde 403 y queda en la auditoría.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del usuario",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Perfil propio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "No puedes consultar el perfil de otro usuario (CA2)"
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings": {
       "post": {
         "operationId": "ListingsController_create",
@@ -1433,6 +1508,11 @@
             "description": "Contraseña de al menos 8 caracteres que combine letras y números (CA3)",
             "minLength": 8
           },
+          "phone": {
+            "type": "string",
+            "example": "+57 300 123 4567",
+            "description": "Teléfono de contacto (opcional · HU-006)"
+          },
           "role": {
             "type": "string",
             "enum": [
@@ -1594,6 +1674,61 @@
         },
         "required": [
           "message"
+        ]
+      },
+      "UserProfileDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "user-1"
+          },
+          "name": {
+            "type": "string",
+            "example": "Miguel Ángel Alza"
+          },
+          "email": {
+            "type": "string",
+            "example": "miguel@stayhub.com"
+          },
+          "phone": {
+            "type": "string",
+            "example": "+57 300 123 4567",
+            "nullable": true,
+            "description": "Teléfono de contacto; null si no se registró"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "HUESPED",
+              "ANFITRION",
+              "ADMINISTRADOR"
+            ],
+            "example": "HUESPED"
+          },
+          "status": {
+            "type": "string",
+            "example": "ACTIVA",
+            "enum": [
+              "ACTIVA",
+              "DESACTIVADA",
+              "RESTRINGIDA"
+            ],
+            "description": "Estado de la cuenta"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "phone",
+          "role",
+          "status",
+          "createdAt"
         ]
       },
       "CreateListingDto": {

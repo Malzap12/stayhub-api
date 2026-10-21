@@ -742,4 +742,53 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await registerPeriod(guest, id, '2027-03-01', '2027-03-15')).status).toBe(403);
     });
   });
+
+  describe('HU-006 · Consultar mi perfil (CA1, CA2, RF-009)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const register = (email: string, phone?: string) =>
+      fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: 'Laura Gómez', email, password: 'Password123', role: 'HUESPED', phone }),
+      });
+    const login = async (email: string) => {
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return (await res.json()) as { token: string; user: { id: string } };
+    };
+    const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+    it('11.1 (CA1) GET /api/users/me responde nombre, correo, teléfono, rol y estado', async () => {
+      await register('laura.hu006@stayhub.com', '+57 300 123 4567');
+      const { token } = await login('laura.hu006@stayhub.com');
+
+      const res = await fetch(`${baseUrl}/users/me`, { headers: auth(token) });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        name: 'Laura Gómez',
+        email: 'laura.hu006@stayhub.com',
+        phone: '+57 300 123 4567',
+        role: 'HUESPED',
+        status: 'ACTIVA',
+      });
+      expect((await fetch(`${baseUrl}/users/me`)).status).toBe(401);
+    });
+
+    it('11.2 (CA2) consultar el perfil de otro usuario por su id responde 403', async () => {
+      await register('mia.hu006@stayhub.com');
+      await register('otro.hu006@stayhub.com');
+      const mine = await login('mia.hu006@stayhub.com');
+      const other = await login('otro.hu006@stayhub.com');
+
+      expect((await fetch(`${baseUrl}/users/${mine.user.id}`, { headers: auth(mine.token) })).status).toBe(200);
+      expect((await fetch(`${baseUrl}/users/${other.user.id}`, { headers: auth(mine.token) })).status).toBe(403);
+    });
+
+    it('11.3 el registro rechaza un teléfono inválido', async () => {
+      expect((await register('telefono.hu006@stayhub.com', 'abc123')).status).toBe(400);
+    });
+  });
 });

@@ -26,6 +26,7 @@ export interface UserAccount {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   passwordHash: string;
   role: Role;
   status: AccountStatus;
@@ -158,6 +159,10 @@ export class AuthService implements OnModuleInit {
 
   findByEmail(email: string): UserAccount | undefined {
     return this.users.get(email.trim().toLowerCase());
+  }
+
+  findById(id: string): UserAccount | undefined {
+    return Array.from(this.users.values()).find((user) => user.id === id);
   }
 
   restrictAccount(
@@ -343,6 +348,7 @@ export class AuthService implements OnModuleInit {
       id: `user-${this.users.size + 1}`,
       name: userData.name.trim(),
       email: normalizedEmail,
+      phone: userData.phone?.trim() || undefined,
       passwordHash: this.hashPassword(userData.password),
       role: userData.role,
       status: 'ACTIVA',
