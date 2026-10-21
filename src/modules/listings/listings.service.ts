@@ -281,7 +281,7 @@ export class ListingsService {
     const fail = (detail: string) =>
       this.recordStatusChange(host?.email, id, AuditResult.FALLIDO, `Solicitud de activación rechazada: ${detail}`);
 
-    if (!listing || !host || listing.hostId !== host.userId) {
+    if (!host || listing?.hostId !== host.userId) {
       fail('publicación no encontrada o de otro anfitrión');
       throw new NotFoundException(`Publicación con id ${id} no encontrada`);
     }
