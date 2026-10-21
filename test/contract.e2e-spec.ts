@@ -791,4 +791,63 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await register('telefono.hu006@stayhub.com', 'abc123')).status).toBe(400);
     });
   });
+
+  describe('HU-007 · Actualizar mi perfil (CA1, CA2, CA3, RF-010, RN-021)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const registerAndLogin = async (email: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: 'Laura Gómez', email, password: 'Password123', role: 'HUESPED' }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return (await res.json()).token as string;
+    };
+    const patch = (path: string, token: string, body: object) =>
+      fetch(`${baseUrl}${path}`, {
+        method: 'PATCH',
+        headers: { ...json, Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+
+    it('12.1 (CA1) PATCH /api/users/me actualiza nombre y teléfono y se ve en GET /api/users/me', async () => {
+      const token = await registerAndLogin('laura.hu007@stayhub.com');
+
+      const res = await patch('/users/me', token, { name: 'Laura Gómez Ruiz', phone: '3001234567' });
+      expect(res.status).toBe(200);
+
+      const me = await (await fetch(`${baseUrl}/users/me`, { headers: { Authorization: `Bearer ${token}` } })).json();
+      expect(me).toMatchObject({ name: 'Laura Gómez Ruiz', phone: '3001234567' });
+    });
+
+    it('12.2 (CA2) PATCH /api/users/me/password exige la actual y una nueva que cumpla la política', async () => {
+      const token = await registerAndLogin('clave.hu007@stayhub.com');
+
+      expect((await patch('/users/me/password', token, { currentPassword: 'Mala12345', newPassword: 'NuevaClave2026' })).status).toBe(400);
+      expect((await patch('/users/me/password', token, { currentPassword: 'Password123', newPassword: 'corta' })).status).toBe(400);
+      expect((await patch('/users/me/password', token, { currentPassword: 'Password123', newPassword: 'NuevaClave2026' })).status).toBe(200);
+
+      const login = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email: 'clave.hu007@stayhub.com', password: 'NuevaClave2026' }),
+      });
+      expect(login.status).toBe(200);
+    });
+
+    it('12.3 (CA3) el correo y el rol no se pueden editar', async () => {
+      const token = await registerAndLogin('fijo.hu007@stayhub.com');
+
+      const res = await patch('/users/me', token, { email: 'otro.hu007@stayhub.com', role: 'ADMINISTRADOR' });
+      expect(res.status).toBe(400);
+      expect((await res.json()).fieldErrors).toMatchObject({
+        email: ['El correo electrónico no se puede editar'],
+        role: ['El rol no se puede editar'],
+      });
+    });
+  });
 });
