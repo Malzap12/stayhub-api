@@ -322,6 +322,92 @@
             "bearer": []
           }
         ]
+      },
+      "patch": {
+        "operationId": "UsersController_updateMyProfile",
+        "summary": "Actualizar mi nombre y teléfono · HU-007 (CA1, CA3)",
+        "description": "Actualiza el nombre y/o el teléfono del usuario autenticado y registra el evento en la auditoría (RF-010, RN-021). El correo y el rol no se pueden editar.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Perfil actualizado (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserProfileDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Datos inválidos, sin cambios, o intento de editar correo o rol (CA3)"
+          },
+          "401": {
+            "description": "No autenticado"
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/users/me/password": {
+      "patch": {
+        "operationId": "UsersController_changeMyPassword",
+        "summary": "Cambiar mi contraseña · HU-007 (CA2)",
+        "description": "Verifica la contraseña actual y guarda la nueva si cumple la política. Cierra las demás sesiones de la cuenta y conserva la actual.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Contraseña actualizada (CA2)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangePasswordResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Contraseña actual incorrecta, o nueva contraseña que no cumple la política o es igual a la actual"
+          },
+          "401": {
+            "description": "No autenticado"
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/api/users/{id}": {
@@ -1200,6 +1286,8 @@
                 "PASSWORD_RECOVERY_REQUEST",
                 "PASSWORD_RESET",
                 "ACCESS_DENIED",
+                "PROFILE_UPDATE",
+                "PASSWORD_CHANGE",
                 "LISTING_STATUS_CHANGE",
                 "AVAILABILITY_PERIOD_CREATE",
                 "BOOKING_STATUS_CHANGE",
@@ -1729,6 +1817,54 @@
           "role",
           "status",
           "createdAt"
+        ]
+      },
+      "UpdateProfileDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Laura Gómez",
+            "description": "Nombre completo (CA1)"
+          },
+          "phone": {
+            "type": "string",
+            "example": "+57 300 123 4567",
+            "nullable": true,
+            "description": "Teléfono de contacto (CA1). Enviar null o \"\" para quitarlo."
+          }
+        }
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "example": "Password123",
+            "description": "Contraseña actual (CA2)"
+          },
+          "newPassword": {
+            "type": "string",
+            "example": "NuevaClave2026",
+            "description": "Nueva contraseña: al menos 8 caracteres que combinen letras y números (CA2)",
+            "minLength": 8
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ]
+      },
+      "ChangePasswordResponseDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Contraseña actualizada correctamente"
+          }
+        },
+        "required": [
+          "message"
         ]
       },
       "CreateListingDto": {
@@ -2663,6 +2799,8 @@
               "PASSWORD_RECOVERY_REQUEST",
               "PASSWORD_RESET",
               "ACCESS_DENIED",
+              "PROFILE_UPDATE",
+              "PASSWORD_CHANGE",
               "LISTING_STATUS_CHANGE",
               "AVAILABILITY_PERIOD_CREATE",
               "BOOKING_STATUS_CHANGE",
