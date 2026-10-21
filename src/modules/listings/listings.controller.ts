@@ -11,6 +11,7 @@ import {
   AvailabilityPeriodResponseDto,
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
+import { MyListingDto } from './dto/my-listing.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { ActiveSession } from '../auth/auth.service';
@@ -44,12 +45,14 @@ export class ListingsController {
   @Roles(Role.ANFITRION, Role.ADMINISTRADOR)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Listar mis publicaciones · HU-010',
-    description: 'Retorna las publicaciones del anfitrión autenticado, incluidos los borradores, de la más reciente a la más antigua.',
+    summary: 'Consultar mis publicaciones · HU-010, HU-012',
+    description:
+      'Retorna solo las publicaciones del anfitrión autenticado, incluidos los borradores, de la más reciente a la más antigua, con título, ciudad, precio y estado (CA1). Si una publicación fue devuelta o bloqueada incluye el motivo indicado por el administrador (CA2). RF-016, RN-005.',
   })
-  @ApiResponse({ status: 200, description: 'Publicaciones del anfitrión', type: [ListingResponseDto] })
+  @ApiResponse({ status: 200, description: 'Publicaciones del anfitrión (CA1, CA2)', type: [MyListingDto] })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
   @ApiResponse({ status: 403, description: 'Acceso denegado para rol HUESPED' })
-  findMine(@CurrentUser() user?: ActiveSession): ListingResponseDto[] {
+  findMine(@CurrentUser() user?: ActiveSession): MyListingDto[] {
     return this.listingsService.findMine(user?.userId ?? '');
   }
 
