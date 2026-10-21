@@ -19,6 +19,10 @@ import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 
 type ListingData = Omit<ListingResponseDto, 'isComplete' | 'missingFields'>;
 
+/** HU-019 CA2: las fechas de los periodos se comparan con el día actual en Colombia. */
+const BUSINESS_TIME_ZONE = 'America/Bogota';
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
  * HU-010 CA4 y HU-013 CA1: información mínima de una publicación (9 campos)
  * más al menos una imagen. Sin ella no se puede solicitar la activación.
@@ -201,20 +205,23 @@ export class ListingsService {
     });
   }
 
+  /** Acepta solo fechas de calendario reales en formato YYYY-MM-DD (rechaza, por ejemplo, 2027-02-30). */
   private normalizeDateOnly(dateInput: string): string {
     const trimmed = dateInput?.trim();
     if (!trimmed) {
       throw new BadRequestException('La fecha proporcionada es inválida');
     }
-    const parsed = new Date(trimmed);
-    if (Number.isNaN(parsed.getTime())) {
+    const dateOnly = trimmed.slice(0, 10);
+    const parsed = new Date(`${dateOnly}T00:00:00.000Z`);
+    if (!DATE_ONLY_PATTERN.test(dateOnly) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== dateOnly) {
       throw new BadRequestException(`Formato de fecha inválido: ${dateInput}`);
     }
-    return trimmed.slice(0, 10);
+    return dateOnly;
   }
 
+  /** "Hoy" en la zona horaria del negocio, para no rechazar el día actual en la noche (en UTC ya es mañana). */
   private getTodayDateOnly(): string {
-    return new Date().toISOString().slice(0, 10);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: BUSINESS_TIME_ZONE }).format(new Date());
   }
 
   /**
@@ -322,47 +329,66 @@ export class ListingsService {
   }
 
   /**
-   * HU-019 · Registrar periodos disponibles (CA1, CA2, CA3)
+   * HU-019 · Registrar periodos disponibles (CA1, CA2, CA3, RF-025).
+   * Solo el anfitrión dueño del alojamiento registra periodos; cada intento,
+   * aceptado o rechazado, queda en la auditoría.
    */
   async registerAvailabilityPeriod(
     listingId: string,
     dto: CreateAvailabilityPeriodDto,
+    host?: ActiveSession,
   ): Promise<AvailabilityPeriodResponseDto> {
-    const startDate = this.normalizeDateOnly(dto?.startDate);
-    const endDate = this.normalizeDateOnly(dto?.endDate);
-    const today = this.getTodayDateOnly();
+    const fail = (detail: string) =>
+      this.recordAvailabilityChange(host?.email, listingId, AuditResult.FALLIDO, `Periodo rechazado: ${detail}`);
+
+    this.findOwnListing(listingId, host, fail);
+
+    let startDate: string;
+    let endDate: string;
+    try {
+      startDate = this.normalizeDateOnly(dto?.startDate);
+      endDate = this.normalizeDateOnly(dto?.endDate);
+    } catch (error) {
+      fail('fechas inválidas');
+      throw error;
+    }
 
     // CA2: Dado que el periodo termina antes de empezar o comienza en el pasado, el sistema lo rechaza.
     if (endDate <= startDate) {
-      throw new BadRequestException(
-        'La fecha de fin debe ser posterior a la fecha de inicio del periodo.',
-      );
+      const message = 'La fecha de fin debe ser posterior a la fecha de inicio del periodo.';
+      fail(message);
+      throw new BadRequestException(message);
     }
 
-    if (startDate < today) {
-      throw new BadRequestException(
-        'La fecha de inicio del periodo no puede estar en el pasado.',
-      );
+    if (startDate < this.getTodayDateOnly()) {
+      const message = 'La fecha de inicio del periodo no puede estar en el pasado.';
+      fail(message);
+      throw new BadRequestException(message);
     }
 
     // CA3: Dado que el periodo se superpone con otro ya registrado, el sistema lo rechaza e indica el periodo existente.
-    const existingPeriods = this.availabilityPeriodsStore.filter(
-      (period) => period.listingId === listingId,
-    );
-
-    const overlapping = existingPeriods.find(
+    const overlapping = this.periodsOf(listingId).find(
       (existing) => startDate <= existing.endDate && endDate >= existing.startDate,
     );
 
     if (overlapping) {
-      throw new BadRequestException(
-        `El periodo solicitado se superpone con el periodo existente del ${overlapping.startDate} al ${overlapping.endDate}.`,
-      );
+      const message = `El periodo solicitado se superpone con el periodo existente del ${overlapping.startDate} al ${overlapping.endDate}.`;
+      fail(message);
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message,
+        conflictingPeriod: {
+          id: overlapping.id,
+          startDate: overlapping.startDate,
+          endDate: overlapping.endDate,
+        },
+      });
     }
 
     // CA1: El periodo queda disponible para reservas.
     const createdPeriod: AvailabilityPeriodResponseDto = {
-      id: `period-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id: randomUUID(),
       listingId,
       startDate,
       endDate,
@@ -371,13 +397,51 @@ export class ListingsService {
     };
 
     this.availabilityPeriodsStore.push(createdPeriod);
+    this.recordAvailabilityChange(
+      host?.email,
+      listingId,
+      AuditResult.EXITOSO,
+      `Periodo disponible registrado: ${startDate} al ${endDate}`,
+    );
     return createdPeriod;
   }
 
-  async getAvailabilityPeriods(listingId: string): Promise<AvailabilityPeriodResponseDto[]> {
+  /** HU-019: periodos del alojamiento, visibles solo para su anfitrión. */
+  async getAvailabilityPeriods(listingId: string, host?: ActiveSession): Promise<AvailabilityPeriodResponseDto[]> {
+    this.findOwnListing(listingId, host);
+    return this.periodsOf(listingId);
+  }
+
+  private periodsOf(listingId: string): AvailabilityPeriodResponseDto[] {
     return this.availabilityPeriodsStore
       .filter((period) => period.listingId === listingId)
       .sort((a, b) => a.startDate.localeCompare(b.startDate));
+  }
+
+  /** Responde 404 si el alojamiento no existe o es de otro anfitrión, sin revelar cuál de los dos ocurre. */
+  private findOwnListing(listingId: string, host?: ActiveSession, onFail?: (detail: string) => void): void {
+    const listing = this.listingsStore.find((item) => item.id === listingId);
+    const ownerId = host?.userId;
+    if (!ownerId || listing?.hostId !== ownerId) {
+      onFail?.('alojamiento no encontrado o de otro anfitrión');
+      throw new NotFoundException(`Publicación con id ${listingId} no encontrada`);
+    }
+  }
+
+  private recordAvailabilityChange(
+    actor: string | undefined,
+    listingId: string,
+    result: AuditResult,
+    detail: string,
+  ): void {
+    this.auditService.record({
+      actor,
+      action: AuditAction.AVAILABILITY_PERIOD_CREATE,
+      entity: 'Listing',
+      entityId: listingId,
+      result,
+      detail,
+    });
   }
 
   /**
@@ -553,7 +617,7 @@ export class ListingsService {
   }
 
   async getAvailability(id: string, query: CheckAvailabilityQueryDto): Promise<AvailabilityResponseDto> {
-    const periods = await this.getAvailabilityPeriods(id);
+    const periods = this.periodsOf(id);
     const hasRegisteredPeriods = periods.length > 0;
     const isAvailable = hasRegisteredPeriods
       ? periods.some((p) => query.startDate >= p.startDate && query.endDate <= p.endDate)
