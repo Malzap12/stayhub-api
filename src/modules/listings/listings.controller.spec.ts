@@ -32,8 +32,8 @@ describe('ListingsController', () => {
     expect(result.id).toBe('test-id');
   });
 
-  it('should get availability', async () => {
-    const result = await controller.getAvailability('test-id', {
+  it('should get availability', () => {
+    const result = controller.getAvailability('test-id', {
       startDate: '2026-11-01',
       endDate: '2026-11-05',
     });

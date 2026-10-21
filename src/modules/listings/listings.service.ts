@@ -407,7 +407,7 @@ export class ListingsService {
   }
 
   /** HU-019: periodos del alojamiento, visibles solo para su anfitrión. */
-  async getAvailabilityPeriods(listingId: string, host?: ActiveSession): Promise<AvailabilityPeriodResponseDto[]> {
+  getAvailabilityPeriods(listingId: string, host?: ActiveSession): AvailabilityPeriodResponseDto[] {
     this.findOwnListing(listingId, host);
     return this.periodsOf(listingId);
   }
@@ -616,7 +616,7 @@ export class ListingsService {
     });
   }
 
-  async getAvailability(id: string, query: CheckAvailabilityQueryDto): Promise<AvailabilityResponseDto> {
+  getAvailability(id: string, query: CheckAvailabilityQueryDto): AvailabilityResponseDto {
     const periods = this.periodsOf(id);
     const hasRegisteredPeriods = periods.length > 0;
     const isAvailable = hasRegisteredPeriods

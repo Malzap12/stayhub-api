@@ -65,14 +65,14 @@ describe('HU-019 · Registrar periodos disponibles (CA1, CA2, CA3, RF-025)', () 
         endDate: '2027-03-15',
         availableForBooking: true,
       });
-      expect(await controller.getAvailabilityPeriods(listingId, host)).toEqual([created]);
+      expect(controller.getAvailabilityPeriods(listingId, host)).toEqual([created]);
     });
 
     it('la consulta de disponibilidad acepta fechas dentro del periodo y rechaza las de fuera', async () => {
       await controller.registerAvailabilityPeriod(listingId, { startDate: '2027-03-01', endDate: '2027-03-15' }, host);
 
-      const inRange = await controller.getAvailability(listingId, { startDate: '2027-03-05', endDate: '2027-03-10' });
-      const outOfRange = await controller.getAvailability(listingId, { startDate: '2027-04-01', endDate: '2027-04-05' });
+      const inRange = controller.getAvailability(listingId, { startDate: '2027-03-05', endDate: '2027-03-10' });
+      const outOfRange = controller.getAvailability(listingId, { startDate: '2027-04-01', endDate: '2027-04-05' });
 
       expect(inRange.isAvailable).toBe(true);
       expect(outOfRange.isAvailable).toBe(false);
@@ -82,7 +82,7 @@ describe('HU-019 · Registrar periodos disponibles (CA1, CA2, CA3, RF-025)', () 
       await controller.registerAvailabilityPeriod(listingId, { startDate: '2027-08-01', endDate: '2027-08-10' }, host);
       await controller.registerAvailabilityPeriod(listingId, { startDate: '2027-02-01', endDate: '2027-02-10' }, host);
 
-      const periods = await controller.getAvailabilityPeriods(listingId, host);
+      const periods = controller.getAvailabilityPeriods(listingId, host);
       expect(periods.map((period) => period.startDate)).toEqual(['2027-02-01', '2027-08-01']);
     });
 
@@ -122,7 +122,7 @@ describe('HU-019 · Registrar periodos disponibles (CA1, CA2, CA3, RF-025)', () 
           controller.registerAvailabilityPeriod(listingId, { startDate, endDate: '2027-05-10' }, host),
         ).rejects.toThrow(BadRequestException);
       }
-      expect(await controller.getAvailabilityPeriods(listingId, host)).toEqual([]);
+      expect(controller.getAvailabilityPeriods(listingId, host)).toEqual([]);
     });
   });
 
@@ -143,7 +143,7 @@ describe('HU-019 · Registrar periodos disponibles (CA1, CA2, CA3, RF-025)', () 
         message: 'El periodo solicitado se superpone con el periodo existente del 2027-06-10 al 2027-06-20.',
         conflictingPeriod: { id: existing.id, startDate: '2027-06-10', endDate: '2027-06-20' },
       });
-      expect(await controller.getAvailabilityPeriods(listingId, host)).toHaveLength(1);
+      expect(controller.getAvailabilityPeriods(listingId, host)).toHaveLength(1);
     });
 
     it('también rechaza un periodo que contiene por completo al existente', async () => {
@@ -161,8 +161,8 @@ describe('HU-019 · Registrar periodos disponibles (CA1, CA2, CA3, RF-025)', () 
       await controller.registerAvailabilityPeriod(listingId, { startDate: '2027-06-21', endDate: '2027-06-30' }, host);
       await controller.registerAvailabilityPeriod(otherListingId, { startDate: '2027-06-10', endDate: '2027-06-20' }, host);
 
-      expect(await controller.getAvailabilityPeriods(listingId, host)).toHaveLength(2);
-      expect(await controller.getAvailabilityPeriods(otherListingId, host)).toHaveLength(1);
+      expect(controller.getAvailabilityPeriods(listingId, host)).toHaveLength(2);
+      expect(controller.getAvailabilityPeriods(otherListingId, host)).toHaveLength(1);
     });
   });
 
@@ -173,7 +173,7 @@ describe('HU-019 · Registrar periodos disponibles (CA1, CA2, CA3, RF-025)', () 
       await expect(
         controller.registerAvailabilityPeriod(listingId, { startDate: '2027-03-01', endDate: '2027-03-15' }, otherHost),
       ).rejects.toThrow(NotFoundException);
-      await expect(controller.getAvailabilityPeriods(listingId, otherHost)).rejects.toThrow(NotFoundException);
+      expect(() => controller.getAvailabilityPeriods(listingId, otherHost)).toThrow(NotFoundException);
     });
 
     it('responde 404 si el alojamiento no existe', async () => {

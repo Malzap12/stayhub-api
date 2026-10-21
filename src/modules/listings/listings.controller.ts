@@ -182,7 +182,7 @@ export class ListingsController {
   getAvailabilityPeriods(
     @Param('id') id: string,
     @CurrentUser() user?: ActiveSession,
-  ): Promise<AvailabilityPeriodResponseDto[]> {
+  ): AvailabilityPeriodResponseDto[] {
     return this.listingsService.getAvailabilityPeriods(id, user);
   }
 
@@ -209,7 +209,7 @@ export class ListingsController {
   getAvailability(
     @Param('id') id: string,
     @Query() query: CheckAvailabilityQueryDto,
-  ): Promise<AvailabilityResponseDto> {
+  ): AvailabilityResponseDto {
     return this.listingsService.getAvailability(id, query);
   }
 
