@@ -19,7 +19,10 @@ import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 
 type ListingData = Omit<ListingResponseDto, 'isComplete' | 'missingFields'>;
 
-/** HU-010 CA4: información básica que debe tener una publicación para considerarse completa. */
+/**
+ * HU-010 CA4 y HU-013 CA1: información mínima de una publicación (9 campos)
+ * más al menos una imagen. Sin ella no se puede solicitar la activación.
+ */
 const REQUIRED_FOR_COMPLETENESS: Array<keyof ListingData> = [
   'description',
   'city',
@@ -32,6 +35,20 @@ const REQUIRED_FOR_COMPLETENESS: Array<keyof ListingData> = [
   'rules',
   'images',
 ];
+
+/** HU-013 CA2: nombre de cada campo mínimo tal como lo ve el anfitrión. */
+export const REQUIRED_FIELD_LABELS: Record<string, string> = {
+  description: 'descripción',
+  city: 'ciudad',
+  department: 'departamento',
+  address: 'dirección o referencia',
+  propertyType: 'tipo de inmueble',
+  maxGuests: 'capacidad',
+  pricePerNight: 'precio por noche',
+  amenities: 'servicios',
+  rules: 'reglas',
+  images: 'al menos una imagen',
+};
 
 export function withCompleteness(listing: ListingData): ListingResponseDto {
   const missingFields = REQUIRED_FOR_COMPLETENESS.filter((field) => {
@@ -251,6 +268,56 @@ export class ListingsService {
       .filter((item) => item.hostId === hostId)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .map(toMyListing);
+  }
+
+  /**
+   * HU-013 · Solicitar la activación de mi publicación (CA1, CA2, CA3, RF-017).
+   * Solo el anfitrión dueño puede solicitarla (RN-005) y solo desde BORRADOR (AMB-03).
+   * Si tiene los 9 campos mínimos y al menos una imagen pasa a PENDIENTE_REVISION;
+   * cada intento, exitoso o fallido, queda en la auditoría (RN-021).
+   */
+  requestActivation(id: string, host?: ActiveSession): MyListingDto {
+    const listing = this.listingsStore.find((item) => item.id === id);
+    const fail = (detail: string) =>
+      this.recordStatusChange(host?.email, id, AuditResult.FALLIDO, `Solicitud de activación rechazada: ${detail}`);
+
+    if (!listing || !host || listing.hostId !== host.userId) {
+      fail('publicación no encontrada o de otro anfitrión');
+      throw new NotFoundException(`Publicación con id ${id} no encontrada`);
+    }
+
+    const currentStatus = listing.status ?? ListingStatus.BORRADOR;
+    if (currentStatus !== ListingStatus.BORRADOR) {
+      const message = `Solo puedes solicitar la activación de una publicación en BORRADOR (estado actual: ${LISTING_STATUS_LABELS[currentStatus]})`;
+      fail(message);
+      throw new BadRequestException(message);
+    }
+
+    const { missingFields } = withCompleteness(listing);
+    if (missingFields.length > 0) {
+      const missingFieldLabels = missingFields.map((field) => REQUIRED_FIELD_LABELS[field] ?? field);
+      fail(`faltan ${missingFields.join(', ')}`);
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: `No puedes solicitar la activación: completa los campos faltantes. Falta: ${missingFieldLabels.join(', ')}.`,
+        missingFields,
+        missingFieldLabels,
+      });
+    }
+
+    listing.status = ListingStatus.PENDIENTE_REVISION;
+    listing.requestedAt = new Date();
+    listing.returnReason = undefined;
+    listing.isComplete = true;
+    listing.missingFields = [];
+    this.recordStatusChange(
+      host.email,
+      id,
+      AuditResult.EXITOSO,
+      `${ListingStatus.BORRADOR} -> ${ListingStatus.PENDIENTE_REVISION} (solicitud de activación)`,
+    );
+    return toMyListing(listing);
   }
 
   /**

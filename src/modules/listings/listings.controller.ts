@@ -12,6 +12,7 @@ import {
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
+import { ActivationMissingFieldsErrorDto } from './dto/request-activation.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { ActiveSession } from '../auth/auth.service';
@@ -68,6 +69,27 @@ export class ListingsController {
   @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ADMINISTRADOR)' })
   findPendingQueue(): Promise<ListingResponseDto[]> {
     return this.listingsService.findPendingReviewQueue();
+  }
+
+  @Patch(':id/request-activation')
+  @Roles(Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Solicitar la activación de mi publicación · HU-013 (CA1, CA2, CA3)',
+    description:
+      'Envía a revisión una publicación propia en BORRADOR. Si tiene los 9 campos mínimos (descripción, ciudad, departamento, dirección, tipo, capacidad, precio por noche, servicios y reglas) y al menos una imagen, pasa a PENDIENTE_REVISION (CA1); si no, se rechaza con la lista de campos faltantes (CA2). El cambio queda en la auditoría (CA3). RF-017, RN-005, RN-007, RN-021.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
+  @ApiResponse({ status: 200, description: 'Publicación enviada a revisión: estado PENDIENTE_REVISION (CA1, CA3)', type: MyListingDto })
+  @ApiResponse({ status: 400, description: 'Faltan campos mínimos (CA2) o la publicación no está en BORRADOR', type: ActivationMissingFieldsErrorDto })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado para rol HUESPED' })
+  @ApiResponse({ status: 404, description: 'La publicación no existe o pertenece a otro anfitrión (RN-005)' })
+  requestActivation(
+    @Param('id') id: string,
+    @CurrentUser() user?: ActiveSession,
+  ): MyListingDto {
+    return this.listingsService.requestActivation(id, user);
   }
 
   @Patch(':id/approve')
