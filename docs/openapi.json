@@ -343,22 +343,25 @@
     "/api/listings/mine": {
       "get": {
         "operationId": "ListingsController_findMine",
-        "summary": "Listar mis publicaciones · HU-010",
-        "description": "Retorna las publicaciones del anfitrión autenticado, incluidos los borradores, de la más reciente a la más antigua.",
+        "summary": "Consultar mis publicaciones · HU-010, HU-012",
+        "description": "Retorna solo las publicaciones del anfitrión autenticado, incluidos los borradores, de la más reciente a la más antigua, con título, ciudad, precio y estado (CA1). Si una publicación fue devuelta o bloqueada incluye el motivo indicado por el administrador (CA2). RF-016, RN-005.",
         "parameters": [],
         "responses": {
           "200": {
-            "description": "Publicaciones del anfitrión",
+            "description": "Publicaciones del anfitrión (CA1, CA2)",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ListingResponseDto"
+                    "$ref": "#/components/schemas/MyListingDto"
                   }
                 }
               }
             }
+          },
+          "401": {
+            "description": "No autenticado"
           },
           "403": {
             "description": "Acceso denegado para rol HUESPED"
@@ -1783,6 +1786,11 @@
             "example": "Faltan fotografías del exterior",
             "description": "Motivo de devolución visible para el anfitrión (HU-050 CA3)"
           },
+          "blockReason": {
+            "type": "string",
+            "example": "Fotografías que no corresponden al inmueble",
+            "description": "Motivo de bloqueo indicado por el administrador (HU-012 CA2)"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string",
@@ -1800,6 +1808,86 @@
           "rating",
           "reviewCount",
           "hostId",
+          "createdAt"
+        ]
+      },
+      "MyListingDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "listing-7f3c2a10"
+          },
+          "title": {
+            "type": "string",
+            "example": "Cabaña del Bosque"
+          },
+          "city": {
+            "type": "string",
+            "example": "Guatapé",
+            "description": "Ciudad; vacía si el borrador aún no la tiene (CA1)"
+          },
+          "pricePerNight": {
+            "type": "number",
+            "example": 320000,
+            "description": "Precio por noche; vacío si el borrador aún no lo tiene (CA1)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "BORRADOR",
+              "PENDIENTE_REVISION",
+              "ACTIVA",
+              "PAUSADA",
+              "BLOQUEADA"
+            ],
+            "example": "BORRADOR",
+            "description": "Estado de la publicación (CA1)"
+          },
+          "statusLabel": {
+            "type": "string",
+            "example": "Borrador",
+            "description": "Nombre del estado para mostrar al anfitrión"
+          },
+          "adminReasonType": {
+            "type": "string",
+            "enum": [
+              "DEVUELTA",
+              "BLOQUEADA"
+            ],
+            "description": "Indica si la publicación fue devuelta o bloqueada por el administrador (CA2)"
+          },
+          "adminReason": {
+            "type": "string",
+            "example": "Las fotografías están oscuras; agrega imágenes del exterior.",
+            "description": "Motivo indicado por el administrador al devolver o bloquear la publicación (CA2)"
+          },
+          "isComplete": {
+            "type": "boolean",
+            "example": true,
+            "description": "Indica si tiene toda la información básica (HU-010 CA4)"
+          },
+          "missingFields": {
+            "example": [],
+            "description": "Campos básicos pendientes (HU-010 CA4)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-20T10:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "statusLabel",
+          "isComplete",
+          "missingFields",
           "createdAt"
         ]
       },
