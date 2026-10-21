@@ -571,5 +571,101 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await getMine(guestToken)).status).toBe(403);
     });
   });
+
+  describe('HU-013 · Solicitar la activación de mi publicación (CA1, CA2, CA3, RF-017)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const login = async (email: string, password: string) =>
+      (
+        await (
+          await fetch(`${baseUrl}/auth/login`, {
+            method: 'POST',
+            headers: json,
+            body: JSON.stringify({ email, password }),
+          })
+        ).json()
+      ).token as string;
+    const registerAndLogin = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: email, email, password: 'Password123', role }),
+      });
+      return login(email, 'Password123');
+    };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const createListing = async (token: string, body: unknown) =>
+      (await (await fetch(`${baseUrl}/listings`, { method: 'POST', headers: auth(token), body: JSON.stringify(body) })).json()) as {
+        id: string;
+      };
+    const requestActivation = (token: string, id: string) =>
+      fetch(`${baseUrl}/listings/${id}/request-activation`, { method: 'PATCH', headers: auth(token) });
+    const completeDraft = {
+      title: 'Cabaña del Bosque',
+      description: 'Cabaña de madera con chimenea.',
+      city: 'Guatapé',
+      department: 'Antioquia',
+      address: 'Vereda El Roble',
+      propertyType: 'CABANA',
+      maxGuests: 4,
+      pricePerNight: 320000,
+      amenities: ['WIFI'],
+      rules: ['No fumar'],
+      images: ['https://storage.stayhub.com/cabana-1.jpg'],
+    };
+
+    it('9.1 (CA1, CA3) la publicación completa pasa a PENDIENTE_REVISION, se ve en Mis publicaciones y queda en la auditoría', async () => {
+      const token = await registerAndLogin('anfitrion.hu013@stayhub.com', 'ANFITRION');
+      const listing = await createListing(token, completeDraft);
+
+      const res = await requestActivation(token, listing.id);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ id: listing.id, status: 'PENDIENTE_REVISION' });
+
+      const mine = await (await fetch(`${baseUrl}/listings/mine`, { headers: auth(token) })).json();
+      expect(mine[0]).toMatchObject({ id: listing.id, status: 'PENDIENTE_REVISION' });
+
+      const adminToken = await login(
+        process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com',
+        process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!',
+      );
+      const pending = await (await fetch(`${baseUrl}/listings/pending`, { headers: auth(adminToken) })).json();
+      expect(pending.map((item: { id: string }) => item.id)).toContain(listing.id);
+
+      const events = await (
+        await fetch(`${baseUrl}/audit/events?action=LISTING_STATUS_CHANGE`, { headers: auth(adminToken) })
+      ).json();
+      const items = Array.isArray(events) ? events : events.data;
+      expect(items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            entityId: listing.id,
+            result: 'EXITOSO',
+            detail: 'BORRADOR -> PENDIENTE_REVISION (solicitud de activación)',
+          }),
+        ]),
+      );
+    });
+
+    it('9.2 (CA2) rechaza la publicación incompleta y lista los campos faltantes', async () => {
+      const token = await registerAndLogin('anfitrion2.hu013@stayhub.com', 'ANFITRION');
+      const listing = await createListing(token, { ...completeDraft, images: [], pricePerNight: undefined });
+
+      const res = await requestActivation(token, listing.id);
+      const body = await res.json();
+      expect(res.status).toBe(400);
+      expect(body.missingFields).toEqual(['pricePerNight', 'images']);
+      expect(body.missingFieldLabels).toEqual(['precio por noche', 'al menos una imagen']);
+    });
+
+    it('9.3 (RN-005) otro anfitrión recibe 404 y el huésped 403', async () => {
+      const owner = await registerAndLogin('anfitrion3.hu013@stayhub.com', 'ANFITRION');
+      const other = await registerAndLogin('otro.hu013@stayhub.com', 'ANFITRION');
+      const guest = await registerAndLogin('huesped.hu013@stayhub.com', 'HUESPED');
+      const listing = await createListing(owner, completeDraft);
+
+      expect((await requestActivation(other, listing.id)).status).toBe(404);
+      expect((await requestActivation(guest, listing.id)).status).toBe(403);
+    });
+  });
 });
 

@@ -411,6 +411,63 @@
         ]
       }
     },
+    "/api/listings/{id}/request-activation": {
+      "patch": {
+        "operationId": "ListingsController_requestActivation",
+        "summary": "Solicitar la activación de mi publicación · HU-013 (CA1, CA2, CA3)",
+        "description": "Envía a revisión una publicación propia en BORRADOR. Si tiene los 9 campos mínimos (descripción, ciudad, departamento, dirección, tipo, capacidad, precio por noche, servicios y reglas) y al menos una imagen, pasa a PENDIENTE_REVISION (CA1); si no, se rechaza con la lista de campos faltantes (CA2). El cambio queda en la auditoría (CA3). RF-017, RN-005, RN-007, RN-021.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación del anfitrión",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publicación enviada a revisión: estado PENDIENTE_REVISION (CA1, CA3)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyListingDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Faltan campos mínimos (CA2) o la publicación no está en BORRADOR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivationMissingFieldsErrorDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado para rol HUESPED"
+          },
+          "404": {
+            "description": "La publicación no existe o pertenece a otro anfitrión (RN-005)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings/{id}/approve": {
       "patch": {
         "operationId": "ListingsController_approveListing",
@@ -1889,6 +1946,52 @@
           "isComplete",
           "missingFields",
           "createdAt"
+        ]
+      },
+      "ActivationMissingFieldsErrorDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 400
+          },
+          "error": {
+            "type": "string",
+            "example": "Bad Request"
+          },
+          "message": {
+            "type": "string",
+            "example": "No puedes solicitar la activación: completa los campos faltantes. Falta: ciudad, precio por noche."
+          },
+          "missingFields": {
+            "example": [
+              "city",
+              "pricePerNight"
+            ],
+            "description": "Campos mínimos que faltan (CA2)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missingFieldLabels": {
+            "example": [
+              "ciudad",
+              "precio por noche"
+            ],
+            "description": "Nombre de cada campo faltante para mostrar al anfitrión",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "statusCode",
+          "error",
+          "message",
+          "missingFields",
+          "missingFieldLabels"
         ]
       },
       "HostNotificationDto": {
