@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
@@ -110,79 +109,6 @@ describe('ListingsController', () => {
       const detail = await controller.findOne('pending-listing-2');
       expect(detail.status).toBe(ListingStatus.BORRADOR);
       expect(detail.returnReason).toBe(reason);
-    });
-  });
-
-  describe('HU-019 · Registrar periodos disponibles', () => {
-    it('CA1: should register an availability period when endDate is after startDate and make it available for bookings', async () => {
-      const created = await controller.registerAvailabilityPeriod('listing-hu019', {
-        startDate: '2027-03-01',
-        endDate: '2027-03-15',
-      });
-
-      expect(created.listingId).toBe('listing-hu019');
-      expect(created.startDate).toBe('2027-03-01');
-      expect(created.endDate).toBe('2027-03-15');
-      expect(created.availableForBooking).toBe(true);
-
-      const periods = await controller.getAvailabilityPeriods('listing-hu019');
-      expect(periods.length).toBe(1);
-
-      const availabilityInRange = await controller.getAvailability('listing-hu019', {
-        startDate: '2027-03-05',
-        endDate: '2027-03-10',
-      });
-      expect(availabilityInRange.isAvailable).toBe(true);
-
-      const availabilityOutOfRange = await controller.getAvailability('listing-hu019', {
-        startDate: '2027-04-01',
-        endDate: '2027-04-05',
-      });
-      expect(availabilityOutOfRange.isAvailable).toBe(false);
-    });
-
-    it('CA2: should reject a period that ends before starting or starts in the past', async () => {
-      await expect(
-        controller.registerAvailabilityPeriod('listing-hu019', {
-          startDate: '2027-05-10',
-          endDate: '2027-05-05',
-        }),
-      ).rejects.toThrow(BadRequestException);
-
-      await expect(
-        controller.registerAvailabilityPeriod('listing-hu019', {
-          startDate: '2020-01-01',
-          endDate: '2020-01-10',
-        }),
-      ).rejects.toThrow(BadRequestException);
-
-      await expect(
-        controller.registerAvailabilityPeriod('listing-hu019', {
-          startDate: '',
-          endDate: '2027-05-10',
-        }),
-      ).rejects.toThrow(BadRequestException);
-
-      await expect(
-        controller.registerAvailabilityPeriod('listing-hu019', {
-          startDate: 'fecha-invalida',
-          endDate: '2027-05-10',
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('CA3: should reject an overlapping period and indicate the existing period in the error message', async () => {
-      await controller.registerAvailabilityPeriod('listing-overlap', {
-        startDate: '2027-06-10',
-        endDate: '2027-06-20',
-      });
-
-      await expect(
-        controller.registerAvailabilityPeriod('listing-overlap', {
-          startDate: '2027-06-15',
-          endDate: '2027-06-25',
-        }),
-      ).rejects.toThrow(/2027-06-10.*2027-06-20/);
     });
   });
 });

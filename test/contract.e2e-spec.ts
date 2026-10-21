@@ -667,5 +667,79 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await requestActivation(guest, listing.id)).status).toBe(403);
     });
   });
-});
+  describe('HU-019 · Registrar periodos disponibles (CA1, CA2, CA3, RF-025)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const registerAndLogin = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: email, email, password: 'Password123', role }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return (await res.json()).token as string;
+    };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const createListing = async (token: string) =>
+      (
+        await (
+          await fetch(`${baseUrl}/listings`, {
+            method: 'POST',
+            headers: auth(token),
+            body: JSON.stringify({ title: 'Cabaña del Bosque', city: 'Guatapé' }),
+          })
+        ).json()
+      ).id as string;
+    const registerPeriod = (token: string, id: string, startDate: string, endDate: string) =>
+      fetch(`${baseUrl}/listings/${id}/availability-periods`, {
+        method: 'POST',
+        headers: auth(token),
+        body: JSON.stringify({ startDate, endDate }),
+      });
 
+    it('10.1 (CA1) registra el periodo, lo lista y queda disponible para reservas', async () => {
+      const token = await registerAndLogin('anfitrion.hu019@stayhub.com', 'ANFITRION');
+      const id = await createListing(token);
+
+      const res = await registerPeriod(token, id, '2027-03-01', '2027-03-15');
+      expect(res.status).toBe(201);
+      expect(await res.json()).toMatchObject({ listingId: id, availableForBooking: true });
+
+      const periods = await (await fetch(`${baseUrl}/listings/${id}/availability-periods`, { headers: auth(token) })).json();
+      expect(periods).toHaveLength(1);
+
+      const availability = await (
+        await fetch(`${baseUrl}/listings/${id}/availability?startDate=2027-03-05&endDate=2027-03-10`)
+      ).json();
+      expect(availability.isAvailable).toBe(true);
+    });
+
+    it('10.2 (CA2, CA3) rechaza fechas inválidas o pasadas y la superposición indicando el periodo existente', async () => {
+      const token = await registerAndLogin('anfitrion2.hu019@stayhub.com', 'ANFITRION');
+      const id = await createListing(token);
+      await registerPeriod(token, id, '2027-06-10', '2027-06-20');
+
+      expect((await registerPeriod(token, id, '2027-05-10', '2027-05-05')).status).toBe(400);
+      expect((await registerPeriod(token, id, '2020-01-01', '2020-01-10')).status).toBe(400);
+
+      const overlap = await registerPeriod(token, id, '2027-06-15', '2027-06-25');
+      expect(overlap.status).toBe(400);
+      expect(await overlap.json()).toMatchObject({
+        conflictingPeriod: { startDate: '2027-06-10', endDate: '2027-06-20' },
+      });
+    });
+
+    it('10.3 otro anfitrión recibe 404 y el huésped 403', async () => {
+      const owner = await registerAndLogin('anfitrion3.hu019@stayhub.com', 'ANFITRION');
+      const other = await registerAndLogin('otro.hu019@stayhub.com', 'ANFITRION');
+      const guest = await registerAndLogin('huesped.hu019@stayhub.com', 'HUESPED');
+      const id = await createListing(owner);
+
+      expect((await registerPeriod(other, id, '2027-03-01', '2027-03-15')).status).toBe(404);
+      expect((await registerPeriod(guest, id, '2027-03-01', '2027-03-15')).status).toBe(403);
+    });
+  });
+});
