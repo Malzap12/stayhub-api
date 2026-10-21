@@ -2,6 +2,9 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 import { Role } from '../../../common/enums/role.enum';
 
+/** Teléfono con indicativo opcional: 7 a 15 dígitos separados por espacios o guiones. */
+export const PHONE_REGEX = /^\+?\d(?:[\s-]?\d){6,14}$/;
+
 export class LoginDto {
   @ApiProperty({ example: 'usuario@stayhub.com', description: 'Correo electrónico del usuario' })
   @IsEmail({}, { message: 'Ingresa un correo electrónico válido' })
@@ -37,6 +40,12 @@ export class RegisterDto {
     message: 'La contraseña debe tener al menos 8 caracteres y combinar letras y números',
   })
   password: string;
+
+  @ApiPropertyOptional({ example: '+57 300 123 4567', description: 'Teléfono de contacto (opcional · HU-006)' })
+  @IsOptional()
+  @IsString()
+  @Matches(PHONE_REGEX, { message: 'Ingresa un teléfono válido: solo números, espacios o guiones (7 a 15 dígitos)' })
+  phone?: string;
 
   @ApiProperty({
     enum: [Role.HUESPED, Role.ANFITRION],
