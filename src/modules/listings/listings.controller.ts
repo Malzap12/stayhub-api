@@ -27,12 +27,13 @@ export class ListingsController {
   constructor(private readonly listingsService: ListingsService) {}
 
   @Post()
-  @Roles(Role.ANFITRION, Role.ADMINISTRADOR)
+  // RN-001/RN-002: solo un ANFITRIÓN crea publicaciones y queda como su dueño; el ADMINISTRADOR modera (RN-003) pero nunca es dueño.
+  @Roles(Role.ANFITRION)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Crear una publicación en borrador · HU-010 (CA1, CA2, CA3, CA4)',
     description:
-      'Crea la publicación en estado BORRADOR asociada al anfitrión autenticado. Solo el título es obligatorio; si falta información básica queda marcada como incompleta (isComplete = false, missingFields). Requiere rol ANFITRION o ADMINISTRADOR.',
+      'Crea la publicación en estado BORRADOR asociada al anfitrión autenticado. Solo el título es obligatorio; si falta información básica queda marcada como incompleta (isComplete = false, missingFields). Requiere rol ANFITRION: el ADMINISTRADOR y el HUÉSPED reciben 403 (RN-001, RN-002).',
   })
   @ApiResponse({ status: 201, description: 'Publicación creada en BORRADOR (CA1, CA4)', type: ListingResponseDto })
   @ApiResponse({ status: 400, description: 'Capacidad o precio por noche inválidos; el detalle por campo va en fieldErrors (CA2)' })
