@@ -6,3 +6,4 @@ coverage
 .env
 *.log
 npm-debug.log*
+uploads

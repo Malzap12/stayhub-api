@@ -18,3 +18,6 @@ Thumbs.db
 # Coverage directory used by tools like istanbul / SonarCloud
 coverage
 .nyc_output
+
+# Imágenes subidas por los anfitriones (HU-010)
+/uploads
