@@ -18,7 +18,7 @@ export class ListingImagesController {
   constructor(private readonly listingImagesService: ListingImagesService) {}
 
   @Post()
-  @Roles(Role.ANFITRION, Role.ADMINISTRADOR)
+  @Roles(Role.ANFITRION)
   @ApiBearerAuth()
   @UseInterceptors(FilesInterceptor('images', MAX_IMAGES_PER_UPLOAD, { limits: { fileSize: MAX_IMAGE_BYTES } }))
   @ApiConsumes('multipart/form-data')
@@ -36,7 +36,7 @@ export class ListingImagesController {
   @ApiResponse({ status: 201, description: 'Imágenes guardadas', type: UploadedImagesResponseDto })
   @ApiResponse({ status: 400, description: 'Sin imágenes, o un archivo no es JPG, PNG o WEBP' })
   @ApiResponse({ status: 413, description: 'Una imagen supera los 5 MB' })
-  @ApiResponse({ status: 403, description: 'Solo anfitriones y administradores' })
+  @ApiResponse({ status: 403, description: 'Solo el ANFITRIÓN sube imágenes de sus publicaciones (RN-001)' })
   upload(@UploadedFiles() files: UploadedImageFile[]): UploadedImagesResponseDto {
     return this.listingImagesService.saveImages(files);
   }
