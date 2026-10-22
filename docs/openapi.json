@@ -458,7 +458,7 @@
       "post": {
         "operationId": "ListingsController_create",
         "summary": "Crear una publicación en borrador · HU-010 (CA1, CA2, CA3, CA4)",
-        "description": "Crea la publicación en estado BORRADOR asociada al anfitrión autenticado. Solo el título es obligatorio; si falta información básica queda marcada como incompleta (isComplete = false, missingFields). Requiere rol ANFITRION o ADMINISTRADOR.",
+        "description": "Crea la publicación en estado BORRADOR asociada al anfitrión autenticado. Solo el título es obligatorio; si falta información básica queda marcada como incompleta (isComplete = false, missingFields). Requiere rol ANFITRION: el ADMINISTRADOR y el HUÉSPED reciben 403 (RN-001, RN-002).",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -870,6 +870,91 @@
         ]
       }
     },
+    "/api/listings/{id}/reserved-periods": {
+      "post": {
+        "operationId": "ListingsController_blockReservedPeriod",
+        "summary": "Bloquear automáticamente el periodo reservado al confirmar · HU-023 (CA1, CA2, CA3)",
+        "description": "Registra el bloqueo automático de las noches en el intervalo [llegada, salida) (AMB-09) tras confirmar una reserva (RF-029, RF-030, RN-011, RN-028). El día de salida queda libre como llegada de otra reserva.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockReservedPeriodDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Noches del periodo reservado bloqueadas con éxito (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockedPeriodResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rango inválido, fuera de disponibilidad o con noches ya reservadas/bloqueadas (CA3)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "ListingsController_getReservedPeriods",
+        "summary": "Listar periodos reservados o bloqueados de un alojamiento · HU-023",
+        "description": "Retorna los bloqueos activos en formato de intervalo [checkIn, checkOut) y sus noches bloqueadas.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Listado de periodos reservados/bloqueados",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BlockedPeriodResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ]
+      }
+    },
     "/api/listings/search": {
       "get": {
         "operationId": "ListingsController_search",
@@ -983,8 +1068,8 @@
     "/api/listings/{id}/availability": {
       "get": {
         "operationId": "ListingsController_getAvailability",
-        "summary": "Consultar disponibilidad de un alojamiento (Público · HU-003 CA3 / HU-019 CA1)",
-        "description": "Retorna si el alojamiento está disponible en el rango de fechas y los periodos registrados.",
+        "summary": "Consultar disponibilidad de un alojamiento (Público · HU-003 CA3 / HU-019 CA1 / HU-023 CA1-CA3)",
+        "description": "Evalúa la disponibilidad en el intervalo de noches [startDate, endDate) (AMB-09). Si incluye al menos una noche reservada o bloqueada, retorna isAvailable = false y la lista de blockedDates (CA3). El día de salida de una reserva puede ser la llegada de otra (CA2).",
         "parameters": [
           {
             "name": "id",
@@ -999,7 +1084,7 @@
             "name": "startDate",
             "required": true,
             "in": "query",
-            "description": "Fecha de inicio del rango (YYYY-MM-DD)",
+            "description": "Fecha de llegada / inicio del rango (YYYY-MM-DD)",
             "schema": {
               "example": "2026-11-01",
               "type": "string"
@@ -1009,7 +1094,7 @@
             "name": "endDate",
             "required": true,
             "in": "query",
-            "description": "Fecha de fin del rango (YYYY-MM-DD)",
+            "description": "Fecha de salida / fin del rango (YYYY-MM-DD)",
             "schema": {
               "example": "2026-11-30",
               "type": "string"
@@ -1026,6 +1111,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Rango de fechas inválido"
           },
           "404": {
             "description": "Alojamiento no encontrado"
@@ -1218,6 +1306,50 @@
         ]
       }
     },
+    "/api/bookings/{id}/confirm": {
+      "patch": {
+        "operationId": "BookingsController_confirmBooking",
+        "summary": "Confirmar reserva y bloquear automáticamente el periodo reservado · HU-023 (CA1, CA2, CA3)",
+        "description": "Registra la confirmación de la reserva y bloquea automáticamente las noches del intervalo [checkIn, checkOut) (AMB-09) en el alojamiento.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la reserva",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reserva confirmada y noches bloqueadas (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El rango incluye noches ya reservadas o bloqueadas (CA3)"
+          },
+          "404": {
+            "description": "Reserva no encontrada"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/bookings/{id}": {
       "get": {
         "operationId": "BookingsController_findOne",
@@ -1293,6 +1425,7 @@
                 "PASSWORD_CHANGE",
                 "LISTING_STATUS_CHANGE",
                 "AVAILABILITY_PERIOD_CREATE",
+                "RESERVED_PERIOD_BLOCK",
                 "BOOKING_STATUS_CHANGE",
                 "BOOKING_CANCELLATION",
                 "REVIEW_CREATED",
@@ -2487,6 +2620,90 @@
           "message"
         ]
       },
+      "BlockReservedPeriodDto": {
+        "type": "object",
+        "properties": {
+          "checkIn": {
+            "type": "string",
+            "example": "2027-03-10",
+            "description": "Fecha de llegada / inicio del bloqueo (YYYY-MM-DD)"
+          },
+          "checkOut": {
+            "type": "string",
+            "example": "2027-03-12",
+            "description": "Fecha de salida / fin del bloqueo (YYYY-MM-DD)"
+          },
+          "startDate": {
+            "type": "string",
+            "example": "2027-03-10",
+            "description": "Alias de fecha de llegada (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "example": "2027-03-12",
+            "description": "Alias de fecha de salida (YYYY-MM-DD)"
+          },
+          "bookingId": {
+            "type": "string",
+            "example": "booking-uuid-1",
+            "description": "ID de la reserva confirmada que origina el bloqueo"
+          }
+        }
+      },
+      "BlockedPeriodResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "block-uuid-1",
+            "description": "ID único del bloqueo de periodo reservado"
+          },
+          "listingId": {
+            "type": "string",
+            "example": "uuid-1234-listing",
+            "description": "ID del alojamiento"
+          },
+          "bookingId": {
+            "type": "string",
+            "example": "booking-uuid-1",
+            "description": "ID de la reserva asociada"
+          },
+          "checkIn": {
+            "type": "string",
+            "example": "2027-03-10",
+            "description": "Fecha de llegada (inicio del intervalo [llegada, salida))"
+          },
+          "checkOut": {
+            "type": "string",
+            "example": "2027-03-12",
+            "description": "Fecha de salida (fin exclusivo del intervalo [llegada, salida))"
+          },
+          "blockedNights": {
+            "example": [
+              "2027-03-10",
+              "2027-03-11"
+            ],
+            "description": "Noches bloqueadas dentro del intervalo [llegada, salida) · HU-023 CA1",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-21T22:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "listingId",
+          "checkIn",
+          "checkOut",
+          "blockedNights",
+          "createdAt"
+        ]
+      },
       "PaginatedListingsResponseDto": {
         "type": "object",
         "properties": {
@@ -2537,7 +2754,7 @@
               "2026-11-05",
               "2026-11-06"
             ],
-            "description": "Fechas bloqueadas u ocupadas en el rango",
+            "description": "Noches bloqueadas u ocupadas en el rango [startDate, endDate) · HU-023",
             "type": "array",
             "items": {
               "type": "string"
@@ -2553,6 +2770,13 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AvailabilityPeriodResponseDto"
+            }
+          },
+          "reservedPeriods": {
+            "description": "Periodos reservados o bloqueados del alojamiento (HU-023)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BlockedPeriodResponseDto"
             }
           }
         },
@@ -2806,6 +3030,7 @@
               "PASSWORD_CHANGE",
               "LISTING_STATUS_CHANGE",
               "AVAILABILITY_PERIOD_CREATE",
+              "RESERVED_PERIOD_BLOCK",
               "BOOKING_STATUS_CHANGE",
               "BOOKING_CANCELLATION",
               "REVIEW_CREATED",
