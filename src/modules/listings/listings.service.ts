@@ -16,12 +16,18 @@ import { randomUUID } from 'node:crypto';
 import type { ActiveSession } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
+import { DEMO_AVAILABILITY_PERIODS, DEMO_LISTINGS } from './listings.seed';
 
 type ListingData = Omit<ListingResponseDto, 'isComplete' | 'missingFields'>;
 
 /** HU-019 CA2: las fechas de los periodos se comparan con el día actual en Colombia. */
 const BUSINESS_TIME_ZONE = 'America/Bogota';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** HU-024: compara ciudades sin distinguir mayúsculas, tildes ni espacios sobrantes (Bogota = Bogotá). */
+export function normalizeCity(city: string): string {
+  return city.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
 
 /**
  * HU-010 CA4 y HU-013 CA1: información mínima de una publicación (9 campos)
@@ -182,10 +188,11 @@ export class ListingsService {
       requestedAt: new Date('2026-10-18T19:45:00.000Z'),
       createdAt: new Date('2026-10-18T12:00:00.000Z'),
     },
+    ...DEMO_LISTINGS,
   ] as ListingData[]).map(withCompleteness);
 
   private hostNotifications: HostNotificationDto[] = [];
-  private availabilityPeriodsStore: AvailabilityPeriodResponseDto[] = [];
+  private availabilityPeriodsStore: AvailabilityPeriodResponseDto[] = [...DEMO_AVAILABILITY_PERIODS];
 
   constructor(private readonly auditService: AuditService) {}
 
@@ -561,17 +568,22 @@ export class ListingsService {
     return this.hostNotifications.filter((n) => n.hostId === hostId);
   }
 
+  /**
+   * HU-024 · Buscar por ciudad, fechas y huéspedes (CA1-CA4, RF-031, RF-033).
+   * Solo publicaciones ACTIVAS (RN-006) con capacidad suficiente y, si se indican
+   * fechas, disponibles en toda la estadía (RF-030).
+   */
   async search(searchDto: SearchListingsDto): Promise<PaginatedListingsResponseDto> {
-    const activeListings = this.listingsStore.filter((item) => item.status === ListingStatus.ACTIVA);
-    const filtered = activeListings.filter((item) => {
-      if (searchDto.city && item.city?.toLowerCase() !== searchDto.city.toLowerCase()) {
-        return false;
-      }
-      if (searchDto.guests && (item.maxGuests ?? 0) < searchDto.guests) {
-        return false;
-      }
-      return true;
-    });
+    const stay = this.parseStayDates(searchDto.checkIn, searchDto.checkOut);
+    const city = searchDto.city?.trim() ? normalizeCity(searchDto.city) : undefined;
+
+    const filtered = this.listingsStore.filter(
+      (item) =>
+        item.status === ListingStatus.ACTIVA &&
+        (!city || normalizeCity(item.city ?? '') === city) &&
+        (!searchDto.guests || (item.maxGuests ?? 0) >= searchDto.guests) &&
+        (!stay || this.isRangeAvailable(item.id, stay.checkIn, stay.checkOut)),
+    );
 
     const page = searchDto.page || 1;
     const limit = searchDto.limit || 10;
@@ -616,16 +628,39 @@ export class ListingsService {
     });
   }
 
+  /**
+   * HU-024 CA3 (RN-010): las fechas son opcionales (CA4), pero si se indica una se exigen
+   * ambas y la salida debe ser posterior a la llegada.
+   */
+  private parseStayDates(checkIn?: string, checkOut?: string): { checkIn: string; checkOut: string } | undefined {
+    if (!checkIn && !checkOut) {
+      return undefined;
+    }
+    if (!checkIn || !checkOut) {
+      throw new BadRequestException('Indica la fecha de llegada y la fecha de salida, o ninguna de las dos');
+    }
+    const stay = { checkIn: this.normalizeDateOnly(checkIn), checkOut: this.normalizeDateOnly(checkOut) };
+    if (stay.checkOut <= stay.checkIn) {
+      throw new BadRequestException('La fecha de salida debe ser posterior a la fecha de llegada');
+    }
+    return stay;
+  }
+
+  /**
+   * RF-030: un rango está disponible solo si cae dentro de un periodo disponible registrado;
+   * sin periodos no hay disponibilidad. El día de salida no se ocupa, por eso puede ser el fin del periodo.
+   * Las reservas confirmadas y los bloqueos aún no se almacenan (HU-023, HU-030).
+   */
+  private isRangeAvailable(listingId: string, checkIn: string, checkOut: string): boolean {
+    return this.periodsOf(listingId).some((period) => checkIn >= period.startDate && checkOut <= period.endDate);
+  }
+
   getAvailability(id: string, query: CheckAvailabilityQueryDto): AvailabilityResponseDto {
     const periods = this.periodsOf(id);
-    const hasRegisteredPeriods = periods.length > 0;
-    const isAvailable = hasRegisteredPeriods
-      ? periods.some((p) => query.startDate >= p.startDate && query.endDate <= p.endDate)
-      : true;
 
     return {
       listingId: id,
-      isAvailable,
+      isAvailable: this.isRangeAvailable(id, query.startDate, query.endDate),
       blockedDates: [],
       pricePerNight: 90,
       availablePeriods: periods,
