@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
 import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
@@ -15,7 +15,7 @@ import { MyListingDto } from './dto/my-listing.dto';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { PropertyType } from '../../common/enums/property-type.enum';
 import { randomUUID } from 'node:crypto';
-import type { ActiveSession } from '../auth/auth.service';
+import { AuthService, type ActiveSession } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { DEMO_AVAILABILITY_PERIODS, DEMO_LISTINGS } from './listings.seed';
@@ -212,7 +212,10 @@ export class ListingsService {
   private availabilityPeriodsStore: AvailabilityPeriodResponseDto[] = [...DEMO_AVAILABILITY_PERIODS];
   private reservedPeriodsStore: BlockedPeriodResponseDto[] = [];
 
-  constructor(private readonly auditService: AuditService) {}
+  constructor(
+    private readonly auditService: AuditService,
+    @Optional() private readonly authService?: AuthService,
+  ) {}
 
   private recordStatusChange(
     actor: string | undefined,
@@ -277,6 +280,8 @@ export class ListingsService {
       rating: 0,
       reviewCount: 0,
       hostId: host?.userId ?? 'mock-host-uuid',
+      // HU-050: el administrador ve en la cola de revisión quién publicó.
+      hostName: host ? this.authService?.findById(host.userId)?.name : undefined,
       status: ListingStatus.BORRADOR,
       createdAt: new Date(),
     });

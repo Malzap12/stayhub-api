@@ -64,6 +64,27 @@ describe('HU-010 · Crear una publicación en borrador (CA1, CA2, CA3, CA4, RF-0
     auditService = module.get(AuditService);
   });
 
+  describe('HU-050 · El administrador ve el nombre del anfitrión', () => {
+    it('guarda el nombre de la cuenta del anfitrión al crear la publicación', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        controllers: [ListingsController],
+        providers: [ListingsService, AuditService, AuthService],
+      }).compile();
+      const authService = module.get(AuthService);
+      await authService.register({ name: 'Ana Anfitriona', email: 'ana@stayhub.com', password: 'Password123', role: Role.ANFITRION });
+      const { token } = await authService.login({ email: 'ana@stayhub.com', password: 'Password123' });
+      const session = authService.getSession(token) as ActiveSession;
+
+      const listing = module.get(ListingsController).create(fullDraft, session);
+
+      expect(listing.hostName).toBe('Ana Anfitriona');
+    });
+
+    it('sin cuenta conocida no inventa un nombre', () => {
+      expect(controller.create(fullDraft, host).hostName).toBeUndefined();
+    });
+  });
+
   describe('CA1 · Publicación en BORRADOR asociada al anfitrión', () => {
     it('crea la publicación con toda la información básica, en BORRADOR y completa', async () => {
       const listing = controller.create(fullDraft, host);
