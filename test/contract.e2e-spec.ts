@@ -3,6 +3,12 @@ import { INestApplication } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { createAppValidationPipe } from '../src/common/pipes/app-validation.pipe';
 import { AppModule } from '../src/app.module';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+// HU-010: las imágenes subidas en las pruebas van a una carpeta temporal.
+process.env.UPLOADS_DIR = mkdtempSync(join(tmpdir(), 'stayhub-e2e-uploads-'));
 
 describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
   let app: INestApplication;
@@ -954,6 +960,64 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
         'demo-bogota-chico',
         'demo-bogota-teusaquillo',
       ]);
+    });
+  });
+
+  describe('HU-010 · Subir imágenes de la publicación desde el dispositivo', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const JPG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+    const registerAndLogin = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: 'Ana Anfitriona', email, password: 'Password123', role }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return (await res.json()).token as string;
+    };
+    const upload = (token: string, files: Array<[Uint8Array, string]>) => {
+      const form = new FormData();
+      for (const [bytes, name] of files) {
+        form.append('images', new Blob([Buffer.from(bytes)], { type: 'image/jpeg' }), name);
+      }
+      return fetch(`${baseUrl}/listings/images`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+    };
+
+    it('14.1 el anfitrión sube una imagen, la usa en su publicación y cualquiera puede verla', async () => {
+      const token = await registerAndLogin('fotos.hu010@stayhub.com', 'ANFITRION');
+
+      const res = await upload(token, [[JPG, 'sala.jpg']]);
+      expect(res.status).toBe(201);
+      const { urls } = await res.json();
+      expect(urls[0]).toMatch(/^\/api\/listings\/images\/[0-9a-f-]{36}\.jpg$/);
+
+      const created = await fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: { ...json, Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: 'Cabaña con fotos propias', images: urls }),
+      });
+      expect((await created.json()).images).toEqual(urls);
+
+      const image = await fetch(`${baseUrl}${urls[0].replace('/api', '')}`);
+      expect(image.status).toBe(200);
+      expect(image.headers.get('content-type')).toBe('image/jpeg');
+      expect(new Uint8Array(await image.arrayBuffer())).toEqual(JPG);
+    });
+
+    it('14.2 rechaza archivos que no son imágenes, de más de 5 MB, y al huésped', async () => {
+      const host = await registerAndLogin('fotos2.hu010@stayhub.com', 'ANFITRION');
+      const guest = await registerAndLogin('huesped.hu010@stayhub.com', 'HUESPED');
+
+      expect((await upload(host, [[new TextEncoder().encode('no soy imagen'), 'falsa.jpg']])).status).toBe(400);
+      const big = new Uint8Array(5 * 1024 * 1024 + 1);
+      big.set(JPG);
+      expect((await upload(host, [[big, 'grande.jpg']])).status).toBe(413);
+      expect((await upload(guest, [[JPG, 'sala.jpg']])).status).toBe(403);
+      expect((await fetch(`${baseUrl}/listings/images/no-existe.jpg`)).status).toBe(404);
     });
   });
 });
