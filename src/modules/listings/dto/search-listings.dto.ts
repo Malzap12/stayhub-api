@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsNumber, Min, IsDateString } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsInt, Min, IsDateString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class SearchListingsDto {
@@ -8,21 +8,27 @@ export class SearchListingsDto {
   @IsString()
   city?: string;
 
-  @ApiPropertyOptional({ example: '2026-11-01', description: 'Fecha de llegada (YYYY-MM-DD)' })
+  @ApiPropertyOptional({
+    example: '2026-11-10',
+    description: 'Fecha de llegada (YYYY-MM-DD). Si se indica, también se exige la de salida (HU-024 CA3)',
+  })
   @IsOptional()
-  @IsDateString()
+  @IsDateString({}, { message: 'La fecha de llegada debe tener el formato AAAA-MM-DD' })
   checkIn?: string;
 
-  @ApiPropertyOptional({ example: '2026-11-07', description: 'Fecha de salida (YYYY-MM-DD)' })
+  @ApiPropertyOptional({
+    example: '2026-11-13',
+    description: 'Fecha de salida (YYYY-MM-DD), posterior a la de llegada (HU-024 CA3, RN-010)',
+  })
   @IsOptional()
-  @IsDateString()
+  @IsDateString({}, { message: 'La fecha de salida debe tener el formato AAAA-MM-DD' })
   checkOut?: string;
 
   @ApiPropertyOptional({ example: 2, description: 'Número de huéspedes', minimum: 1 })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
-  @Min(1)
+  @IsInt({ message: 'El número de huéspedes debe ser un número entero' })
+  @Min(1, { message: 'El número de huéspedes debe ser al menos 1' })
   guests?: number;
 
   @ApiPropertyOptional({ example: 30, description: 'Precio mínimo por noche' })

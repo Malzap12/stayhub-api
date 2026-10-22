@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import type { ActiveSession } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
+import { DEMO_AVAILABILITY_PERIODS, DEMO_LISTINGS } from './listings.seed';
 
 type ListingData = Omit<ListingResponseDto, 'isComplete' | 'missingFields'>;
 
@@ -25,6 +26,11 @@ type ListingData = Omit<ListingResponseDto, 'isComplete' | 'missingFields'>;
 const BUSINESS_TIME_ZONE = 'America/Bogota';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MS_PER_DAY = 86_400_000;
+
+/** HU-024: compara ciudades sin distinguir mayúsculas, tildes ni espacios sobrantes (Bogota = Bogotá). */
+export function normalizeCity(city: string): string {
+  return city.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
 
 /**
  * HU-010 CA4 y HU-013 CA1: información mínima de una publicación (9 campos)
@@ -199,10 +205,11 @@ export class ListingsService {
       requestedAt: new Date('2026-10-18T19:45:00.000Z'),
       createdAt: new Date('2026-10-18T12:00:00.000Z'),
     },
+    ...DEMO_LISTINGS,
   ] as ListingData[]).map(withCompleteness);
 
   private hostNotifications: HostNotificationDto[] = [];
-  private availabilityPeriodsStore: AvailabilityPeriodResponseDto[] = [];
+  private availabilityPeriodsStore: AvailabilityPeriodResponseDto[] = [...DEMO_AVAILABILITY_PERIODS];
   private reservedPeriodsStore: BlockedPeriodResponseDto[] = [];
 
   constructor(private readonly auditService: AuditService) {}
@@ -691,17 +698,55 @@ export class ListingsService {
     return this.hostNotifications.filter((n) => n.hostId === hostId);
   }
 
+  /**
+   * HU-024 CA3 (RN-010): las fechas son opcionales (CA4), pero si se indica una se exigen
+   * ambas y la salida debe ser posterior a la llegada.
+   */
+  private parseStayDates(checkIn?: string, checkOut?: string): { checkIn: string; checkOut: string } | undefined {
+    if (!checkIn && !checkOut) {
+      return undefined;
+    }
+    if (!checkIn || !checkOut) {
+      throw new BadRequestException('Indica la fecha de llegada y la fecha de salida, o ninguna de las dos');
+    }
+    const stay = { checkIn: this.normalizeDateOnly(checkIn), checkOut: this.normalizeDateOnly(checkOut) };
+    if (stay.checkOut <= stay.checkIn) {
+      throw new BadRequestException('La fecha de salida debe ser posterior a la fecha de llegada');
+    }
+    return stay;
+  }
+
+  /**
+   * RF-030: un rango está disponible solo si cae dentro de un periodo disponible registrado;
+   * sin periodos no hay disponibilidad. El día de salida no se ocupa, por eso puede ser el fin del periodo.
+   * Con HU-023, tampoco puede incluir noches ya reservadas o bloqueadas.
+   */
+  private isRangeAvailable(listingId: string, checkIn: string, checkOut: string): boolean {
+    const withinPeriods = this.periodsOf(listingId).some((period) => checkIn >= period.startDate && checkOut <= period.endDate);
+    if (!withinPeriods) {
+      return false;
+    }
+    const requestedNights = nightsInInterval(checkIn, checkOut);
+    const blockedSet = this.blockedNightsSetOf(listingId);
+    return !requestedNights.some((night) => blockedSet.has(night));
+  }
+
+  /**
+   * HU-024 · Buscar por ciudad, fechas y huéspedes (CA1-CA4, RF-031, RF-033).
+   * Solo publicaciones ACTIVAS (RN-006) con capacidad suficiente y, si se indican
+   * fechas, disponibles en toda la estadía (RF-030).
+   */
   async search(searchDto: SearchListingsDto): Promise<PaginatedListingsResponseDto> {
-    const activeListings = this.listingsStore.filter((item) => item.status === ListingStatus.ACTIVA);
-    const filtered = activeListings.filter((item) => {
-      if (searchDto.city && item.city?.toLowerCase() !== searchDto.city.toLowerCase()) {
-        return false;
-      }
-      if (searchDto.guests && (item.maxGuests ?? 0) < searchDto.guests) {
-        return false;
-      }
-      return true;
-    });
+    const stay = this.parseStayDates(searchDto.checkIn, searchDto.checkOut);
+    const city = searchDto.city?.trim() ? normalizeCity(searchDto.city) : undefined;
+
+    const filtered = this.listingsStore.filter(
+      (item) =>
+        item.status === ListingStatus.ACTIVA &&
+        (!city || normalizeCity(item.city ?? '') === city) &&
+        (!searchDto.guests || (item.maxGuests ?? 0) >= searchDto.guests) &&
+        (!stay || this.isRangeAvailable(item.id, stay.checkIn, stay.checkOut)),
+    );
 
     const page = searchDto.page || 1;
     const limit = searchDto.limit || 10;
@@ -767,7 +812,7 @@ export class ListingsService {
 
     const blockedDates = requestedNights.filter((night) => blockedSet.has(night));
     const withinRegisteredPeriods =
-      periods.length > 0 ? this.areNightsCoveredByPeriods(requestedNights, periods) : true;
+      periods.length > 0 ? this.areNightsCoveredByPeriods(requestedNights, periods) : false;
     const isAvailable = withinRegisteredPeriods && blockedDates.length === 0;
 
     return {

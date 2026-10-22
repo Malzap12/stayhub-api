@@ -222,10 +222,12 @@ export class ListingsController {
   @Get('search')
   @Public()
   @ApiOperation({
-    summary: 'Buscar y filtrar alojamientos (Público · HU-003 CA3 / HU-050 CA2)',
-    description: 'Búsqueda pública por ciudad, fechas de estancia, número de huéspedes y rango de precio sin iniciar sesión (solo publicaciones ACTIVAS).',
+    summary: 'Buscar por ciudad, fechas y huéspedes (Público · HU-024 CA1-CA4 / HU-003 CA3)',
+    description:
+      'Búsqueda pública sin iniciar sesión. Devuelve solo publicaciones ACTIVAS (CA2) de la ciudad indicada, sin distinguir tildes ni mayúsculas, con capacidad para los huéspedes y, si se indican fechas, con un periodo disponible que cubra toda la estadía (CA1). Sin fechas no se filtra por disponibilidad (CA4).',
   })
   @ApiResponse({ status: 200, description: 'Listado de alojamientos disponibles', type: PaginatedListingsResponseDto })
+  @ApiResponse({ status: 400, description: 'Falta una de las fechas o la salida no es posterior a la llegada (CA3)' })
   search(@Query() searchDto: SearchListingsDto): Promise<PaginatedListingsResponseDto> {
     return this.listingsService.search(searchDto);
   }
