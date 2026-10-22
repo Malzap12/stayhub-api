@@ -158,9 +158,9 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const body = await res.json();
 
       expect(res.status).toBe(200);
+      expect(Array.isArray(body.data)).toBe(true);
       expect(body).toEqual(
         expect.objectContaining({
-          data: expect.any(Array),
           total: expect.any(Number),
           page: 1,
           totalPages: expect.any(Number),
@@ -175,11 +175,11 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const body = await res.json();
 
       expect(res.status).toBe(200);
+      expect(Array.isArray(body.blockedDates)).toBe(true);
       expect(body).toEqual(
         expect.objectContaining({
           listingId,
           isAvailable: expect.any(Boolean),
-          blockedDates: expect.any(Array),
           pricePerNight: expect.any(Number),
         }),
       );
@@ -848,6 +848,38 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
         email: ['El correo electrónico no se puede editar'],
         role: ['El rol no se puede editar'],
       });
+    });
+  });
+
+  describe('HU-024 · Buscar por ciudad, fechas y huéspedes (CA1, CA2, CA3, CA4, RF-031, RF-033)', () => {
+    const search = (query: string) => fetch(`${baseUrl}/listings/search?${query}`);
+    const ids = async (query: string) => {
+      const body = await (await search(query)).json();
+      return (body.data as Array<{ id: string }>).map((item) => item.id).sort();
+    };
+
+    it('13.1 (CA1, CA2) Bogotá del 10 al 13 de noviembre para 2 huéspedes, sin sesión', async () => {
+      expect(await ids('city=Bogot%C3%A1&checkIn=2026-11-10&checkOut=2026-11-13&guests=2&limit=50')).toEqual([
+        'demo-bogota-candelaria',
+        'demo-bogota-chapinero',
+      ]);
+      expect(await ids('city=bogota&checkIn=2026-11-10&checkOut=2026-11-13&guests=2&limit=50')).toHaveLength(2);
+    });
+
+    it('13.2 (CA3) salida igual o anterior a la llegada responde 400', async () => {
+      const res = await search('city=Bogota&checkIn=2026-11-13&checkOut=2026-11-10&guests=2');
+      expect(res.status).toBe(400);
+      expect((await res.json()).message).toBe('La fecha de salida debe ser posterior a la fecha de llegada');
+      expect((await search('city=Bogota&checkIn=2026-11-10')).status).toBe(400);
+    });
+
+    it('13.3 (CA4) sin fechas devuelve las ACTIVAS sin filtrar por disponibilidad', async () => {
+      expect(await ids('city=Bogota&guests=2&limit=50')).toEqual([
+        'demo-bogota-candelaria',
+        'demo-bogota-chapinero',
+        'demo-bogota-chico',
+        'demo-bogota-teusaquillo',
+      ]);
     });
   });
 });
