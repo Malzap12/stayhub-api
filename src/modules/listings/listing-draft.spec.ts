@@ -125,7 +125,7 @@ describe('HU-010 · Crear una publicación en borrador (CA1, CA2, CA3, CA4, RF-0
     });
   });
 
-  describe('CA3 · El HUÉSPED no puede crear publicaciones', () => {
+  describe('CA3 · Solo el ANFITRIÓN puede crear publicaciones (RN-001, RN-002)', () => {
     const contextFor = (role: Role) =>
       ({
         getHandler: () => ListingsController.prototype.create,
@@ -135,10 +135,10 @@ describe('HU-010 · Crear una publicación en borrador (CA1, CA2, CA3, CA4, RF-0
         }),
       }) as unknown as ExecutionContext;
 
-    it('el guard de roles responde 403 al HUÉSPED y permite al ANFITRIÓN', () => {
+    it('el guard de roles responde 403 al HUÉSPED y al ADMINISTRADOR y permite al ANFITRIÓN', () => {
       const authService = {
         authorize: (_header: string, roles: Role[]) => {
-          const role = _header.endsWith(Role.HUESPED) ? Role.HUESPED : Role.ANFITRION;
+          const role = [Role.HUESPED, Role.ADMINISTRADOR].find((candidate) => _header.endsWith(candidate)) ?? Role.ANFITRION;
           if (!roles.includes(role)) {
             throw new ForbiddenException();
           }
@@ -148,6 +148,7 @@ describe('HU-010 · Crear una publicación en borrador (CA1, CA2, CA3, CA4, RF-0
       const guard = new RolesGuard(new Reflector(), authService);
 
       expect(() => guard.canActivate(contextFor(Role.HUESPED))).toThrow(ForbiddenException);
+      expect(() => guard.canActivate(contextFor(Role.ADMINISTRADOR))).toThrow(ForbiddenException);
       expect(guard.canActivate(contextFor(Role.ANFITRION))).toBe(true);
     });
   });
