@@ -520,6 +520,20 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const res = await createListing(token, { title: 'Intento de huésped' });
       expect(res.status).toBe(403);
     });
+
+    it('7.4 (RN-001, RN-002) el administrador tampoco puede crear publicaciones', async () => {
+      const login = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({
+          email: process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com',
+          password: process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!',
+        }),
+      });
+      const { token } = await login.json();
+      const res = await createListing(token, { title: 'Intento del administrador' });
+      expect(res.status).toBe(403);
+    });
   });
 
   describe('HU-012 · Consultar mis publicaciones (CA1, CA2, RF-016, RN-005)', () => {
