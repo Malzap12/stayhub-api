@@ -10,6 +10,8 @@ import {
   CreateAvailabilityPeriodDto,
   AvailabilityPeriodResponseDto,
   AvailabilityOverlapErrorDto,
+  BlockReservedPeriodDto,
+  BlockedPeriodResponseDto,
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
@@ -186,6 +188,37 @@ export class ListingsController {
     return this.listingsService.getAvailabilityPeriods(id, user);
   }
 
+  @Post(':id/reserved-periods')
+  @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Bloquear automáticamente el periodo reservado al confirmar · HU-023 (CA1, CA2, CA3)',
+    description:
+      'Registra el bloqueo automático de las noches en el intervalo [llegada, salida) (AMB-09) tras confirmar una reserva (RF-029, RF-030, RN-011, RN-028). El día de salida queda libre como llegada de otra reserva.',
+  })
+  @ApiParam({ name: 'id', description: 'ID del alojamiento' })
+  @ApiResponse({ status: 201, description: 'Noches del periodo reservado bloqueadas con éxito (CA1)', type: BlockedPeriodResponseDto })
+  @ApiResponse({ status: 400, description: 'Rango inválido, fuera de disponibilidad o con noches ya reservadas/bloqueadas (CA3)' })
+  blockReservedPeriod(
+    @Param('id') id: string,
+    @Body() dto: BlockReservedPeriodDto,
+    @CurrentUser() user?: ActiveSession,
+  ): BlockedPeriodResponseDto {
+    return this.listingsService.blockReservedPeriod(id, dto, user?.email);
+  }
+
+  @Get(':id/reserved-periods')
+  @Public()
+  @ApiOperation({
+    summary: 'Listar periodos reservados o bloqueados de un alojamiento · HU-023',
+    description: 'Retorna los bloqueos activos en formato de intervalo [checkIn, checkOut) y sus noches bloqueadas.',
+  })
+  @ApiParam({ name: 'id', description: 'ID del alojamiento' })
+  @ApiResponse({ status: 200, description: 'Listado de periodos reservados/bloqueados', type: [BlockedPeriodResponseDto] })
+  getReservedPeriods(@Param('id') id: string): BlockedPeriodResponseDto[] {
+    return this.listingsService.getReservedPeriods(id);
+  }
+
   @Get('search')
   @Public()
   @ApiOperation({
@@ -202,11 +235,13 @@ export class ListingsController {
   @Get(':id/availability')
   @Public()
   @ApiOperation({
-    summary: 'Consultar disponibilidad de un alojamiento (Público · HU-003 CA3 / HU-019 CA1)',
-    description: 'Retorna si el alojamiento está disponible en el rango de fechas y los periodos registrados.',
+    summary: 'Consultar disponibilidad de un alojamiento (Público · HU-003 CA3 / HU-019 CA1 / HU-023 CA1-CA3)',
+    description:
+      'Evalúa la disponibilidad en el intervalo de noches [startDate, endDate) (AMB-09). Si incluye al menos una noche reservada o bloqueada, retorna isAvailable = false y la lista de blockedDates (CA3). El día de salida de una reserva puede ser la llegada de otra (CA2).',
   })
   @ApiParam({ name: 'id', description: 'ID del alojamiento' })
   @ApiResponse({ status: 200, description: 'Información de disponibilidad', type: AvailabilityResponseDto })
+  @ApiResponse({ status: 400, description: 'Rango de fechas inválido' })
   @ApiResponse({ status: 404, description: 'Alojamiento no encontrado' })
   getAvailability(
     @Param('id') id: string,

@@ -7,6 +7,8 @@ import {
   AvailabilityResponseDto,
   CreateAvailabilityPeriodDto,
   AvailabilityPeriodResponseDto,
+  BlockReservedPeriodDto,
+  BlockedPeriodResponseDto,
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
@@ -23,6 +25,7 @@ type ListingData = Omit<ListingResponseDto, 'isComplete' | 'missingFields'>;
 /** HU-019 CA2: las fechas de los periodos se comparan con el día actual en Colombia. */
 const BUSINESS_TIME_ZONE = 'America/Bogota';
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const MS_PER_DAY = 86_400_000;
 
 /** HU-024: compara ciudades sin distinguir mayúsculas, tildes ni espacios sobrantes (Bogota = Bogotá). */
 export function normalizeCity(city: string): string {
@@ -113,6 +116,20 @@ export function toMyListing(listing: ListingResponseDto): MyListingDto {
   };
 }
 
+/**
+ * HU-023 · Calcula las noches dentro del intervalo semiabierto [checkIn, checkOut) (AMB-09).
+ * Por ejemplo, del 2027-03-10 al 2027-03-12 retorna ['2027-03-10', '2027-03-11'].
+ */
+export function nightsInInterval(checkIn: string, checkOut: string): string[] {
+  const startMs = Date.parse(`${checkIn}T00:00:00.000Z`);
+  const endMs = Date.parse(`${checkOut}T00:00:00.000Z`);
+  const nights: string[] = [];
+  for (let current = startMs; current < endMs; current += MS_PER_DAY) {
+    nights.push(new Date(current).toISOString().slice(0, 10));
+  }
+  return nights;
+}
+
 @Injectable()
 export class ListingsService {
   private listingsStore: ListingResponseDto[] = ([
@@ -193,6 +210,7 @@ export class ListingsService {
 
   private hostNotifications: HostNotificationDto[] = [];
   private availabilityPeriodsStore: AvailabilityPeriodResponseDto[] = [...DEMO_AVAILABILITY_PERIODS];
+  private reservedPeriodsStore: BlockedPeriodResponseDto[] = [];
 
   constructor(private readonly auditService: AuditService) {}
 
@@ -419,10 +437,106 @@ export class ListingsService {
     return this.periodsOf(listingId);
   }
 
+  /**
+   * HU-023 · Bloquear automáticamente el periodo reservado (CA1, CA2, CA3, RF-029, RF-030, RN-011, RN-028).
+   * Al registrar la confirmación de una reserva en el intervalo [llegada, salida) (AMB-09),
+   * las noches dentro de [checkIn, checkOut) dejan de estar disponibles.
+   * El día de salida (checkOut) no se bloquea como noche y puede ser la llegada de otra reserva (CA2).
+   */
+  blockReservedPeriod(
+    listingId: string,
+    dto: BlockReservedPeriodDto,
+    actor?: string,
+  ): BlockedPeriodResponseDto {
+    const fail = (detail: string) =>
+      this.recordReservedBlockChange(actor, listingId, AuditResult.FALLIDO, `Bloqueo rechazado: ${detail}`);
+
+    let checkIn: string;
+    let checkOut: string;
+    try {
+      checkIn = this.normalizeDateOnly(dto?.checkIn ?? dto?.startDate ?? '');
+      checkOut = this.normalizeDateOnly(dto?.checkOut ?? dto?.endDate ?? '');
+    } catch (error) {
+      fail('fechas inválidas');
+      throw error;
+    }
+
+    if (checkOut <= checkIn) {
+      const message = 'La fecha de salida debe ser posterior a la fecha de llegada.';
+      fail(message);
+      throw new BadRequestException(message);
+    }
+
+    const nights = nightsInInterval(checkIn, checkOut);
+    const periods = this.periodsOf(listingId);
+    if (periods.length > 0 && !this.areNightsCoveredByPeriods(nights, periods)) {
+      const message = 'El periodo reservado está fuera de los periodos disponibles del alojamiento.';
+      fail(message);
+      throw new BadRequestException(message);
+    }
+
+    const alreadyBlockedSet = this.blockedNightsSetOf(listingId);
+    const conflictingNights = nights.filter((night) => alreadyBlockedSet.has(night));
+    if (conflictingNights.length > 0) {
+      const message = `No se puede bloquear el periodo: las noches ${conflictingNights.join(', ')} ya están reservadas o bloqueadas.`;
+      fail(message);
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message,
+        blockedDates: conflictingNights,
+      });
+    }
+
+    const blocked: BlockedPeriodResponseDto = {
+      id: randomUUID(),
+      listingId,
+      bookingId: dto?.bookingId?.trim() || undefined,
+      checkIn,
+      checkOut,
+      blockedNights: nights,
+      createdAt: new Date(),
+    };
+
+    this.reservedPeriodsStore.push(blocked);
+    this.recordReservedBlockChange(
+      actor,
+      listingId,
+      AuditResult.EXITOSO,
+      `Periodo reservado bloqueado [${checkIn}, ${checkOut}): noches ${nights.join(', ')}`,
+    );
+    return blocked;
+  }
+
+  /** HU-023: lista los periodos reservados/bloqueados de un alojamiento. */
+  getReservedPeriods(listingId: string): BlockedPeriodResponseDto[] {
+    return this.reservedPeriodsOf(listingId);
+  }
+
   private periodsOf(listingId: string): AvailabilityPeriodResponseDto[] {
     return this.availabilityPeriodsStore
       .filter((period) => period.listingId === listingId)
       .sort((a, b) => a.startDate.localeCompare(b.startDate));
+  }
+
+  private reservedPeriodsOf(listingId: string): BlockedPeriodResponseDto[] {
+    return this.reservedPeriodsStore
+      .filter((period) => period.listingId === listingId)
+      .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+  }
+
+  private blockedNightsSetOf(listingId: string): Set<string> {
+    const blocked = new Set<string>();
+    for (const period of this.reservedPeriodsOf(listingId)) {
+      for (const night of period.blockedNights) {
+        blocked.add(night);
+      }
+    }
+    return blocked;
+  }
+
+  private areNightsCoveredByPeriods(nights: string[], periods: AvailabilityPeriodResponseDto[]): boolean {
+    return nights.every((night) => periods.some((p) => night >= p.startDate && night < p.endDate));
   }
 
   /** Responde 404 si el alojamiento no existe o es de otro anfitrión, sin revelar cuál de los dos ocurre. */
@@ -444,6 +558,22 @@ export class ListingsService {
     this.auditService.record({
       actor,
       action: AuditAction.AVAILABILITY_PERIOD_CREATE,
+      entity: 'Listing',
+      entityId: listingId,
+      result,
+      detail,
+    });
+  }
+
+  private recordReservedBlockChange(
+    actor: string | undefined,
+    listingId: string,
+    result: AuditResult,
+    detail: string,
+  ): void {
+    this.auditService.record({
+      actor,
+      action: AuditAction.RESERVED_PERIOD_BLOCK,
       entity: 'Listing',
       entityId: listingId,
       result,
@@ -569,6 +699,39 @@ export class ListingsService {
   }
 
   /**
+   * HU-024 CA3 (RN-010): las fechas son opcionales (CA4), pero si se indica una se exigen
+   * ambas y la salida debe ser posterior a la llegada.
+   */
+  private parseStayDates(checkIn?: string, checkOut?: string): { checkIn: string; checkOut: string } | undefined {
+    if (!checkIn && !checkOut) {
+      return undefined;
+    }
+    if (!checkIn || !checkOut) {
+      throw new BadRequestException('Indica la fecha de llegada y la fecha de salida, o ninguna de las dos');
+    }
+    const stay = { checkIn: this.normalizeDateOnly(checkIn), checkOut: this.normalizeDateOnly(checkOut) };
+    if (stay.checkOut <= stay.checkIn) {
+      throw new BadRequestException('La fecha de salida debe ser posterior a la fecha de llegada');
+    }
+    return stay;
+  }
+
+  /**
+   * RF-030: un rango está disponible solo si cae dentro de un periodo disponible registrado;
+   * sin periodos no hay disponibilidad. El día de salida no se ocupa, por eso puede ser el fin del periodo.
+   * Con HU-023, tampoco puede incluir noches ya reservadas o bloqueadas.
+   */
+  private isRangeAvailable(listingId: string, checkIn: string, checkOut: string): boolean {
+    const withinPeriods = this.periodsOf(listingId).some((period) => checkIn >= period.startDate && checkOut <= period.endDate);
+    if (!withinPeriods) {
+      return false;
+    }
+    const requestedNights = nightsInInterval(checkIn, checkOut);
+    const blockedSet = this.blockedNightsSetOf(listingId);
+    return !requestedNights.some((night) => blockedSet.has(night));
+  }
+
+  /**
    * HU-024 · Buscar por ciudad, fechas y huéspedes (CA1-CA4, RF-031, RF-033).
    * Solo publicaciones ACTIVAS (RN-006) con capacidad suficiente y, si se indican
    * fechas, disponibles en toda la estadía (RF-030).
@@ -629,41 +792,36 @@ export class ListingsService {
   }
 
   /**
-   * HU-024 CA3 (RN-010): las fechas son opcionales (CA4), pero si se indica una se exigen
-   * ambas y la salida debe ser posterior a la llegada.
+   * HU-019 y HU-023 (CA1, CA2, CA3, RF-029, RF-030, RN-011, RN-028):
+   * Evalúa la disponibilidad de un alojamiento en el intervalo de noches [startDate, endDate) (AMB-09).
+   * - CA1: Las noches de una reserva confirmada dejan de estar disponibles.
+   * - CA2: El día de salida (endDate de una reserva previa) puede ser la llegada (startDate) de otra reserva.
+   * - CA3: Si el rango consultado incluye al menos una noche reservada o bloqueada, retorna isAvailable = false.
    */
-  private parseStayDates(checkIn?: string, checkOut?: string): { checkIn: string; checkOut: string } | undefined {
-    if (!checkIn && !checkOut) {
-      return undefined;
-    }
-    if (!checkIn || !checkOut) {
-      throw new BadRequestException('Indica la fecha de llegada y la fecha de salida, o ninguna de las dos');
-    }
-    const stay = { checkIn: this.normalizeDateOnly(checkIn), checkOut: this.normalizeDateOnly(checkOut) };
-    if (stay.checkOut <= stay.checkIn) {
-      throw new BadRequestException('La fecha de salida debe ser posterior a la fecha de llegada');
-    }
-    return stay;
-  }
-
-  /**
-   * RF-030: un rango está disponible solo si cae dentro de un periodo disponible registrado;
-   * sin periodos no hay disponibilidad. El día de salida no se ocupa, por eso puede ser el fin del periodo.
-   * Las reservas confirmadas y los bloqueos aún no se almacenan (HU-023, HU-030).
-   */
-  private isRangeAvailable(listingId: string, checkIn: string, checkOut: string): boolean {
-    return this.periodsOf(listingId).some((period) => checkIn >= period.startDate && checkOut <= period.endDate);
-  }
-
   getAvailability(id: string, query: CheckAvailabilityQueryDto): AvailabilityResponseDto {
+    const startDate = this.normalizeDateOnly(query?.startDate);
+    const endDate = this.normalizeDateOnly(query?.endDate);
+    if (endDate <= startDate) {
+      throw new BadRequestException('La fecha de salida debe ser posterior a la fecha de llegada.');
+    }
+
+    const requestedNights = nightsInInterval(startDate, endDate);
     const periods = this.periodsOf(id);
+    const reservedPeriods = this.reservedPeriodsOf(id);
+    const blockedSet = this.blockedNightsSetOf(id);
+
+    const blockedDates = requestedNights.filter((night) => blockedSet.has(night));
+    const withinRegisteredPeriods =
+      periods.length > 0 ? this.areNightsCoveredByPeriods(requestedNights, periods) : false;
+    const isAvailable = withinRegisteredPeriods && blockedDates.length === 0;
 
     return {
       listingId: id,
-      isAvailable: this.isRangeAvailable(id, query.startDate, query.endDate),
-      blockedDates: [],
+      isAvailable,
+      blockedDates,
       pricePerNight: 90,
       availablePeriods: periods,
+      reservedPeriods,
     };
   }
 

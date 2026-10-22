@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Param, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
 import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
@@ -53,6 +53,25 @@ export class BookingsController {
     return this.bookingsService.createInstant(bookingDto, user?.email);
   }
 
+  @Patch(':id/confirm')
+  @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Confirmar reserva y bloquear automáticamente el periodo reservado · HU-023 (CA1, CA2, CA3)',
+    description:
+      'Registra la confirmación de la reserva y bloquea automáticamente las noches del intervalo [checkIn, checkOut) (AMB-09) en el alojamiento.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la reserva' })
+  @ApiResponse({ status: 200, description: 'Reserva confirmada y noches bloqueadas (CA1)', type: BookingResponseDto })
+  @ApiResponse({ status: 400, description: 'El rango incluye noches ya reservadas o bloqueadas (CA3)' })
+  @ApiResponse({ status: 404, description: 'Reserva no encontrada' })
+  confirmBooking(
+    @Param('id') id: string,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<BookingResponseDto> {
+    return this.bookingsService.confirmBooking(id, user?.email);
+  }
+
   @Get(':id')
   @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
   @ApiBearerAuth()
@@ -65,4 +84,3 @@ export class BookingsController {
     return this.bookingsService.findOne(id);
   }
 }
-

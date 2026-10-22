@@ -851,6 +851,80 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
   });
 
+  describe('HU-023 · Bloquear automáticamente el periodo reservado (CA1, CA2, CA3, RF-029, RF-030, RN-011, RN-028, AMB-09)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const registerAndLogin = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: email, email, password: 'Password123', role }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return (await res.json()).token as string;
+    };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+
+    it('13.1 (CA1, CA2, CA3) bloquea las noches [10, 12) -> 10 y 11 no disponibles; 12 al 14 disponible; cualquier cruce no disponible', async () => {
+      const token = await registerAndLogin('anfitrion.hu023@stayhub.com', 'ANFITRION');
+      const listingRes = await fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: auth(token),
+        body: JSON.stringify({ title: 'Villa del Lago HU-023', city: 'Guatapé' }),
+      });
+      const { id } = (await listingRes.json()) as { id: string };
+
+      await fetch(`${baseUrl}/listings/${id}/availability-periods`, {
+        method: 'POST',
+        headers: auth(token),
+        body: JSON.stringify({ startDate: '2027-03-01', endDate: '2027-03-31' }),
+      });
+
+      // CA1: Confirmar reserva del 10 al 12 bloquea las noches 10 y 11
+      const blockRes = await fetch(`${baseUrl}/listings/${id}/reserved-periods`, {
+        method: 'POST',
+        headers: auth(token),
+        body: JSON.stringify({ checkIn: '2027-03-10', checkOut: '2027-03-12', bookingId: 'booking-hu023' }),
+      });
+      expect(blockRes.status).toBe(201);
+      expect(await blockRes.json()).toMatchObject({
+        listingId: id,
+        checkIn: '2027-03-10',
+        checkOut: '2027-03-12',
+        blockedNights: ['2027-03-10', '2027-03-11'],
+      });
+
+      const check10To12 = await (
+        await fetch(`${baseUrl}/listings/${id}/availability?startDate=2027-03-10&endDate=2027-03-12`)
+      ).json();
+      expect(check10To12).toMatchObject({
+        isAvailable: false,
+        blockedDates: ['2027-03-10', '2027-03-11'],
+      });
+
+      // CA2: Del 12 al 14 aparece disponible porque el día de salida puede ser llegada de otra reserva
+      const check12To14 = await (
+        await fetch(`${baseUrl}/listings/${id}/availability?startDate=2027-03-12&endDate=2027-03-14`)
+      ).json();
+      expect(check12To14).toMatchObject({
+        isAvailable: true,
+        blockedDates: [],
+      });
+
+      // CA3: Un rango que incluye una noche reservada o bloqueada (ej. 11 al 13 incluye noche 11) es no disponible
+      const check11To13 = await (
+        await fetch(`${baseUrl}/listings/${id}/availability?startDate=2027-03-11&endDate=2027-03-13`)
+      ).json();
+      expect(check11To13).toMatchObject({
+        isAvailable: false,
+        blockedDates: ['2027-03-11'],
+      });
+    });
+  });
+
   describe('HU-024 · Buscar por ciudad, fechas y huéspedes (CA1, CA2, CA3, CA4, RF-031, RF-033)', () => {
     const search = (query: string) => fetch(`${baseUrl}/listings/search?${query}`);
     const ids = async (query: string) => {
