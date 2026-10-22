@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsNotEmpty } from 'class-validator';
+import { IsDateString, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateAvailabilityPeriodDto {
   @ApiProperty({ example: '2026-12-01', description: 'Fecha de inicio del periodo disponible (YYYY-MM-DD) · HU-019' })
@@ -61,13 +61,70 @@ export class AvailabilityOverlapErrorDto {
   conflictingPeriod?: ConflictingPeriodDto;
 }
 
+/**
+ * HU-023 · Bloquear automáticamente el periodo reservado (CA1, CA2, CA3, RF-029, RF-030, RN-011, RN-028).
+ * Intervalo de noches [llegada, salida) (AMB-09): del 10 al 12 bloquea las noches del 10 y del 11.
+ */
+export class BlockReservedPeriodDto {
+  @ApiPropertyOptional({ example: '2027-03-10', description: 'Fecha de llegada / inicio del bloqueo (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsString()
+  checkIn?: string;
+
+  @ApiPropertyOptional({ example: '2027-03-12', description: 'Fecha de salida / fin del bloqueo (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsString()
+  checkOut?: string;
+
+  @ApiPropertyOptional({ example: '2027-03-10', description: 'Alias de fecha de llegada (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ example: '2027-03-12', description: 'Alias de fecha de salida (YYYY-MM-DD)' })
+  @IsOptional()
+  @IsString()
+  endDate?: string;
+
+  @ApiPropertyOptional({ example: 'booking-uuid-1', description: 'ID de la reserva confirmada que origina el bloqueo' })
+  @IsOptional()
+  @IsString()
+  bookingId?: string;
+}
+
+export class BlockedPeriodResponseDto {
+  @ApiProperty({ example: 'block-uuid-1', description: 'ID único del bloqueo de periodo reservado' })
+  id: string;
+
+  @ApiProperty({ example: 'uuid-1234-listing', description: 'ID del alojamiento' })
+  listingId: string;
+
+  @ApiPropertyOptional({ example: 'booking-uuid-1', description: 'ID de la reserva asociada' })
+  bookingId?: string;
+
+  @ApiProperty({ example: '2027-03-10', description: 'Fecha de llegada (inicio del intervalo [llegada, salida))' })
+  checkIn: string;
+
+  @ApiProperty({ example: '2027-03-12', description: 'Fecha de salida (fin exclusivo del intervalo [llegada, salida))' })
+  checkOut: string;
+
+  @ApiProperty({
+    example: ['2027-03-10', '2027-03-11'],
+    description: 'Noches bloqueadas dentro del intervalo [llegada, salida) · HU-023 CA1',
+  })
+  blockedNights: string[];
+
+  @ApiProperty({ example: '2026-10-21T22:00:00.000Z' })
+  createdAt: Date;
+}
+
 export class CheckAvailabilityQueryDto {
-  @ApiProperty({ example: '2026-11-01', description: 'Fecha de inicio del rango (YYYY-MM-DD)' })
+  @ApiProperty({ example: '2026-11-01', description: 'Fecha de llegada / inicio del rango (YYYY-MM-DD)' })
   @IsNotEmpty()
   @IsDateString()
   startDate: string;
 
-  @ApiProperty({ example: '2026-11-30', description: 'Fecha de fin del rango (YYYY-MM-DD)' })
+  @ApiProperty({ example: '2026-11-30', description: 'Fecha de salida / fin del rango (YYYY-MM-DD)' })
   @IsNotEmpty()
   @IsDateString()
   endDate: string;
@@ -80,7 +137,7 @@ export class AvailabilityResponseDto {
   @ApiProperty({ example: true, description: 'Indica si está disponible en las fechas especificadas' })
   isAvailable: boolean;
 
-  @ApiProperty({ example: ['2026-11-05', '2026-11-06'], description: 'Fechas bloqueadas u ocupadas en el rango' })
+  @ApiProperty({ example: ['2026-11-05', '2026-11-06'], description: 'Noches bloqueadas u ocupadas en el rango [startDate, endDate) · HU-023' })
   blockedDates: string[];
 
   @ApiProperty({ example: 85.50, description: 'Tarifa base actual por noche' })
@@ -91,4 +148,10 @@ export class AvailabilityResponseDto {
     description: 'Periodos disponibles registrados por el anfitrión (HU-019)',
   })
   availablePeriods?: AvailabilityPeriodResponseDto[];
+
+  @ApiPropertyOptional({
+    type: [BlockedPeriodResponseDto],
+    description: 'Periodos reservados o bloqueados del alojamiento (HU-023)',
+  })
+  reservedPeriods?: BlockedPeriodResponseDto[];
 }

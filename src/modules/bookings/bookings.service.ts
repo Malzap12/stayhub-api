@@ -1,14 +1,35 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
 import { AuditService } from '../audit/audit.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
+import { ListingsService } from '../listings/listings.service';
+import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class BookingsService {
-  constructor(private readonly auditService: AuditService) {}
+  private bookingsStore: BookingResponseDto[] = [
+    {
+      id: 'mock-booking-uuid-1',
+      listingId: 'mock-listing-uuid-1',
+      guestId: 'mock-guest-uuid',
+      checkIn: '2026-11-01',
+      checkOut: '2026-11-06',
+      guests: 2,
+      totalAmount: 518.0,
+      currency: 'USD',
+      status: BookingStatus.CONFIRMADA,
+      idempotencyKey: 'sample-idempotency-key',
+      createdAt: new Date(),
+    },
+  ];
+
+  constructor(
+    private readonly auditService: AuditService,
+    @Optional() private readonly listingsService?: ListingsService,
+  ) {}
 
   async quote(quoteDto: QuoteBookingDto): Promise<QuoteResponseDto> {
     const checkIn = new Date(quoteDto.checkIn);
@@ -37,7 +58,7 @@ export class BookingsService {
 
   async createInstant(bookingDto: CreateBookingDto, actor?: string): Promise<BookingResponseDto> {
     const booking: BookingResponseDto = {
-      id: 'mock-booking-uuid-1',
+      id: `booking-${randomUUID()}`,
       listingId: bookingDto.listingId,
       guestId: 'mock-guest-uuid',
       checkIn: bookingDto.checkIn,
@@ -51,6 +72,8 @@ export class BookingsService {
       createdAt: new Date(),
     };
 
+    this.bookingsStore.push(booking);
+
     this.auditService.record({
       actor,
       action: AuditAction.BOOKING_STATUS_CHANGE,
@@ -63,11 +86,48 @@ export class BookingsService {
     return booking;
   }
 
+  /**
+   * HU-023 · Al registrar la confirmación de una reserva, bloquea automáticamente
+   * las noches del intervalo [checkIn, checkOut) (AMB-09) en el alojamiento (CA1, CA2, CA3).
+   */
+  async confirmBooking(id: string, actor?: string): Promise<BookingResponseDto> {
+    const booking = this.bookingsStore.find((item) => item.id === id);
+    if (!booking) {
+      throw new NotFoundException(`Reserva con id ${id} no encontrada`);
+    }
+
+    this.listingsService?.blockReservedPeriod(
+      booking.listingId,
+      {
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+        bookingId: booking.id,
+      },
+      actor,
+    );
+
+    booking.status = BookingStatus.CONFIRMADA;
+    this.auditService.record({
+      actor,
+      action: AuditAction.BOOKING_STATUS_CHANGE,
+      entity: 'Booking',
+      entityId: booking.id,
+      result: AuditResult.EXITOSO,
+      detail: `Reserva confirmada (${booking.checkIn} al ${booking.checkOut}) y noches bloqueadas`,
+    });
+
+    return booking;
+  }
+
   async findMyBookings(): Promise<BookingResponseDto[]> {
-    return [await this.findOne('mock-booking-uuid-1')];
+    return this.bookingsStore;
   }
 
   async findOne(id: string): Promise<BookingResponseDto> {
+    const existing = this.bookingsStore.find((item) => item.id === id);
+    if (existing) {
+      return existing;
+    }
     return {
       id,
       listingId: 'mock-listing-uuid-1',
@@ -83,4 +143,3 @@ export class BookingsService {
     };
   }
 }
-
