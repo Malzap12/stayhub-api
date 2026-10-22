@@ -454,6 +454,90 @@
         ]
       }
     },
+    "/api/listings/images": {
+      "post": {
+        "operationId": "ListingImagesController_upload",
+        "summary": "Subir imágenes de la publicación desde el dispositivo · HU-010",
+        "description": "Recibe hasta 10 imágenes JPG, PNG o WEBP de máximo 5 MB cada una y devuelve sus URLs para enviarlas en `images` al crear la publicación.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "images": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Imágenes guardadas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadedImagesResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sin imágenes, o un archivo no es JPG, PNG o WEBP"
+          },
+          "403": {
+            "description": "Solo anfitriones y administradores"
+          },
+          "413": {
+            "description": "Una imagen supera los 5 MB"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/images/{name}": {
+      "get": {
+        "operationId": "ListingImagesController_serve",
+        "summary": "Ver una imagen subida de una publicación (público)",
+        "parameters": [
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "description": "Nombre del archivo devuelto al subirla",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La imagen"
+          },
+          "404": {
+            "description": "Imagen no encontrada"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ]
+      }
+    },
     "/api/listings": {
       "post": {
         "operationId": "ListingsController_create",
@@ -2001,6 +2085,24 @@
         },
         "required": [
           "message"
+        ]
+      },
+      "UploadedImagesResponseDto": {
+        "type": "object",
+        "properties": {
+          "urls": {
+            "example": [
+              "/api/listings/images/3f2b6c1e-8a4d-4b8e-9c1f-2d7e5a6b9c0d.jpg"
+            ],
+            "description": "URLs de las imágenes guardadas, en el mismo orden en que se enviaron",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "urls"
         ]
       },
       "CreateListingDto": {
