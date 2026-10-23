@@ -1210,4 +1210,85 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await calendar(id, guest)).body.view).toBe('PUBLICA');
     });
   });
+
+  describe('HU-027 · Cotizar una estancia (CA1, CA2, CA3, CA4, RF-036 a RF-038)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const quote = (body: object) => fetch(`${baseUrl}/bookings/quote`, { method: 'POST', headers: json, body: JSON.stringify(body) });
+    let admin: string;
+
+    beforeAll(async () => {
+      admin = await login(
+        process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com',
+        process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!',
+      );
+      await fetch(`${baseUrl}/platform/service-fee`, { method: 'PATCH', headers: auth(admin), body: JSON.stringify({ serviceFeePercent: 10 }) });
+    });
+
+    afterAll(async () => {
+      await fetch(`${baseUrl}/platform/service-fee`, { method: 'PATCH', headers: auth(admin), body: JSON.stringify({ serviceFeePercent: 12 }) });
+    });
+
+    it('17.1 (CA1, CA2, CA4) desglose de 3 y 7 noches con limpieza, descuento y tarifa del 10 %', async () => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: 'Anfitriona 27', email: 'cotiza.hu027@stayhub.com', password: 'Password123', role: 'ANFITRION' }),
+      });
+      const host = await login('cotiza.hu027@stayhub.com', 'Password123');
+      const created = await fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: auth(host),
+        body: JSON.stringify({ title: 'Apartamento de los criterios', city: 'Bogotá', pricePerNight: 200000 }),
+      });
+      const listingId = (await created.json()).id as string;
+      await fetch(`${baseUrl}/listings/${listingId}/pricing`, {
+        method: 'PATCH',
+        headers: auth(host),
+        body: JSON.stringify({ cleaningFee: 50000, longStayDiscountPercent: 10, longStayMinNights: 7 }),
+      });
+
+      const three = await quote({ listingId, checkIn: '2027-03-01', checkOut: '2027-03-04', guests: 2 });
+      expect(three.status).toBe(200);
+      expect(await three.json()).toMatchObject({
+        nights: 3,
+        baseAmount: 600000,
+        cleaningFee: 50000,
+        discount: 0,
+        serviceFee: 65000,
+        totalAmount: 715000,
+        currency: 'COP',
+      });
+
+      const seven = await (await quote({ listingId, checkIn: '2027-03-01', checkOut: '2027-03-08', guests: 2 })).json();
+      expect(seven).toMatchObject({ baseAmount: 1400000, discount: 140000, serviceFee: 131000, totalAmount: 1441000 });
+    });
+
+    it('17.2 (CA3) un servicio adicional aparece como línea propia y entra en la base de la tarifa', async () => {
+      // Apartamento en Chapinero Alto: 280.000 por noche, sin limpieza, traslado de 80.000.
+      const res = await quote({
+        listingId: 'demo-bogota-chapinero',
+        checkIn: '2027-03-01',
+        checkOut: '2027-03-04',
+        guests: 2,
+        additionalServices: ['Traslado desde el aeropuerto'],
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.additionalServices).toEqual([{ name: 'Traslado desde el aeropuerto', cost: 80000 }]);
+      expect(body).toMatchObject({ baseAmount: 840000, subtotal: 920000, serviceFee: 92000, totalAmount: 1012000 });
+    });
+
+    it('17.3 rechaza fechas invertidas, adicionales inexistentes y publicaciones que no existen', async () => {
+      expect((await quote({ listingId: 'demo-bogota-chapinero', checkIn: '2027-03-04', checkOut: '2027-03-01', guests: 2 })).status).toBe(400);
+      expect(
+        (await quote({ listingId: 'demo-bogota-chapinero', checkIn: '2027-03-01', checkOut: '2027-03-04', guests: 2, additionalServices: ['Spa'] }))
+          .status,
+      ).toBe(400);
+      expect((await quote({ listingId: 'no-existe', checkIn: '2027-03-01', checkOut: '2027-03-04', guests: 2 })).status).toBe(404);
+    });
+  });
 });

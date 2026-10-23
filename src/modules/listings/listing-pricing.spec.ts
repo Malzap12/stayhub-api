@@ -79,7 +79,9 @@ describe('HU-015 · Definir limpieza y descuento por estancia larga (CA1, CA2, C
       const quote = await quoteNights(listing.id, 2);
 
       expect(quote).toMatchObject({ nights: 2, nightlyRate: 200000, baseAmount: 400000, cleaningFee: 60000, currency: 'COP' });
-      expect(quote.totalAmount).toBe(400000 + 60000 + 48000);
+      // HU-027 (RF-038): tarifa de servicio del 12 % sobre noches + limpieza = 12 % de 460.000.
+      expect(quote.serviceFee).toBe(55200);
+      expect(quote.totalAmount).toBe(400000 + 60000 + 55200);
 
       controller.updatePricing(listing.id, { cleaningFee: 80000 }, host);
       expect((await quoteNights(listing.id, 2)).cleaningFee).toBe(80000);
@@ -106,8 +108,9 @@ describe('HU-015 · Definir limpieza y descuento por estancia larga (CA1, CA2, C
       const quote = await quoteNights(listing.id, 7);
 
       expect(quote).toMatchObject({ baseAmount: 1400000, discountPercentage: 10, discount: 140000, cleaningFee: 50000 });
-      expect(quote.serviceFee).toBe(151200);
-      expect(quote.totalAmount).toBe(1400000 - 140000 + 50000 + 151200);
+      // HU-027 (RF-038): 12 % sobre (1.400.000 − 140.000 + 50.000) = 157.200.
+      expect(quote.serviceFee).toBe(157200);
+      expect(quote.totalAmount).toBe(1400000 - 140000 + 50000 + 157200);
     });
 
     it('no aplica el descuento si la estancia es más corta que el mínimo', async () => {
