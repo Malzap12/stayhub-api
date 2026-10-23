@@ -13,6 +13,9 @@ import { createDataSourceOptions } from './database.config';
 const describeIfDb = process.env.TEST_DATABASE_HOST ? describe : describe.skip;
 
 describeIfDb('Persistencia en PostgreSQL (Integración con base de datos real)', () => {
+  // Usan una base real: con varias suites en paralelo una operación puede tardar más de los 5 s por defecto.
+  jest.setTimeout(30_000);
+
   let schemaName: string;
   let dataSource: DataSource;
   const originalEnv = { ...process.env };
@@ -126,5 +129,46 @@ describeIfDb('Persistencia en PostgreSQL (Integración con base de datos real)',
     const instReboot = await createBootInstance();
     expect(instReboot.platform.getServiceFeePercent()).toBe(22);
     await instReboot.persistence.onApplicationShutdown();
+  });
+
+  it('7. una reserva de huésped se guarda y, tras reiniciar, el huésped sigue viendo la publicación pausada (HU-026)', async () => {
+    const inst1 = await createBootInstance();
+    await inst1.auth.register({ name: 'Huésped con reserva', email: 'reserva.pg@stayhub.com', password: 'Password123', role: Role.HUESPED });
+    const { token } = await inst1.auth.login({ email: 'reserva.pg@stayhub.com', password: 'Password123' });
+    const guest = inst1.auth.getSession(token)!;
+
+    inst1.listings.blockReservedPeriod('demo-bogota-pausada', { checkIn: '2026-12-10', checkOut: '2026-12-12' }, guest.email, guest.userId);
+    await expect(inst1.persistence.flush()).resolves.toBeUndefined();
+
+    const rows = await dataSource.query(`SELECT publicacion_id, usuario_id FROM "${schemaName}"."huespedes_con_reserva";`);
+    expect(rows).toEqual([{ publicacion_id: 'demo-bogota-pausada', usuario_id: guest.userId }]);
+    await inst1.persistence.onApplicationShutdown();
+
+    const inst2 = await createBootInstance();
+    expect(inst2.listings.getListingDetail('demo-bogota-pausada', `Bearer ${token}`).status).toBe(ListingStatus.PAUSADA);
+    await inst2.persistence.onApplicationShutdown();
+  });
+
+  it('8. si la base rechaza un cambio, lo no guardado se descarta y los siguientes guardados funcionan', async () => {
+    const inst = await createBootInstance();
+    const listings = inst.listings as unknown as {
+      availabilityPeriodsStore: Array<Record<string, unknown>>;
+      listingsStore: Array<{ id: string }>;
+    };
+    // Una publicación nueva sin guardar y un periodo de una publicación que no existe (lo rechaza la llave foránea).
+    const draft = inst.listings.create({ title: 'Borrador no guardado' }, {
+      token: 't', userId: 'host-x', email: 'x@stayhub.com', role: Role.ANFITRION, expiresAt: Date.now() + 60_000,
+    });
+    listings.availabilityPeriodsStore.push({
+      id: 'periodo-huerfano', listingId: 'no-existe', startDate: '2027-01-01', endDate: '2027-01-05', availableForBooking: true, createdAt: new Date(),
+    });
+
+    await expect(inst.persistence.flush()).rejects.toThrow();
+    expect(listings.availabilityPeriodsStore.some((p) => p.id === 'periodo-huerfano')).toBe(false);
+    expect(listings.listingsStore.some((l) => l.id === draft.id)).toBe(false);
+
+    await inst.auth.register({ name: 'Tras el error', email: 'tras.error.pg@stayhub.com', password: 'Password123', role: Role.HUESPED });
+    await expect(inst.persistence.flush()).resolves.toBeUndefined();
+    await inst.persistence.onApplicationShutdown();
   });
 });

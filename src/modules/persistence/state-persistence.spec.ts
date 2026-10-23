@@ -648,3 +648,12 @@ describe('Persistencia en PostgreSQL (Unitarias sin base de datos)', () => {
     });
   });
 });
+
+describe('huespedes_con_reserva · clave publicación|usuario (HU-026)', () => {
+  it('separa la clave por "|" y la reconstruye igual', () => {
+    const dump = { listings: [], hostNotifications: [], availabilityPeriods: [], reservedPeriods: [], guestsWithReservations: ['demo-bogota-pausada|user-7'] };
+    const rows = sourceToRows('listings', dump);
+    expect(rows.huespedes_con_reserva).toEqual([{ publicacion_id: 'demo-bogota-pausada', usuario_id: 'user-7', extra: {} }]);
+    expect((rowsToSource('listings', rows) as { guestsWithReservations: string[] }).guestsWithReservations).toEqual(['demo-bogota-pausada|user-7']);
+  });
+});
