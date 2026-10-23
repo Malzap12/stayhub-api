@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
-import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
+import { AdditionalServiceDto, ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
 import {
   CheckAvailabilityQueryDto,
   AvailabilityResponseDto,
@@ -620,7 +620,12 @@ export class ListingsService implements OnModuleInit {
    */
   getQuotePricing(
     listingId: string,
-  ): { pricePerNight?: number; cleaningFee: number; longStayDiscount?: LongStayDiscountDto } | undefined {
+  ): {
+    pricePerNight?: number;
+    cleaningFee: number;
+    longStayDiscount?: LongStayDiscountDto;
+    additionalServices: AdditionalServiceDto[];
+  } | undefined {
     const listing = this.listingsStore.find((item) => item.id === listingId);
     if (!listing) {
       return undefined;
@@ -629,6 +634,7 @@ export class ListingsService implements OnModuleInit {
       pricePerNight: listing.pricePerNight,
       cleaningFee: listing.cleaningFee ?? 0,
       longStayDiscount: listing.longStayDiscount ? { ...listing.longStayDiscount } : undefined,
+      additionalServices: (listing.additionalServices ?? []).map((service) => ({ ...service })),
     };
   }
 

@@ -70,29 +70,30 @@ describe('HU-029 · Configurar la tarifa de servicio (CA1, CA2, CA3, RF-040, RN-
     it('las cotizaciones nuevas usan el nuevo porcentaje configurado', async () => {
       // Con tarifa en 10%:
       controller.updateServiceFee({ serviceFeePercent: 10 }, adminSession);
+      // Publicación de ejemplo a 280.000 COP por noche y sin tarifa de limpieza.
       const quote10 = await bookingsService.quote({
-        listingId: 'mock-listing-uuid-1',
+        listingId: 'demo-bogota-chapinero',
         checkIn: '2026-11-01',
         checkOut: '2026-11-03', // 2 noches
         guests: 2,
       });
 
-      // baseAmount = 2 * 85.50 = 171.00; serviceFee = 10% de 171 = 17.10
-      expect(quote10.baseAmount).toBe(171);
-      expect(quote10.serviceFee).toBe(17.1);
+      // baseAmount = 2 × 280.000 = 560.000; serviceFee = 10 % de 560.000 = 56.000
+      expect(quote10.baseAmount).toBe(560000);
+      expect(quote10.serviceFee).toBe(56000);
 
       // Cambiamos tarifa al 20%:
       controller.updateServiceFee({ serviceFeePercent: 20 }, adminSession);
       const quote20 = await bookingsService.quote({
-        listingId: 'mock-listing-uuid-1',
+        listingId: 'demo-bogota-chapinero',
         checkIn: '2026-11-01',
         checkOut: '2026-11-03',
         guests: 2,
       });
 
-      // baseAmount = 171.00; serviceFee = 20% de 171 = 34.20
-      expect(quote20.baseAmount).toBe(171);
-      expect(quote20.serviceFee).toBe(34.2);
+      // serviceFee = 20 % de 560.000 = 112.000
+      expect(quote20.baseAmount).toBe(560000);
+      expect(quote20.serviceFee).toBe(112000);
     });
   });
 

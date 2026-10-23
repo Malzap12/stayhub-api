@@ -1440,8 +1440,8 @@
     "/api/bookings/quote": {
       "post": {
         "operationId": "BookingsController_quote",
-        "summary": "Cotizar estancia",
-        "description": "Calcula el desglose completo del costo: noches x tarifa base + tarifa de limpieza + comisión de servicio = total.",
+        "summary": "Cotizar una estancia · HU-027 (CA1, CA2, CA3, CA4)",
+        "description": "Desglose en COP (RF-036 a RF-038): noches, precio base, descuento por estancia larga, limpieza, cada servicio adicional seleccionado y tarifa de servicio. total = (precio base − descuento) + limpieza + adicionales + tarifa de servicio; la tarifa es el porcentaje configurado (HU-029) sobre esa suma.",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -1455,7 +1455,7 @@
         },
         "responses": {
           "200": {
-            "description": "Cotización calculada exitosamente",
+            "description": "Cotización calculada",
             "content": {
               "application/json": {
                 "schema": {
@@ -1465,10 +1465,10 @@
             }
           },
           "400": {
-            "description": "Fechas o datos inválidos"
+            "description": "Salida no posterior a la llegada, servicio adicional inexistente o datos inválidos"
           },
           "404": {
-            "description": "Alojamiento no encontrado"
+            "description": "La publicación no existe o no tiene precio por noche"
           }
         },
         "tags": [
@@ -3589,24 +3589,34 @@
         "properties": {
           "listingId": {
             "type": "string",
-            "example": "uuid-1234-listing",
+            "example": "demo-bogota-chapinero",
             "description": "ID del alojamiento a cotizar"
           },
           "checkIn": {
             "type": "string",
-            "example": "2026-11-01",
+            "example": "2026-11-10",
             "description": "Fecha de llegada (YYYY-MM-DD)"
           },
           "checkOut": {
             "type": "string",
-            "example": "2026-11-06",
-            "description": "Fecha de salida (YYYY-MM-DD)"
+            "example": "2026-11-13",
+            "description": "Fecha de salida (YYYY-MM-DD), posterior a la llegada"
           },
           "guests": {
             "type": "number",
             "example": 2,
             "description": "Número de huéspedes",
             "minimum": 1
+          },
+          "additionalServices": {
+            "example": [
+              "Traslado desde el aeropuerto"
+            ],
+            "description": "HU-027 CA3: nombres de los servicios adicionales de la publicación que se quieren incluir",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -3616,65 +3626,105 @@
           "guests"
         ]
       },
+      "QuoteAdditionalServiceDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Traslado desde el aeropuerto"
+          },
+          "cost": {
+            "type": "number",
+            "example": 80000,
+            "description": "Costo por estancia en COP"
+          }
+        },
+        "required": [
+          "name",
+          "cost"
+        ]
+      },
       "QuoteResponseDto": {
         "type": "object",
         "properties": {
           "listingId": {
             "type": "string",
-            "example": "uuid-1234-listing"
+            "example": "demo-bogota-chapinero"
           },
           "checkIn": {
             "type": "string",
-            "example": "2026-11-01"
+            "example": "2026-11-10"
           },
           "checkOut": {
             "type": "string",
-            "example": "2026-11-06"
+            "example": "2026-11-13"
           },
           "nights": {
             "type": "number",
-            "example": 5,
-            "description": "Número total de noches"
+            "example": 3,
+            "description": "Número de noches"
           },
           "nightlyRate": {
             "type": "number",
-            "example": 85.5,
-            "description": "Precio base por noche en USD"
+            "example": 200000,
+            "description": "Precio por noche en COP"
           },
           "baseAmount": {
             "type": "number",
-            "example": 427.5,
-            "description": "Subtotal noches (noches x tarifa)"
+            "example": 600000,
+            "description": "Precio base: noches × precio por noche"
           },
           "discountPercentage": {
             "type": "number",
             "example": 0,
-            "description": "Porcentaje de descuento por estancia larga aplicado (HU-015 CA2); 0 si no alcanza las noches mínimas"
+            "description": "Porcentaje de descuento por estancia larga aplicado (HU-015); 0 si no alcanza las noches mínimas"
           },
           "discount": {
             "type": "number",
             "example": 0,
-            "description": "Monto descontado del subtotal de noches por estancia larga (HU-015 CA2)"
+            "description": "Monto descontado del precio base (HU-015)"
           },
           "cleaningFee": {
             "type": "number",
-            "example": 35,
-            "description": "Tarifa de limpieza fija definida por el anfitrión (HU-015 CA1)"
+            "example": 50000,
+            "description": "Tarifa de limpieza por estancia (HU-015)"
+          },
+          "additionalServices": {
+            "description": "Servicios adicionales seleccionados, cada uno con su costo (CA3)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuoteAdditionalServiceDto"
+            }
+          },
+          "additionalServicesTotal": {
+            "type": "number",
+            "example": 0,
+            "description": "Suma de los servicios adicionales seleccionados"
+          },
+          "subtotal": {
+            "type": "number",
+            "example": 650000,
+            "description": "Base de la tarifa de servicio: precio base − descuento + limpieza + adicionales"
+          },
+          "serviceFeePercentage": {
+            "type": "number",
+            "example": 10,
+            "description": "Porcentaje de la tarifa de servicio configurado (HU-029)"
           },
           "serviceFee": {
             "type": "number",
-            "example": 55.5,
-            "description": "Comisión de servicio de la plataforma (12%)"
+            "example": 65000,
+            "description": "Tarifa de servicio: porcentaje configurado sobre el subtotal"
           },
           "totalAmount": {
             "type": "number",
-            "example": 518,
-            "description": "Monto total a pagar en USD"
+            "example": 715000,
+            "description": "Total a pagar: subtotal + tarifa de servicio"
           },
           "currency": {
             "type": "string",
-            "example": "USD",
-            "description": "Moneda"
+            "example": "COP",
+            "description": "Moneda de todos los importes (CA4)"
           }
         },
         "required": [
@@ -3687,6 +3737,10 @@
           "discountPercentage",
           "discount",
           "cleaningFee",
+          "additionalServices",
+          "additionalServicesTotal",
+          "subtotal",
+          "serviceFeePercentage",
           "serviceFee",
           "totalAmount",
           "currency"
