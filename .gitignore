@@ -22,5 +22,3 @@ coverage
 # Imágenes subidas por los anfitriones (HU-010)
 /uploads
 
-# Datos del API guardados en disco (persistencia local)
-/data

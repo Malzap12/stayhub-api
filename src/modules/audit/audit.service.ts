@@ -49,7 +49,8 @@ export class AuditService {
     persistence?.register('audit', {
       dump: () => this.events,
       restore: (data) => {
-        (data as AuditEvent[]).forEach((event) => this.events.push(Object.freeze({ ...event })));
+        this.events.length = 0;
+        ((data as AuditEvent[]) ?? []).forEach((event) => this.events.push(Object.freeze({ ...event })));
       },
     });
   }

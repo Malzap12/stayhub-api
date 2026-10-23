@@ -41,7 +41,7 @@ export class BookingsService implements OnModuleInit {
     this.persistence?.register('bookings', {
       dump: () => this.bookingsStore,
       restore: (data) => {
-        this.bookingsStore = data as BookingResponseDto[];
+        this.bookingsStore = (data as BookingResponseDto[]) ?? [];
       },
     });
   }

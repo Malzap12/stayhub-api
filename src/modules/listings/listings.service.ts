@@ -316,12 +316,17 @@ export class ListingsService implements OnModuleInit {
   private reservedPeriodsStore: BlockedPeriodResponseDto[] = [];
   /** HU-026 CA2: huéspedes con reservas en cada publicación (`listingId|userId`), que pueden ver su detalle aunque no esté ACTIVA. */
   private readonly guestsWithReservations = new Set<string>();
+  private readonly seedListings: ListingResponseDto[];
+  private readonly seedAvailabilityPeriods: AvailabilityPeriodResponseDto[];
 
   constructor(
     private readonly auditService: AuditService,
     @Optional() private readonly authService?: AuthService,
     @Optional() private readonly persistence?: StatePersistenceService,
-  ) {}
+  ) {
+    this.seedListings = structuredClone(this.listingsStore);
+    this.seedAvailabilityPeriods = structuredClone(this.availabilityPeriodsStore);
+  }
 
   onModuleInit(): void {
     this.persistence?.register('listings', {

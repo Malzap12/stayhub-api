@@ -12,6 +12,20 @@ jobs:
   ci:
     name: Build, Test & SonarCloud
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: lr_user
+          POSTGRES_PASSWORD: lr_password123
+          POSTGRES_DB: inversiones_lr_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,6 +44,12 @@ jobs:
 
       - name: Run automated tests with coverage (HU-064)
         run: npm run test:cov
+        env:
+          TEST_DATABASE_HOST: localhost
+          TEST_DATABASE_PORT: 5432
+          TEST_DATABASE_USER: lr_user
+          TEST_DATABASE_PASSWORD: lr_password123
+          TEST_DATABASE_NAME: inversiones_lr_db
 
       - name: SonarCloud Scan (HU-065)
         uses: SonarSource/sonarqube-scan-action@v5.0.0

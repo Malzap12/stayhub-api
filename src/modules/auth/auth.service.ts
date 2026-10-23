@@ -61,9 +61,12 @@ export class AuthService implements OnModuleInit {
     this.persistence?.register('auth', {
       dump: () => ({ users: [...this.users.entries()], sessions: [...this.activeSessions.entries()] }),
       restore: (data) => {
+        this.users.clear();
+        this.activeSessions.clear();
         const state = data as { users: Array<[string, UserAccount]>; sessions: Array<[string, ActiveSession]> };
-        state.users.forEach(([email, account]) => this.users.set(email, account));
-        state.sessions.forEach(([token, session]) => this.activeSessions.set(token, session));
+        state?.users?.forEach(([email, account]) => this.users.set(email, account));
+        state?.sessions?.forEach(([token, session]) => this.activeSessions.set(token, session));
+        this.seedInitialAdmin();
       },
     });
     this.seedInitialAdmin();
