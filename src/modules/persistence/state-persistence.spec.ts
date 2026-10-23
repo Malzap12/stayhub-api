@@ -446,6 +446,42 @@ describe('Persistencia en PostgreSQL (Unitarias sin base de datos)', () => {
       expect(toDateOnly('2026-10-23T12:00:00Z')).toBe('2026-10-23');
       expect(toDateOnly(d)).toBe('2026-10-23');
     });
+
+    it('normalizeDbRow maneja jsonb en formato string y strings no parseables', () => {
+      const parsed = normalizeDbRow('publicaciones', {
+        descuento_estancia: '{"semanal":10}',
+      });
+      expect(parsed.descuento_estancia).toEqual({ semanal: 10 });
+
+      const invalidJson = normalizeDbRow('publicaciones', {
+        descuento_estancia: '{no-es-json',
+      });
+      expect(invalidJson.descuento_estancia).toBe('{no-es-json');
+    });
+
+    it('sourceToRows y rowsToSource manejan claves desconocidas y notificaciones de anfitrión', () => {
+      expect(sourceToRows('clave_desconocida', {})).toEqual({});
+      expect(rowsToSource('clave_desconocida', {})).toBeNull();
+      expect(() => computeChanges('tabla_inexistente', new Map(), [])).toThrow();
+
+      const dumped = sourceToRows('listings', {
+        listings: [],
+        availabilityPeriods: [],
+        reservedPeriods: [],
+        guestsWithReservations: [],
+        hostNotifications: [
+          { id: 'notif-1', listingId: 'l1', hostId: 'h1', type: 'INFO', message: 'hola', createdAt: new Date() },
+        ],
+      });
+      expect(dumped.notificaciones_anfitrion).toHaveLength(1);
+
+      const restored: any = rowsToSource('listings', {
+        notificaciones_anfitrion: [
+          { id: 'notif-1', publicacion_id: 'l1', anfitrion_id: 'h1', tipo: 'INFO', mensaje: 'hola' },
+        ],
+      });
+      expect(restored.hostNotifications).toHaveLength(1);
+    });
   });
 
   describe('7. StatePersistenceService: ciclo de vida y flush transaccional', () => {
@@ -455,13 +491,19 @@ describe('Persistencia en PostgreSQL (Unitarias sin base de datos)', () => {
       await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
     });
 
-    it('onApplicationShutdown limpia timer y ejecuta flush', async () => {
+    it('onApplicationShutdown limpia timer, ejecuta flush y destruye la conexion', async () => {
       const service = new StatePersistenceService();
-      const flushSpy = jest.spyOn(service, 'flush').mockResolvedValue();
+      const flushSpy = jest.spyOn(service, 'flush').mockRejectedValue(new Error('flush failed'));
       (service as any).periodicTimer = setInterval(() => {}, 100_000);
+      const destroyMock = jest.fn().mockResolvedValue(undefined);
+      (service as any).dataSource = {
+        isInitialized: true,
+        destroy: destroyMock,
+      };
 
       await service.onApplicationShutdown();
       expect(flushSpy).toHaveBeenCalled();
+      expect(destroyMock).toHaveBeenCalled();
     });
 
     it('resync restaura fuentes desde memoria', () => {
