@@ -15,6 +15,7 @@ import {
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
+import { ListingPricingResponseDto, UpdateListingPricingDto } from './dto/listing-pricing.dto';
 import { ActivationMissingFieldsErrorDto } from './dto/request-activation.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -145,6 +146,47 @@ export class ListingsController {
   @ApiResponse({ status: 200, description: 'Listado de notificaciones del anfitrión', type: [HostNotificationDto] })
   getHostNotifications(@Query('hostId') hostId?: string): Promise<HostNotificationDto[]> {
     return this.listingsService.getHostNotifications(hostId);
+  }
+
+  @Get(':id/pricing')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Consultar tarifa de limpieza y descuento por estancia larga · HU-015',
+    description: 'Retorna la tarifa de limpieza fija (COP) y el descuento por estancia larga de una publicación propia (RN-005).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
+  @ApiResponse({ status: 200, description: 'Tarifas de la publicación', type: ListingPricingResponseDto })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ANFITRION)' })
+  @ApiResponse({ status: 404, description: 'La publicación no existe o pertenece a otro anfitrión (RN-005)' })
+  getPricing(
+    @Param('id') id: string,
+    @CurrentUser() user?: ActiveSession,
+  ): ListingPricingResponseDto {
+    return this.listingsService.getPricing(id, user);
+  }
+
+  @Patch(':id/pricing')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Definir limpieza y descuento por estancia larga · HU-015 (CA1, CA2, CA3)',
+    description:
+      'Define la tarifa de limpieza fija (>= 0 COP, CA1) y un descuento entre 0 % y 50 % a partir de un número mínimo de noches (CA2). Valores fuera de rango se rechazan (CA3). Aplica a las cotizaciones nuevas. RF-019, RN-004, RN-013.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
+  @ApiResponse({ status: 200, description: 'Tarifas guardadas (CA1, CA2)', type: ListingPricingResponseDto })
+  @ApiResponse({ status: 400, description: 'Tarifa de limpieza negativa, descuento fuera de 0-50 % o noches mínimas inválidas (CA3)' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ANFITRION)' })
+  @ApiResponse({ status: 404, description: 'La publicación no existe o pertenece a otro anfitrión (RN-005)' })
+  updatePricing(
+    @Param('id') id: string,
+    @Body() dto: UpdateListingPricingDto,
+    @CurrentUser() user?: ActiveSession,
+  ): ListingPricingResponseDto {
+    return this.listingsService.updatePricing(id, dto, user);
   }
 
   @Post(':id/availability-periods')
