@@ -17,10 +17,14 @@ export class BookingsController {
   @Post('quote')
   @Public()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Cotizar estancia', description: 'Calcula el desglose completo del costo: noches x tarifa base + tarifa de limpieza + comisión de servicio = total.' })
-  @ApiResponse({ status: 200, description: 'Cotización calculada exitosamente', type: QuoteResponseDto })
-  @ApiResponse({ status: 400, description: 'Fechas o datos inválidos' })
-  @ApiResponse({ status: 404, description: 'Alojamiento no encontrado' })
+  @ApiOperation({
+    summary: 'Cotizar una estancia · HU-027 (CA1, CA2, CA3, CA4)',
+    description:
+      'Desglose en COP (RF-036 a RF-038): noches, precio base, descuento por estancia larga, limpieza, cada servicio adicional seleccionado y tarifa de servicio. total = (precio base − descuento) + limpieza + adicionales + tarifa de servicio; la tarifa es el porcentaje configurado (HU-029) sobre esa suma.',
+  })
+  @ApiResponse({ status: 200, description: 'Cotización calculada', type: QuoteResponseDto })
+  @ApiResponse({ status: 400, description: 'Salida no posterior a la llegada, servicio adicional inexistente o datos inválidos' })
+  @ApiResponse({ status: 404, description: 'La publicación no existe o no tiene precio por noche' })
   quote(@Body() quoteDto: QuoteBookingDto): Promise<QuoteResponseDto> {
     return this.bookingsService.quote(quoteDto);
   }

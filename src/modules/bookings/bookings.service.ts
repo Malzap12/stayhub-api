@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
@@ -8,6 +8,7 @@ import { StatePersistenceService } from '../persistence/state-persistence.servic
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { ListingsService } from '../listings/listings.service';
 import { PlatformConfigService } from '../platform/platform-config.service';
+import { DEFAULT_SERVICE_FEE_PERCENT } from '../platform/dto/service-fee.dto';
 import { randomUUID } from 'node:crypto';
 
 @Injectable()
@@ -46,27 +47,45 @@ export class BookingsService implements OnModuleInit {
   }
 
   /**
-   * Cotiza una estancia. HU-015 (CA1, CA2, RF-019, RN-004, RN-013): usa la tarifa de limpieza vigente de la
-   * publicaciÃ³n y aplica su descuento por estancia larga cuando las noches alcanzan el mÃ­nimo definido.
-   * Si la publicaciÃ³n no estÃ¡ registrada conserva los valores de demostraciÃ³n.
+   * HU-027 · Cotizar una estancia (CA1-CA4, RF-036 a RF-038, RN-019, RN-020).
+   * total = (precio base − descuento) + limpieza + servicios adicionales + tarifa de servicio, donde la tarifa de
+   * servicio es el porcentaje configurado (HU-029) sobre esa suma. El descuento por estancia larga y la limpieza
+   * son los vigentes de la publicación (HU-015). Todos los importes en COP.
    */
   async quote(quoteDto: QuoteBookingDto): Promise<QuoteResponseDto> {
-    const checkIn = new Date(quoteDto.checkIn);
-    const checkOut = new Date(quoteDto.checkOut);
-    const diffTime = Math.abs(checkOut.getTime() - checkIn.getTime());
-    const nights = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-    const round = (value: number) => Math.round(value * 100) / 100;
-
     const pricing = this.listingsService?.getQuotePricing(quoteDto.listingId);
-    const nightlyRate = pricing?.pricePerNight ?? 85.50;
+    if (!pricing || pricing.pricePerNight == null) {
+      throw new NotFoundException('Esta publicación no está disponible para cotizar');
+    }
+
+    const checkIn = String(quoteDto.checkIn).slice(0, 10);
+    const checkOut = String(quoteDto.checkOut).slice(0, 10);
+    const nights = Math.round((Date.parse(`${checkOut}T00:00:00Z`) - Date.parse(`${checkIn}T00:00:00Z`)) / 86_400_000);
+    if (!Number.isFinite(nights) || nights < 1) {
+      throw new BadRequestException('La fecha de salida debe ser posterior a la fecha de llegada');
+    }
+
+    const requested = [...new Set((quoteDto.additionalServices ?? []).map((name) => name.trim()).filter(Boolean))];
+    const additionalServices = requested.map((name) => {
+      const service = pricing.additionalServices.find((item) => item.name === name);
+      if (!service) {
+        throw new BadRequestException(`El servicio adicional «${name}» no está disponible en esta publicación`);
+      }
+      return { name: service.name, cost: service.cost };
+    });
+
+    const round = (value: number) => Math.round(value * 100) / 100;
+    const nightlyRate = pricing.pricePerNight;
     const baseAmount = round(nights * nightlyRate);
-    const cleaningFee = pricing ? pricing.cleaningFee : 35.00;
-    const longStay = pricing?.longStayDiscount;
+    const longStay = pricing.longStayDiscount;
     const discountPercentage = longStay && nights >= longStay.minNights ? longStay.percentage : 0;
     const discount = round((baseAmount * discountPercentage) / 100);
-    const feePercent = this.platformConfigService?.getServiceFeePercent() ?? 12;
-    const serviceFee = round((baseAmount - discount) * (feePercent / 100));
-    const totalAmount = round(baseAmount - discount + cleaningFee + serviceFee);
+    const cleaningFee = pricing.cleaningFee;
+    const additionalServicesTotal = round(additionalServices.reduce((sum, service) => sum + service.cost, 0));
+    const subtotal = round(baseAmount - discount + cleaningFee + additionalServicesTotal);
+    const serviceFeePercentage = this.platformConfigService?.getServiceFeePercent() ?? DEFAULT_SERVICE_FEE_PERCENT;
+    const serviceFee = round((subtotal * serviceFeePercentage) / 100);
+    const totalAmount = round(subtotal + serviceFee);
 
     return {
       listingId: quoteDto.listingId,
@@ -78,9 +97,13 @@ export class BookingsService implements OnModuleInit {
       discountPercentage,
       discount,
       cleaningFee,
+      additionalServices,
+      additionalServicesTotal,
+      subtotal,
+      serviceFeePercentage,
       serviceFee,
       totalAmount,
-      currency: pricing ? 'COP' : 'USD',
+      currency: 'COP',
     };
   }
 
