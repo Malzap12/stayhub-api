@@ -7,6 +7,7 @@ import { AuditService } from '../audit/audit.service';
 import { StatePersistenceService } from '../persistence/state-persistence.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { ListingsService } from '../listings/listings.service';
+import { PlatformConfigService } from '../platform/platform-config.service';
 import { randomUUID } from 'node:crypto';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class BookingsService implements OnModuleInit {
       checkOut: '2026-11-06',
       guests: 2,
       totalAmount: 518.0,
+      serviceFee: 55.50,
       currency: 'USD',
       status: BookingStatus.CONFIRMADA,
       idempotencyKey: 'sample-idempotency-key',
@@ -31,6 +33,7 @@ export class BookingsService implements OnModuleInit {
     private readonly auditService: AuditService,
     @Optional() private readonly listingsService?: ListingsService,
     @Optional() private readonly persistence?: StatePersistenceService,
+    @Optional() private readonly platformConfigService?: PlatformConfigService,
   ) {}
 
   onModuleInit(): void {
@@ -61,7 +64,8 @@ export class BookingsService implements OnModuleInit {
     const longStay = pricing?.longStayDiscount;
     const discountPercentage = longStay && nights >= longStay.minNights ? longStay.percentage : 0;
     const discount = round((baseAmount * discountPercentage) / 100);
-    const serviceFee = round((baseAmount - discount) * 0.12);
+    const feePercent = this.platformConfigService?.getServiceFeePercent() ?? 12;
+    const serviceFee = round((baseAmount - discount) * (feePercent / 100));
     const totalAmount = round(baseAmount - discount + cleaningFee + serviceFee);
 
     return {
@@ -88,6 +92,7 @@ export class BookingsService implements OnModuleInit {
       checkIn: bookingDto.checkIn,
       checkOut: bookingDto.checkOut,
       guests: bookingDto.guests,
+      serviceFee: 55.50,
       totalAmount: 518.00,
       currency: 'USD',
       status: BookingStatus.PENDIENTE,
@@ -159,6 +164,7 @@ export class BookingsService implements OnModuleInit {
       checkIn: '2026-11-01',
       checkOut: '2026-11-06',
       guests: 2,
+      serviceFee: 55.50,
       totalAmount: 518.00,
       currency: 'USD',
       status: BookingStatus.CONFIRMADA,
