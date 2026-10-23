@@ -29,6 +29,7 @@ import { StatePersistenceService } from '../persistence/state-persistence.servic
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { DEMO_AVAILABILITY_PERIODS, DEMO_LISTINGS } from './listings.seed';
 import { ListingDetailDto } from './dto/listing-detail.dto';
+import { CalendarDayStatus, CalendarMonthDto, ListingCalendarDto } from './dto/calendar.dto';
 import { CANCELLATION_POLICIES, DEFAULT_CANCELLATION_POLICY } from './cancellation-policies';
 import { Role } from '../../common/enums/role.enum';
 
@@ -673,6 +674,7 @@ export class ListingsService implements OnModuleInit {
     dto: BlockReservedPeriodDto,
     actor?: string,
     guestId?: string,
+    type: 'RESERVA' | 'BLOQUEO' = 'RESERVA',
   ): BlockedPeriodResponseDto {
     const fail = (detail: string) =>
       this.recordReservedBlockChange(actor, listingId, AuditResult.FALLIDO, `Bloqueo rechazado: ${detail}`);
@@ -718,6 +720,7 @@ export class ListingsService implements OnModuleInit {
       id: randomUUID(),
       listingId,
       bookingId: dto?.bookingId?.trim() || undefined,
+      type,
       checkIn,
       checkOut,
       blockedNights: nights,
@@ -950,6 +953,71 @@ export class ListingsService implements OnModuleInit {
    * sin periodos no hay disponibilidad. El día de salida no se ocupa, por eso puede ser el fin del periodo.
    * Con HU-023, tampoco puede incluir noches ya reservadas o bloqueadas.
    */
+  /**
+   * HU-022 · Consultar el calendario de disponibilidad (CA1, CA2, RF-028, RN-028).
+   * 12 meses desde el mes actual, noche por noche. El público ve si cada noche está disponible (CA1) y solo
+   * para publicaciones ACTIVAS; el anfitrión dueño y el administrador distinguen reservadas, bloqueadas y
+   * noches fuera de los periodos disponibles (CA2), en cualquier estado de la publicación.
+   */
+  getCalendar(listingId: string, rawToken?: string): ListingCalendarDto {
+    const listing = this.listingsStore.find((item) => item.id === listingId);
+    const session = this.authService?.getSession(rawToken);
+    const isManager = Boolean(
+      listing && session && (session.userId === listing.hostId || session.role === Role.ADMINISTRADOR),
+    );
+    if (!listing || (listing.status !== ListingStatus.ACTIVA && !isManager)) {
+      throw new NotFoundException(LISTING_NOT_AVAILABLE);
+    }
+
+    const today = this.getTodayDateOnly();
+    const periods = this.periodsOf(listingId);
+    const occupied = new Map<string, 'RESERVADA' | 'BLOQUEADA'>();
+    for (const period of this.reservedPeriodsOf(listingId)) {
+      const status = period.type === 'BLOQUEO' ? 'BLOQUEADA' : 'RESERVADA';
+      period.blockedNights.forEach((night) => occupied.set(night, status));
+    }
+
+    const hostStatus = (date: string): CalendarDayStatus => {
+      if (date < today) {
+        return 'PASADA';
+      }
+      const occupation = occupied.get(date);
+      if (occupation) {
+        return occupation;
+      }
+      return periods.some((period) => date >= period.startDate && date < period.endDate) ? 'DISPONIBLE' : 'SIN_PERIODO';
+    };
+    const publicStatus = (date: string): CalendarDayStatus => {
+      const status = hostStatus(date);
+      return status === 'DISPONIBLE' || status === 'PASADA' ? status : 'NO_DISPONIBLE';
+    };
+    const statusOf = isManager ? hostStatus : publicStatus;
+
+    const [year, month] = today.split('-').map(Number);
+    const months: CalendarMonthDto[] = Array.from({ length: 12 }, (_, offset) => {
+      const first = new Date(Date.UTC(year, month - 1 + offset, 1));
+      const daysInMonth = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+      const prefix = first.toISOString().slice(0, 7);
+      return {
+        month: prefix,
+        days: Array.from({ length: daysInMonth }, (_day, index) => {
+          const date = `${prefix}-${String(index + 1).padStart(2, '0')}`;
+          return { date, status: statusOf(date) };
+        }),
+      };
+    });
+
+    const lastMonth = months[months.length - 1];
+    return {
+      listingId,
+      view: isManager ? 'ANFITRION' : 'PUBLICA',
+      today,
+      from: months[0].days[0].date,
+      to: lastMonth.days[lastMonth.days.length - 1].date,
+      months,
+    };
+  }
+
   private isRangeAvailable(listingId: string, checkIn: string, checkOut: string): boolean {
     const withinPeriods = this.periodsOf(listingId).some((period) => checkIn >= period.startDate && checkOut <= period.endDate);
     if (!withinPeriods) {

@@ -16,6 +16,7 @@ import {
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
 import { ListingDetailDto } from './dto/listing-detail.dto';
+import { ListingCalendarDto } from './dto/calendar.dto';
 import { ListingPricingResponseDto, UpdateListingPricingDto } from './dto/listing-pricing.dto';
 import { ActivationMissingFieldsErrorDto } from './dto/request-activation.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
@@ -249,7 +250,9 @@ export class ListingsController {
     @CurrentUser() user?: ActiveSession,
   ): BlockedPeriodResponseDto {
     const guestId = user?.role === Role.HUESPED ? user.userId : undefined;
-    return this.listingsService.blockReservedPeriod(id, dto, user?.email, guestId);
+    // HU-022 CA2: sin reserva asociada, lo que registra el anfitrión (o el admin) es un bloqueo de fechas.
+    const type = !guestId && !dto?.bookingId?.trim() ? 'BLOQUEO' : 'RESERVA';
+    return this.listingsService.blockReservedPeriod(id, dto, user?.email, guestId, type);
   }
 
   @Get(':id/reserved-periods')
@@ -262,6 +265,21 @@ export class ListingsController {
   @ApiResponse({ status: 200, description: 'Listado de periodos reservados/bloqueados', type: [BlockedPeriodResponseDto] })
   getReservedPeriods(@Param('id') id: string): BlockedPeriodResponseDto[] {
     return this.listingsService.getReservedPeriods(id);
+  }
+
+  @Get(':id/calendar')
+  @Public()
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Consultar el calendario de disponibilidad · HU-022 (CA1, CA2)',
+    description:
+      'Calendario de los próximos 12 meses (desde el mes actual), noche por noche (RF-028). Público para publicaciones ACTIVAS: cada noche es DISPONIBLE o NO_DISPONIBLE (CA1). Con la sesión del anfitrión dueño o del administrador muestra RESERVADA, BLOQUEADA y SIN_PERIODO (CA2). Las noches anteriores a hoy son PASADA.',
+  })
+  @ApiParam({ name: 'id', description: 'ID del alojamiento' })
+  @ApiResponse({ status: 200, description: 'Calendario de 12 meses', type: ListingCalendarDto })
+  @ApiResponse({ status: 404, description: 'Esta publicación no está disponible' })
+  getCalendar(@Param('id') id: string, @Headers('authorization') authHeader?: string): ListingCalendarDto {
+    return this.listingsService.getCalendar(id, authHeader);
   }
 
   @Get('search')

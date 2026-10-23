@@ -102,6 +102,14 @@ export class BlockedPeriodResponseDto {
   @ApiPropertyOptional({ example: 'booking-uuid-1', description: 'ID de la reserva asociada' })
   bookingId?: string;
 
+  @ApiPropertyOptional({
+    enum: ['RESERVA', 'BLOQUEO'],
+    example: 'RESERVA',
+    description:
+      'HU-022 CA2: RESERVA si lo origina una reserva (huésped o bookingId); BLOQUEO si el anfitrión bloqueó las fechas sin reserva',
+  })
+  type?: 'RESERVA' | 'BLOQUEO';
+
   @ApiProperty({ example: '2027-03-10', description: 'Fecha de llegada (inicio del intervalo [llegada, salida))' })
   checkIn: string;
 
