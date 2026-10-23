@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateAvailabilityPeriodDto {
   @ApiProperty({ example: '2026-12-01', description: 'Fecha de inicio del periodo disponible (YYYY-MM-DD) · HU-019' })
@@ -90,6 +90,15 @@ export class BlockReservedPeriodDto {
   @IsOptional()
   @IsString()
   bookingId?: string;
+
+  @ApiPropertyOptional({
+    enum: ['RESERVA', 'BLOQUEO'],
+    default: 'RESERVA',
+    description: 'HU-022 CA2: RESERVA (reserva confirmada) o BLOQUEO (el anfitrión bloquea fechas). Un huésped solo registra reservas.',
+  })
+  @IsOptional()
+  @IsIn(['RESERVA', 'BLOQUEO'], { message: 'El tipo debe ser RESERVA o BLOQUEO' })
+  type?: 'RESERVA' | 'BLOQUEO';
 }
 
 export class BlockedPeriodResponseDto {
@@ -101,6 +110,14 @@ export class BlockedPeriodResponseDto {
 
   @ApiPropertyOptional({ example: 'booking-uuid-1', description: 'ID de la reserva asociada' })
   bookingId?: string;
+
+  @ApiPropertyOptional({
+    enum: ['RESERVA', 'BLOQUEO'],
+    example: 'RESERVA',
+    description:
+      'HU-022 CA2: RESERVA (reserva confirmada) o BLOQUEO (fechas bloqueadas por el anfitrión)',
+  })
+  type?: 'RESERVA' | 'BLOQUEO';
 
   @ApiProperty({ example: '2027-03-10', description: 'Fecha de llegada (inicio del intervalo [llegada, salida))' })
   checkIn: string;

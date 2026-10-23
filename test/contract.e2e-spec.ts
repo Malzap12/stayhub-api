@@ -1116,4 +1116,98 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await detail('demo-bogota-pausada', guest)).status).toBe(200);
     });
   });
+
+  describe('HU-022 · Consultar el calendario de disponibilidad (CA1, CA2, RF-028, RN-028)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const loginAs = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: email, email, password: 'Password123', role }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return (await res.json()).token as string;
+    };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const calendar = async (id: string, token?: string) => {
+      const res = await fetch(`${baseUrl}/listings/${id}/calendar`, { headers: token ? auth(token) : {} });
+      return { status: res.status, body: await res.json() };
+    };
+    const statusOn = (body: { months: Array<{ days: Array<{ date: string; status: string }> }> }, date: string) =>
+      body.months.flatMap((m) => m.days).find((d) => d.date === date)?.status;
+
+    it('16.1 (CA1, CA2) el público ve disponible/no disponible y el anfitrión distingue reservadas y bloqueadas', async () => {
+      const host = await loginAs('calendario.hu022@stayhub.com', 'ANFITRION');
+      const guest = await loginAs('huesped.hu022@stayhub.com', 'HUESPED');
+      const adminLogin = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({
+          email: process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com',
+          password: process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!',
+        }),
+      });
+      const admin = (await adminLogin.json()).token as string;
+
+      const created = await fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: auth(host),
+        body: JSON.stringify({
+          title: 'Cabaña con calendario', description: 'Para HU-022.', city: 'Guatapé', department: 'Antioquia',
+          address: 'Vereda El Roble', propertyType: 'CABANA', maxGuests: 2, pricePerNight: 200000,
+          amenities: ['WIFI'], rules: ['No fumar'], images: ['https://storage.stayhub.com/c.jpg'],
+        }),
+      });
+      const id = (await created.json()).id as string;
+      await fetch(`${baseUrl}/listings/${id}/availability-periods`, {
+        method: 'POST',
+        headers: auth(host),
+        body: JSON.stringify({ startDate: day(10), endDate: day(40) }),
+      });
+
+      // Aún en BORRADOR: el público no ve su calendario; el anfitrión sí.
+      expect((await calendar(id)).status).toBe(404);
+      expect((await calendar(id, host)).body.view).toBe('ANFITRION');
+
+      await fetch(`${baseUrl}/listings/${id}/request-activation`, { method: 'PATCH', headers: auth(host) });
+      await fetch(`${baseUrl}/listings/${id}/approve`, { method: 'PATCH', headers: auth(admin) });
+
+      await fetch(`${baseUrl}/listings/${id}/reserved-periods`, {
+        method: 'POST',
+        headers: auth(guest),
+        body: JSON.stringify({ checkIn: day(15), checkOut: day(17) }),
+      });
+      await fetch(`${baseUrl}/listings/${id}/reserved-periods`, {
+        method: 'POST',
+        headers: auth(host),
+        body: JSON.stringify({ checkIn: day(20), checkOut: day(21), type: 'BLOQUEO' }),
+      });
+
+      const pub = await calendar(id);
+      expect(pub.status).toBe(200);
+      expect(pub.body.view).toBe('PUBLICA');
+      expect(pub.body.months).toHaveLength(12);
+      expect(statusOn(pub.body, day(12))).toBe('DISPONIBLE');
+      expect(statusOn(pub.body, day(15))).toBe('NO_DISPONIBLE');
+      expect(statusOn(pub.body, day(20))).toBe('NO_DISPONIBLE');
+      expect(statusOn(pub.body, day(60))).toBe('NO_DISPONIBLE');
+
+      const own = await calendar(id, host);
+      expect(own.body.view).toBe('ANFITRION');
+      expect(statusOn(own.body, day(12))).toBe('DISPONIBLE');
+      expect(statusOn(own.body, day(15))).toBe('RESERVADA');
+      expect(statusOn(own.body, day(16))).toBe('RESERVADA');
+      expect(statusOn(own.body, day(17))).toBe('DISPONIBLE');
+      expect(statusOn(own.body, day(20))).toBe('BLOQUEADA');
+      expect(statusOn(own.body, day(60))).toBe('SIN_PERIODO');
+
+      // Otro huésped ve la vista pública.
+      expect((await calendar(id, guest)).body.view).toBe('PUBLICA');
+    });
+  });
 });
