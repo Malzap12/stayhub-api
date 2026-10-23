@@ -5,9 +5,17 @@ import {
   normalizeDbRow,
   REGISTERED_SOURCE_TABLES,
   rowsToSource,
+  serializePkValue,
   sourceToRows,
+  stableJson,
   TABLE_DEFINITIONS,
 } from './state-tables';
+import {
+  createDataSourceOptions,
+  getDatabaseSchema,
+  isPersistenceEnabled,
+  validateSchemaName,
+} from './database.config';
 import { PersistStateInterceptor } from './persist-state.interceptor';
 import { StatePersistenceService } from './state-persistence.service';
 import { AuthService } from '../auth/auth.service';
@@ -332,6 +340,197 @@ describe('Persistencia en PostgreSQL (Unitarias sin base de datos)', () => {
         'Bad input 400',
       );
       expect(persistenceMock.flush).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('5. database.config: validaciones y opciones', () => {
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it('validateSchemaName valida formato seguro y rechaza cadenas inválidas', () => {
+      expect(validateSchemaName('stayhub')).toBe('stayhub');
+      expect(validateSchemaName('  STAYHUB_01  ')).toBe('stayhub_01');
+
+      expect(() => validateSchemaName('')).toThrow();
+      expect(() => validateSchemaName('123abc')).toThrow();
+      expect(() => validateSchemaName('stay-hub')).toThrow();
+      expect(() => validateSchemaName('schema; drop table')).toThrow();
+    });
+
+    it('getDatabaseSchema retorna el valor configurado o el por defecto', () => {
+      delete process.env.DATABASE_SCHEMA;
+      expect(getDatabaseSchema()).toBe('stayhub');
+
+      process.env.DATABASE_SCHEMA = 'mi_esquema';
+      expect(getDatabaseSchema()).toBe('mi_esquema');
+    });
+
+    it('isPersistenceEnabled respeta NODE_ENV=test y PERSIST_STATE=false', () => {
+      process.env.NODE_ENV = 'test';
+      expect(isPersistenceEnabled()).toBe(false);
+
+      delete process.env.NODE_ENV;
+      process.env.PERSIST_STATE = 'false';
+      expect(isPersistenceEnabled()).toBe(false);
+
+      process.env.PERSIST_STATE = 'true';
+      expect(isPersistenceEnabled()).toBe(true);
+    });
+
+    it('createDataSourceOptions configura SSL y esquema personalizado', () => {
+      process.env.DATABASE_SSL = 'true';
+      const opts = createDataSourceOptions('esquema_custom') as any;
+      expect(opts.schema).toBe('esquema_custom');
+      expect(opts.ssl).toEqual({ rejectUnauthorized: false });
+      expect(opts.migrationsTableName).toBe('migraciones');
+    });
+  });
+
+  describe('6. state-tables: serialización y normalización', () => {
+    it('serializePkValue maneja null, undefined, primitivos y objetos', () => {
+      expect(serializePkValue(null)).toBe('');
+      expect(serializePkValue(undefined)).toBe('');
+      expect(serializePkValue(123)).toBe('123');
+      expect(serializePkValue('token-abc')).toBe('token-abc');
+      expect(serializePkValue({ id: 1 })).toBe('{"id":1}');
+    });
+
+    it('stableJson genera JSON canónico determinista', () => {
+      expect(stableJson(null)).toBe('null');
+      expect(stableJson(42)).toBe('42');
+      expect(stableJson([1, 2])).toBe('[1,2]');
+      expect(stableJson({ b: 2, a: 1 })).toBe('{"a":1,"b":2}');
+    });
+
+    it('normalizeDbRow maneja tablas desconocidas y Date objects', () => {
+      const raw = { foo: 'bar' };
+      expect(normalizeDbRow('tabla_inexistente', raw)).toBe(raw);
+
+      const d = new Date('2026-10-23T00:00:00.000Z');
+      const normalizedUser = normalizeDbRow('usuarios', {
+        id: 'user-1',
+        creado_en: d,
+      });
+      expect(normalizedUser.creado_en).toBe(d.toISOString());
+    });
+
+    it('computeChanges detecta eliminaciones correctamente', () => {
+      const savedMap = new Map<string, Record<string, unknown>>();
+      savedMap.set('u1', { id: 'u1', nombre: 'Uno' });
+      savedMap.set('u2', { id: 'u2', nombre: 'Dos' });
+
+      // u2 fue eliminado de las filas actuales
+      const currentRows = [{ id: 'u1', nombre: 'Uno' }];
+      const changes = computeChanges('usuarios', savedMap, currentRows);
+
+      expect(changes.deletes.length).toBe(1);
+      expect(changes.deletes[0].id).toBe('u2');
+      expect(changes.upserts.length).toBe(0);
+    });
+  });
+
+  describe('7. StatePersistenceService: ciclo de vida y flush transaccional', () => {
+    it('onApplicationBootstrap no hace nada si enabled es false', async () => {
+      const service = new StatePersistenceService();
+      (service as any).enabled = false;
+      await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
+    });
+
+    it('onApplicationShutdown limpia timer y ejecuta flush', async () => {
+      const service = new StatePersistenceService();
+      const flushSpy = jest.spyOn(service, 'flush').mockResolvedValue();
+      (service as any).periodicTimer = setInterval(() => {}, 100_000);
+
+      await service.onApplicationShutdown();
+      expect(flushSpy).toHaveBeenCalled();
+    });
+
+    it('resync restaura fuentes desde memoria', () => {
+      const service = new StatePersistenceService();
+      const mockSource = { dump: jest.fn(), restore: jest.fn() };
+      service.register('auth', mockSource);
+
+      service.resync();
+      expect(mockSource.restore).toHaveBeenCalled();
+    });
+
+    it('flush ejecuta transacción con queries de delete y upsert', async () => {
+      const service = new StatePersistenceService();
+      (service as any).enabled = true;
+
+      const mockQueries: string[] = [];
+      const queryRunner = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        startTransaction: jest.fn().mockResolvedValue(undefined),
+        commitTransaction: jest.fn().mockResolvedValue(undefined),
+        rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockImplementation((sql: string) => {
+          mockQueries.push(sql);
+          return Promise.resolve([]);
+        }),
+      };
+
+      (service as any).dataSource = {
+        isInitialized: true,
+        createQueryRunner: () => queryRunner,
+      };
+
+      // Simulamos estado previo con 1 usuario
+      const initialMap = new Map<string, Record<string, unknown>>();
+      initialMap.set('user-old', { id: 'user-old', nombre: 'Viejo', correo: 'v@s.com' });
+      (service as any).saved.set('usuarios', initialMap);
+
+      // Fuente actual con 1 usuario nuevo (user-old eliminado, user-new insertado)
+      service.register('auth', {
+        dump: () => ({
+          users: [
+            ['user-new', { id: 'user-new', name: 'Nuevo', email: 'n@s.com', role: Role.HUESPED, status: 'ACTIVA' }],
+          ],
+          sessions: [],
+        }),
+        restore: jest.fn(),
+      });
+
+      await service.flush();
+
+      expect(queryRunner.startTransaction).toHaveBeenCalled();
+      expect(queryRunner.commitTransaction).toHaveBeenCalled();
+      expect(mockQueries.some((q) => q.includes('DELETE FROM'))).toBe(true);
+      expect(mockQueries.some((q) => q.includes('INSERT INTO'))).toBe(true);
+    });
+
+    it('flush hace rollback y resync si la base de datos lanza error', async () => {
+      const service = new StatePersistenceService();
+      (service as any).enabled = true;
+
+      const queryRunner = {
+        connect: jest.fn().mockResolvedValue(undefined),
+        startTransaction: jest.fn().mockResolvedValue(undefined),
+        commitTransaction: jest.fn().mockResolvedValue(undefined),
+        rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+        release: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockRejectedValue(new Error('PostgreSQL write failed')),
+      };
+
+      (service as any).dataSource = {
+        isInitialized: true,
+        createQueryRunner: () => queryRunner,
+      };
+
+      service.register('auth', {
+        dump: () => ({
+          users: [['user-1', { id: 'user-1', name: 'Error', email: 'e@s.com', role: Role.HUESPED, status: 'ACTIVA' }]],
+          sessions: [],
+        }),
+        restore: jest.fn(),
+      });
+
+      await expect(service.flush()).rejects.toThrow('PostgreSQL write failed');
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
     });
   });
 });

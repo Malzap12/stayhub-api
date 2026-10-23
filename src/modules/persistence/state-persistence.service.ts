@@ -4,7 +4,7 @@ import {
   OnApplicationBootstrap,
   OnApplicationShutdown,
 } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import {
   createDataSourceOptions,
   getDatabaseSchema,
@@ -15,9 +15,17 @@ import {
   normalizeDbRow,
   REGISTERED_SOURCE_TABLES,
   rowsToSource,
+  serializePkValue,
   sourceToRows,
   TABLE_DEFINITIONS,
+  TableDefinition,
 } from './state-tables';
+
+interface TableChanges {
+  upserts: Record<string, unknown>[];
+  deletes: Record<string, unknown>[];
+  newSaved: Map<string, Record<string, unknown>>;
+}
 
 export interface PersistedSource {
   dump(): unknown;
@@ -64,8 +72,8 @@ export class StatePersistenceService
     }
 
     // 2. Conexión con reintentos
-    const retries = parseInt(process.env.DATABASE_CONNECT_RETRIES ?? '10', 10);
-    const delay = parseInt(process.env.DATABASE_CONNECT_DELAY_MS ?? '1000', 10);
+    const retries = Number.parseInt(process.env.DATABASE_CONNECT_RETRIES ?? '10', 10);
+    const delay = Number.parseInt(process.env.DATABASE_CONNECT_DELAY_MS ?? '1000', 10);
     await this.connectWithRetries(retries, delay);
 
     if (!this.dataSource?.isInitialized) {
@@ -137,7 +145,7 @@ export class StatePersistenceService
       const tableMap = new Map<string, Record<string, unknown>>();
       for (const raw of rows) {
         const normalized = normalizeDbRow(tableName, raw);
-        const pk = def.primaryKey.map((k) => String(normalized[k] ?? '')).join('::');
+        const pk = def.primaryKey.map((k) => serializePkValue(normalized[k])).join('::');
         tableMap.set(pk, normalized);
       }
       this.saved.set(tableName, tableMap);
@@ -180,12 +188,7 @@ export class StatePersistenceService
     return currentOp;
   }
 
-  private async executeFlush(): Promise<void> {
-    if (!this.dataSource?.isInitialized) {
-      return;
-    }
-
-    // 1. Obtener filas actuales desde los dumps de cada fuente
+  private collectCurrentRows(): Record<string, Record<string, unknown>[]> {
     const currentTables: Record<string, Record<string, unknown>[]> = {};
     for (const tableName of Object.keys(TABLE_DEFINITIONS)) {
       currentTables[tableName] = [];
@@ -205,10 +208,96 @@ export class StatePersistenceService
         this.logger.error(`Error al obtener volcado de "${key}"`, (err as Error).message);
       }
     }
+    return currentTables;
+  }
 
-    // 2. Calcular cambios de todas las tablas
+  private buildUpsertSql(
+    def: TableDefinition,
+    tableName: string,
+    row: Record<string, unknown>,
+  ): { sql: string; values: unknown[] } {
+    const cols: string[] = [];
+    const placeholders: string[] = [];
+    const values: unknown[] = [];
+    const updates: string[] = [];
+
+    let paramIndex = 1;
+    for (const col of def.columns) {
+      const val = row[col];
+      cols.push(`"${col}"`);
+
+      if (def.jsonbColumns?.includes(col)) {
+        placeholders.push(`$${paramIndex}::jsonb`);
+        values.push(JSON.stringify(val ?? {}));
+      } else {
+        placeholders.push(`$${paramIndex}`);
+        values.push(val === undefined ? null : val);
+      }
+
+      if (!def.primaryKey.includes(col)) {
+        const setExpr = def.jsonbColumns?.includes(col)
+          ? `"${col}" = EXCLUDED."${col}"::jsonb`
+          : `"${col}" = EXCLUDED."${col}"`;
+        updates.push(setExpr);
+      }
+      paramIndex++;
+    }
+
+    const conflictTarget = def.primaryKey.map((k) => `"${k}"`).join(', ');
+    const updateClause = updates.length > 0
+      ? `DO UPDATE SET ${updates.join(', ')}`
+      : 'DO NOTHING';
+
+    const sql = `
+      INSERT INTO "${this.schema}"."${tableName}" (${cols.join(', ')})
+      VALUES (${placeholders.join(', ')})
+      ON CONFLICT (${conflictTarget}) ${updateClause};
+    `;
+    return { sql, values };
+  }
+
+  private async applyDeletes(
+    queryRunner: QueryRunner,
+    allChanges: Record<string, TableChanges>,
+  ): Promise<void> {
+    for (const [tableName, changes] of Object.entries(allChanges)) {
+      if (changes.deletes.length === 0) continue;
+      const def = TABLE_DEFINITIONS[tableName];
+
+      for (const pkObj of changes.deletes) {
+        const clauses = def.primaryKey.map((k, idx) => `"${k}" = $${idx + 1}`).join(' AND ');
+        const values = def.primaryKey.map((k) => pkObj[k]);
+        await queryRunner.query(
+          `DELETE FROM "${this.schema}"."${tableName}" WHERE ${clauses};`,
+          values,
+        );
+      }
+    }
+  }
+
+  private async applyUpserts(
+    queryRunner: QueryRunner,
+    allChanges: Record<string, TableChanges>,
+  ): Promise<void> {
+    for (const [tableName, changes] of Object.entries(allChanges)) {
+      if (changes.upserts.length === 0) continue;
+      const def = TABLE_DEFINITIONS[tableName];
+
+      for (const row of changes.upserts) {
+        const { sql, values } = this.buildUpsertSql(def, tableName, row);
+        await queryRunner.query(sql, values);
+      }
+    }
+  }
+
+  private async executeFlush(): Promise<void> {
+    if (!this.dataSource?.isInitialized) {
+      return;
+    }
+
+    const currentTables = this.collectCurrentRows();
     let hasChanges = false;
-    const allChanges: Record<string, { upserts: Record<string, unknown>[]; deletes: Record<string, unknown>[]; newSaved: Map<string, Record<string, unknown>> }> = {};
+    const allChanges: Record<string, TableChanges> = {};
 
     for (const [tableName, currentRows] of Object.entries(currentTables)) {
       const savedMap = this.saved.get(tableName) ?? new Map();
@@ -223,81 +312,16 @@ export class StatePersistenceService
       return;
     }
 
-    // 3. Ejecutar transacción atómica en PostgreSQL
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
       await queryRunner.query('SET CONSTRAINTS ALL DEFERRED;');
-
-      // A. Procesar Deletes
-      for (const [tableName, changes] of Object.entries(allChanges)) {
-        if (changes.deletes.length === 0) continue;
-        const def = TABLE_DEFINITIONS[tableName];
-
-        for (const pkObj of changes.deletes) {
-          const clauses = def.primaryKey.map((k, idx) => `"${k}" = $${idx + 1}`).join(' AND ');
-          const values = def.primaryKey.map((k) => pkObj[k]);
-          await queryRunner.query(
-            `DELETE FROM "${this.schema}"."${tableName}" WHERE ${clauses};`,
-            values,
-          );
-        }
-      }
-
-      // B. Procesar Upserts
-      for (const [tableName, changes] of Object.entries(allChanges)) {
-        if (changes.upserts.length === 0) continue;
-        const def = TABLE_DEFINITIONS[tableName];
-
-        for (const row of changes.upserts) {
-          const cols: string[] = [];
-          const placeholders: string[] = [];
-          const values: unknown[] = [];
-          const updates: string[] = [];
-
-          let paramIndex = 1;
-          for (const col of def.columns) {
-            let val = row[col];
-            cols.push(`"${col}"`);
-
-            if (def.jsonbColumns?.includes(col)) {
-              placeholders.push(`$${paramIndex}::jsonb`);
-              values.push(JSON.stringify(val ?? {}));
-            } else {
-              placeholders.push(`$${paramIndex}`);
-              values.push(val === undefined ? null : val);
-            }
-
-            if (!def.primaryKey.includes(col)) {
-              if (def.jsonbColumns?.includes(col)) {
-                updates.push(`"${col}" = EXCLUDED."${col}"::jsonb`);
-              } else {
-                updates.push(`"${col}" = EXCLUDED."${col}"`);
-              }
-            }
-            paramIndex++;
-          }
-
-          const conflictTarget = def.primaryKey.map((k) => `"${k}"`).join(', ');
-          const updateClause = updates.length > 0
-            ? `DO UPDATE SET ${updates.join(', ')}`
-            : 'DO NOTHING';
-
-          const sql = `
-            INSERT INTO "${this.schema}"."${tableName}" (${cols.join(', ')})
-            VALUES (${placeholders.join(', ')})
-            ON CONFLICT (${conflictTarget}) ${updateClause};
-          `;
-
-          await queryRunner.query(sql, values);
-        }
-      }
-
+      await this.applyDeletes(queryRunner, allChanges);
+      await this.applyUpserts(queryRunner, allChanges);
       await queryRunner.commitTransaction();
 
-      // Solo al confirmar, actualizar "saved" en memoria
       for (const [tableName, changes] of Object.entries(allChanges)) {
         this.saved.set(tableName, changes.newSaved);
       }

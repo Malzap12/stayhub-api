@@ -6,7 +6,7 @@ import { ConfiguracionPlataforma1729640001000 } from '../../migrations/172964000
 // Parser para DATE (OID 1082) -> string 'AAAA-MM-DD'
 types.setTypeParser(1082, (val: string) => val);
 // Parser para BIGINT (OID 20) -> number
-types.setTypeParser(20, (val: string) => parseInt(val, 10));
+types.setTypeParser(20, (val: string) => Number.parseInt(val, 10));
 
 const SCHEMA_PATTERN = /^[a-z_][a-z0-9_]*$/;
 
@@ -37,7 +37,7 @@ export function createDataSourceOptions(customSchema?: string): DataSourceOption
   return {
     type: 'postgres',
     host: process.env.DATABASE_HOST ?? 'localhost',
-    port: parseInt(process.env.DATABASE_PORT ?? '5432', 10),
+    port: Number.parseInt(process.env.DATABASE_PORT ?? '5432', 10),
     username: process.env.DATABASE_USER ?? 'lr_user',
     password: process.env.DATABASE_PASSWORD ?? 'lr_password123',
     database: process.env.DATABASE_NAME ?? 'inversiones_lr_db',

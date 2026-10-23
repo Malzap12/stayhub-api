@@ -138,12 +138,21 @@ export function stableJson(obj: unknown): string {
   if (Array.isArray(obj)) {
     return `[${obj.map(stableJson).join(',')}]`;
   }
-  const keys = Object.keys(obj as Record<string, unknown>).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson((obj as Record<string, unknown>)[k])}`).join(',')}}`;
+  const keys = Object.keys(obj as Record<string, unknown>).sort((a, b) => a.localeCompare(b));
+  const entries = keys.map((k) => `${JSON.stringify(k)}:${stableJson((obj as Record<string, unknown>)[k])}`);
+  return `{${entries.join(',')}}`;
+}
+
+export function serializePkValue(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+    return String(val);
+  }
+  return JSON.stringify(val);
 }
 
 export function rowKey(table: TableDefinition, row: Record<string, unknown>): string {
-  return table.primaryKey.map((pk) => String(row[pk] ?? '')).join('::');
+  return table.primaryKey.map((pk) => serializePkValue(row[pk])).join('::');
 }
 
 /**
