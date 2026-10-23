@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
 import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
@@ -17,6 +17,7 @@ import { PropertyType } from '../../common/enums/property-type.enum';
 import { randomUUID } from 'node:crypto';
 import { AuthService, type ActiveSession } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
+import { StatePersistenceService } from '../persistence/state-persistence.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { DEMO_AVAILABILITY_PERIODS, DEMO_LISTINGS } from './listings.seed';
 import { ListingDetailDto } from './dto/listing-detail.dto';
@@ -179,8 +180,16 @@ export function nightsInInterval(checkIn: string, checkOut: string): string[] {
   return nights;
 }
 
+interface PersistedListingsState {
+  listings: ListingResponseDto[];
+  hostNotifications: HostNotificationDto[];
+  availabilityPeriods: AvailabilityPeriodResponseDto[];
+  reservedPeriods: BlockedPeriodResponseDto[];
+  guestsWithReservations: string[];
+}
+
 @Injectable()
-export class ListingsService {
+export class ListingsService implements OnModuleInit {
   private listingsStore: ListingResponseDto[] = ([
     {
       id: 'pending-listing-2',
@@ -266,7 +275,34 @@ export class ListingsService {
   constructor(
     private readonly auditService: AuditService,
     @Optional() private readonly authService?: AuthService,
+    @Optional() private readonly persistence?: StatePersistenceService,
   ) {}
+
+  onModuleInit(): void {
+    this.persistence?.register('listings', {
+      dump: () => ({
+        listings: this.listingsStore,
+        hostNotifications: this.hostNotifications,
+        availabilityPeriods: this.availabilityPeriodsStore,
+        reservedPeriods: this.reservedPeriodsStore,
+        guestsWithReservations: [...this.guestsWithReservations],
+      }),
+      restore: (data) => this.restoreState(data as PersistedListingsState),
+    });
+  }
+
+  /** Recupera lo guardado y agrega las publicaciones y periodos de ejemplo que se sumen después al código. */
+  private restoreState(state: PersistedListingsState): void {
+    const withSeeds = <T extends { id: string }>(saved: T[], seeds: T[]) => [
+      ...saved,
+      ...seeds.filter((seed) => !saved.some((item) => item.id === seed.id)),
+    ];
+    this.listingsStore = withSeeds(state.listings, this.listingsStore);
+    this.availabilityPeriodsStore = withSeeds(state.availabilityPeriods, this.availabilityPeriodsStore);
+    this.hostNotifications = state.hostNotifications;
+    this.reservedPeriodsStore = state.reservedPeriods;
+    state.guestsWithReservations.forEach((key) => this.guestsWithReservations.add(key));
+  }
 
   private recordStatusChange(
     actor: string | undefined,

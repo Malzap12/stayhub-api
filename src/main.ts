@@ -7,6 +7,8 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.setGlobalPrefix('api');
+  // Guarda los datos en disco al detener el contenedor (StatePersistenceService).
+  app.enableShutdownHooks();
   app.enableCors();
 
   app.useGlobalPipes(createAppValidationPipe());

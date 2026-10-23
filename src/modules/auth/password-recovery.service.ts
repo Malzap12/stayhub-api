@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { AuthService } from './auth.service';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
+import { StatePersistenceService } from '../persistence/state-persistence.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import {
   MessageResponseDto,
@@ -25,7 +26,7 @@ interface PasswordResetToken {
  * el enlace se envía al correo real; sin SMTP se usa el buzón simulado (AMB-33, SUP-11).
  */
 @Injectable()
-export class PasswordRecoveryService {
+export class PasswordRecoveryService implements OnModuleInit {
   static readonly REQUEST_CONFIRMATION =
     'Si el correo está registrado, recibirás un enlace de recuperación en tu buzón.';
   static readonly INVALID_TOKEN_MESSAGE =
@@ -43,7 +44,24 @@ export class PasswordRecoveryService {
     private readonly auditService: AuditService,
     private readonly mailService: MailService,
     @Optional() private readonly configService?: ConfigService,
+    @Optional() private readonly persistence?: StatePersistenceService,
   ) {}
+
+  onModuleInit(): void {
+    this.persistence?.register('passwordRecovery', {
+      dump: () => ({ tokens: [...this.tokens.entries()], mailbox: this.mailbox, requestLog: [...this.requestLog.entries()] }),
+      restore: (data) => {
+        const state = data as {
+          tokens: Array<[string, PasswordResetToken]>;
+          mailbox: SimulatedMailDto[];
+          requestLog: Array<[string, number[]]>;
+        };
+        state.tokens.forEach(([key, token]) => this.tokens.set(key, token));
+        this.mailbox.push(...state.mailbox);
+        state.requestLog.forEach(([email, times]) => this.requestLog.set(email, times));
+      },
+    });
+  }
 
   private setting(key: string, fallback: number): number {
     return Number(this.configService?.get<string>(key) ?? process.env[key] ?? fallback);

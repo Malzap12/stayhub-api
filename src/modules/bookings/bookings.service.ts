@@ -1,15 +1,16 @@
-import { Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
 import { AuditService } from '../audit/audit.service';
+import { StatePersistenceService } from '../persistence/state-persistence.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { ListingsService } from '../listings/listings.service';
 import { randomUUID } from 'node:crypto';
 
 @Injectable()
-export class BookingsService {
+export class BookingsService implements OnModuleInit {
   private bookingsStore: BookingResponseDto[] = [
     {
       id: 'mock-booking-uuid-1',
@@ -29,7 +30,17 @@ export class BookingsService {
   constructor(
     private readonly auditService: AuditService,
     @Optional() private readonly listingsService?: ListingsService,
+    @Optional() private readonly persistence?: StatePersistenceService,
   ) {}
+
+  onModuleInit(): void {
+    this.persistence?.register('bookings', {
+      dump: () => this.bookingsStore,
+      restore: (data) => {
+        this.bookingsStore = data as BookingResponseDto[];
+      },
+    });
+  }
 
   async quote(quoteDto: QuoteBookingDto): Promise<QuoteResponseDto> {
     const checkIn = new Date(quoteDto.checkIn);
