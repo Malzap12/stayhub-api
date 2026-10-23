@@ -250,8 +250,8 @@ export class ListingsController {
     @CurrentUser() user?: ActiveSession,
   ): BlockedPeriodResponseDto {
     const guestId = user?.role === Role.HUESPED ? user.userId : undefined;
-    // HU-022 CA2: sin reserva asociada, lo que registra el anfitrión (o el admin) es un bloqueo de fechas.
-    const type = !guestId && !dto?.bookingId?.trim() ? 'BLOQUEO' : 'RESERVA';
+    // HU-022 CA2: el anfitrión (o el admin) puede registrar un bloqueo de fechas; un huésped solo reservas.
+    const type = dto?.type === 'BLOQUEO' && !guestId ? 'BLOQUEO' : 'RESERVA';
     return this.listingsService.blockReservedPeriod(id, dto, user?.email, guestId, type);
   }
 

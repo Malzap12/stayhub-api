@@ -107,7 +107,7 @@ describe('HU-022 · Consultar el calendario de disponibilidad (CA1, CA2, RF-028,
       const guest = await loginAs('reserva22@stayhub.com', Role.HUESPED);
       const { id } = await activeListingOf(owner);
       controller.blockReservedPeriod(id, { checkIn: '2026-12-05', checkOut: '2026-12-08' }, guest.session);
-      controller.blockReservedPeriod(id, { checkIn: '2026-12-20', checkOut: '2026-12-22' }, owner.session);
+      controller.blockReservedPeriod(id, { checkIn: '2026-12-20', checkOut: '2026-12-22', type: 'BLOQUEO' }, owner.session);
 
       const calendar = controller.getCalendar(id, owner.header);
       expect(calendar.view).toBe('ANFITRION');
@@ -121,10 +121,10 @@ describe('HU-022 · Consultar el calendario de disponibilidad (CA1, CA2, RF-028,
       expect(statusOn(calendar, '2026-10-01')).toBe('PASADA');
     });
 
-    it('lo que el anfitrión registra con una reserva asociada cuenta como reservado', async () => {
+    it('lo que el anfitrión confirma como reserva (tipo por defecto) cuenta como reservado', async () => {
       const owner = await loginAs('conreserva22@stayhub.com', Role.ANFITRION);
       const { id } = await activeListingOf(owner);
-      controller.blockReservedPeriod(id, { checkIn: '2026-12-10', checkOut: '2026-12-11', bookingId: 'booking-1' }, owner.session);
+      controller.blockReservedPeriod(id, { checkIn: '2026-12-10', checkOut: '2026-12-11' }, owner.session);
 
       expect(statusOn(controller.getCalendar(id, owner.header), '2026-12-10')).toBe('RESERVADA');
     });
@@ -150,12 +150,13 @@ describe('HU-022 · Consultar el calendario de disponibilidad (CA1, CA2, RF-028,
     });
   });
 
-  it('el registro guarda si es una reserva o un bloqueo', async () => {
+  it('el huésped solo registra reservas; el anfitrión registra reservas por defecto o bloqueos', async () => {
     const owner = await loginAs('tipo22@stayhub.com', Role.ANFITRION);
     const guest = await loginAs('tipohuesped22@stayhub.com', Role.HUESPED);
     const { id } = await activeListingOf(owner);
 
-    expect(controller.blockReservedPeriod(id, { checkIn: '2026-12-02', checkOut: '2026-12-03' }, guest.session).type).toBe('RESERVA');
-    expect(controller.blockReservedPeriod(id, { checkIn: '2026-12-03', checkOut: '2026-12-04' }, owner.session).type).toBe('BLOQUEO');
+    expect(controller.blockReservedPeriod(id, { checkIn: '2026-12-02', checkOut: '2026-12-03', type: 'BLOQUEO' }, guest.session).type).toBe('RESERVA');
+    expect(controller.blockReservedPeriod(id, { checkIn: '2026-12-03', checkOut: '2026-12-04' }, owner.session).type).toBe('RESERVA');
+    expect(controller.blockReservedPeriod(id, { checkIn: '2026-12-04', checkOut: '2026-12-05', type: 'BLOQUEO' }, owner.session).type).toBe('BLOQUEO');
   });
 });

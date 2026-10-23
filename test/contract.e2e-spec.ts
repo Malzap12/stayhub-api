@@ -1185,7 +1185,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       await fetch(`${baseUrl}/listings/${id}/reserved-periods`, {
         method: 'POST',
         headers: auth(host),
-        body: JSON.stringify({ checkIn: day(20), checkOut: day(21) }),
+        body: JSON.stringify({ checkIn: day(20), checkOut: day(21), type: 'BLOQUEO' }),
       });
 
       const pub = await calendar(id);

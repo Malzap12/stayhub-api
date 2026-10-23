@@ -3038,6 +3038,15 @@
             "type": "string",
             "example": "booking-uuid-1",
             "description": "ID de la reserva confirmada que origina el bloqueo"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "RESERVA",
+              "BLOQUEO"
+            ],
+            "default": "RESERVA",
+            "description": "HU-022 CA2: RESERVA (reserva confirmada) o BLOQUEO (el anfitrión bloquea fechas). Un huésped solo registra reservas."
           }
         }
       },
@@ -3066,7 +3075,7 @@
               "BLOQUEO"
             ],
             "example": "RESERVA",
-            "description": "HU-022 CA2: RESERVA si lo origina una reserva (huésped o bookingId); BLOQUEO si el anfitrión bloqueó las fechas sin reserva"
+            "description": "HU-022 CA2: RESERVA (reserva confirmada) o BLOQUEO (fechas bloqueadas por el anfitrión)"
           },
           "checkIn": {
             "type": "string",
