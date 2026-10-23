@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
 import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
@@ -25,8 +25,58 @@ import { PropertyType } from '../../common/enums/property-type.enum';
 import { randomUUID } from 'node:crypto';
 import { AuthService, type ActiveSession } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
+import { StatePersistenceService } from '../persistence/state-persistence.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { DEMO_AVAILABILITY_PERIODS, DEMO_LISTINGS } from './listings.seed';
+import { ListingDetailDto } from './dto/listing-detail.dto';
+import { CANCELLATION_POLICIES, DEFAULT_CANCELLATION_POLICY } from './cancellation-policies';
+import { Role } from '../../common/enums/role.enum';
+
+/** HU-026 CA2: mismo mensaje si no existe o no se puede ver, para no revelar publicaciones no activas. */
+export const LISTING_NOT_AVAILABLE = 'Esta publicación no está disponible';
+
+const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
+  [PropertyType.CASA]: 'Casa',
+  [PropertyType.APARTAMENTO]: 'Apartamento',
+  [PropertyType.CABANA]: 'Cabaña',
+  [PropertyType.FINCA]: 'Finca',
+  [PropertyType.HABITACION]: 'Habitación',
+  [PropertyType.OTRO]: 'Otro',
+};
+
+/** HU-026 CA1: detalle público con ubicación textual, política de cancelación y servicios adicionales. */
+export function toListingDetail(listing: ListingResponseDto): ListingDetailDto {
+  const location = {
+    address: listing.address,
+    city: listing.city,
+    department: listing.department,
+    country: listing.country,
+  };
+  return {
+    id: listing.id,
+    title: listing.title,
+    description: listing.description,
+    location: {
+      ...location,
+      text: [location.address, location.city, location.department, location.country].filter(Boolean).join(', '),
+    },
+    propertyType: listing.propertyType,
+    propertyTypeLabel: listing.propertyType ? PROPERTY_TYPE_LABELS[listing.propertyType] : undefined,
+    maxGuests: listing.maxGuests,
+    bedrooms: listing.bedrooms,
+    bathrooms: listing.bathrooms,
+    pricePerNight: listing.pricePerNight,
+    amenities: listing.amenities,
+    rules: listing.rules,
+    images: listing.images,
+    cancellationPolicy: CANCELLATION_POLICIES[listing.cancellationPolicy ?? DEFAULT_CANCELLATION_POLICY],
+    additionalServices: listing.additionalServices ?? [],
+    averageRating: listing.rating,
+    reviewCount: listing.reviewCount,
+    hostName: listing.hostName,
+    status: listing.status ?? ListingStatus.BORRADOR,
+  };
+}
 
 type ListingData = Omit<ListingResponseDto, 'isComplete' | 'missingFields'>;
 
@@ -138,6 +188,14 @@ export function nightsInInterval(checkIn: string, checkOut: string): string[] {
   return nights;
 }
 
+interface PersistedListingsState {
+  listings: ListingResponseDto[];
+  hostNotifications: HostNotificationDto[];
+  availabilityPeriods: AvailabilityPeriodResponseDto[];
+  reservedPeriods: BlockedPeriodResponseDto[];
+  guestsWithReservations: string[];
+}
+
 /** Redondea montos y porcentajes a 2 decimales, como NUMERIC(12,2) en la base de datos. */
 export function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
@@ -175,7 +233,7 @@ export function validateListingPricing(dto?: Partial<UpdateListingPricingDto>): 
 }
 
 @Injectable()
-export class ListingsService {
+export class ListingsService implements OnModuleInit {
   private listingsStore: ListingResponseDto[] = ([
     {
       id: 'pending-listing-2',
@@ -255,11 +313,40 @@ export class ListingsService {
   private hostNotifications: HostNotificationDto[] = [];
   private availabilityPeriodsStore: AvailabilityPeriodResponseDto[] = [...DEMO_AVAILABILITY_PERIODS];
   private reservedPeriodsStore: BlockedPeriodResponseDto[] = [];
+  /** HU-026 CA2: huéspedes con reservas en cada publicación (`listingId|userId`), que pueden ver su detalle aunque no esté ACTIVA. */
+  private readonly guestsWithReservations = new Set<string>();
 
   constructor(
     private readonly auditService: AuditService,
     @Optional() private readonly authService?: AuthService,
+    @Optional() private readonly persistence?: StatePersistenceService,
   ) {}
+
+  onModuleInit(): void {
+    this.persistence?.register('listings', {
+      dump: () => ({
+        listings: this.listingsStore,
+        hostNotifications: this.hostNotifications,
+        availabilityPeriods: this.availabilityPeriodsStore,
+        reservedPeriods: this.reservedPeriodsStore,
+        guestsWithReservations: [...this.guestsWithReservations],
+      }),
+      restore: (data) => this.restoreState(data as PersistedListingsState),
+    });
+  }
+
+  /** Recupera lo guardado y agrega las publicaciones y periodos de ejemplo que se sumen después al código. */
+  private restoreState(state: PersistedListingsState): void {
+    const withSeeds = <T extends { id: string }>(saved: T[], seeds: T[]) => [
+      ...saved,
+      ...seeds.filter((seed) => !saved.some((item) => item.id === seed.id)),
+    ];
+    this.listingsStore = withSeeds(state.listings, this.listingsStore);
+    this.availabilityPeriodsStore = withSeeds(state.availabilityPeriods, this.availabilityPeriodsStore);
+    this.hostNotifications = state.hostNotifications;
+    this.reservedPeriodsStore = state.reservedPeriods;
+    state.guestsWithReservations.forEach((key) => this.guestsWithReservations.add(key));
+  }
 
   private recordStatusChange(
     actor: string | undefined,
@@ -585,6 +672,7 @@ export class ListingsService {
     listingId: string,
     dto: BlockReservedPeriodDto,
     actor?: string,
+    guestId?: string,
   ): BlockedPeriodResponseDto {
     const fail = (detail: string) =>
       this.recordReservedBlockChange(actor, listingId, AuditResult.FALLIDO, `Bloqueo rechazado: ${detail}`);
@@ -637,6 +725,9 @@ export class ListingsService {
     };
 
     this.reservedPeriodsStore.push(blocked);
+    if (guestId) {
+      this.guestsWithReservations.add(`${listingId}|${guestId}`);
+    }
     this.recordReservedBlockChange(
       actor,
       listingId,
@@ -899,34 +990,32 @@ export class ListingsService {
     };
   }
 
-  async findOne(id: string): Promise<ListingResponseDto> {
-    const existing = this.listingsStore.find((item) => item.id === id);
-    if (existing) {
-      return existing;
+  /**
+   * HU-026 · Consultar el detalle de una publicación (CA1, CA2, RF-034, RN-006).
+   * Cualquiera ve el detalle de una publicación ACTIVA. Si no está ACTIVA, solo la ven su anfitrión,
+   * el administrador y los huéspedes con reservas en ella (AMB-39); los demás reciben 404.
+   */
+  getListingDetail(id: string, rawToken?: string): ListingDetailDto {
+    const listing = this.listingsStore.find((item) => item.id === id);
+    const session = this.authService?.getSession(rawToken);
+    if (!listing || !this.canViewDetail(listing, session)) {
+      throw new NotFoundException(LISTING_NOT_AVAILABLE);
     }
+    return toListingDetail(listing);
+  }
 
-    return withCompleteness({
-      id,
-      title: 'Alojamiento de prueba',
-      description: 'Vista al mar y piscina',
-      city: 'Medellín',
-      department: 'Antioquia',
-      address: 'Calle 10 # 43-20',
-      country: 'Colombia',
-      propertyType: PropertyType.APARTAMENTO,
-      pricePerNight: 90,
-      maxGuests: 4,
-      bedrooms: 2,
-      bathrooms: 2,
-      amenities: ['WIFI', 'POOL'],
-      rules: ['No fumar'],
-      images: ['https://storage.stayhub.com/sample.jpg'],
-      rating: 4.9,
-      reviewCount: 15,
-      hostId: 'mock-host-uuid',
-      status: ListingStatus.ACTIVA,
-      createdAt: new Date(),
-    });
+  private canViewDetail(listing: ListingResponseDto, session?: ActiveSession): boolean {
+    if (listing.status === ListingStatus.ACTIVA) {
+      return true;
+    }
+    if (!session) {
+      return false;
+    }
+    return (
+      session.userId === listing.hostId ||
+      session.role === Role.ADMINISTRADOR ||
+      this.guestsWithReservations.has(`${listing.id}|${session.userId}`)
+    );
   }
 
   /**

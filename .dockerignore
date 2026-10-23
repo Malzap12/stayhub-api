@@ -7,3 +7,4 @@ coverage
 *.log
 npm-debug.log*
 uploads
+data

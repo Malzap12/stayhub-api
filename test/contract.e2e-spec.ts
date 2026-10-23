@@ -191,8 +191,10 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       );
     });
 
-    it('2.4 GET /api/listings/:id responde 200 según ListingResponseDto', async () => {
-      const res = await fetch(`${baseUrl}/listings/${listingId}`);
+    it('2.4 GET /api/listings/:id responde 200 según ListingDetailDto para su anfitrión', async () => {
+      const res = await fetch(`${baseUrl}/listings/${listingId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
       const body = await res.json();
 
       expect(res.status).toBe(200);
@@ -228,7 +230,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
           cleaningFee: expect.any(Number),
           serviceFee: expect.any(Number),
           totalAmount: expect.any(Number),
-          currency: 'USD',
+          currency: 'COP',
         }),
       );
     });
@@ -1032,6 +1034,86 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await upload(host, [[big, 'grande.jpg']])).status).toBe(413);
       expect((await upload(guest, [[JPG, 'sala.jpg']])).status).toBe(403);
       expect((await fetch(`${baseUrl}/listings/images/no-existe.jpg`)).status).toBe(404);
+    });
+  });
+
+  describe('HU-026 · Consultar el detalle de una publicación (CA1, CA2, RF-034, RN-006)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const loginAs = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: email, email, password: 'Password123', role }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return (await res.json()).token as string;
+    };
+    const detail = (id: string, token?: string) =>
+      fetch(`${baseUrl}/listings/${id}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+
+    it('15.1 (CA1) un visitante ve el detalle completo de una publicación ACTIVA', async () => {
+      const res = await detail('demo-bogota-chapinero');
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toMatchObject({
+        title: 'Apartamento en Chapinero Alto',
+        location: { city: 'Bogotá', text: expect.stringContaining('Chapinero Alto, Bogotá, Cundinamarca') },
+        propertyTypeLabel: 'Apartamento',
+        maxGuests: 2,
+        pricePerNight: 280000,
+        cancellationPolicy: { code: 'FLEXIBLE', name: 'Flexible' },
+        averageRating: 4.9,
+        status: 'ACTIVA',
+      });
+      for (const field of ['description', 'amenities', 'rules', 'images', 'additionalServices']) {
+        expect(body[field]).toBeDefined();
+      }
+      expect(body.additionalServices.length).toBeGreaterThan(0);
+    });
+
+    it('15.2 (CA2) una publicación que no está ACTIVA responde 404 "no está disponible" al visitante y a otro huésped', async () => {
+      const guest = await loginAs('curioso.hu026@stayhub.com', 'HUESPED');
+      for (const token of [undefined, guest]) {
+        const res = await detail('demo-bogota-pausada', token);
+        expect(res.status).toBe(404);
+        expect((await res.json()).message).toBe('Esta publicación no está disponible');
+      }
+      expect((await detail('no-existe')).status).toBe(404);
+    });
+
+    it('15.3 (CA2, AMB-39) el huésped con reserva, el anfitrión dueño y el admin sí la ven', async () => {
+      const host = await loginAs('dueno.hu026@stayhub.com', 'ANFITRION');
+      const created = await fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: { ...json, Authorization: `Bearer ${host}` },
+        body: JSON.stringify({ title: 'Borrador del anfitrión' }),
+      });
+      const draftId = (await created.json()).id as string;
+      expect((await detail(draftId)).status).toBe(404);
+      expect((await detail(draftId, host)).status).toBe(200);
+
+      const adminLogin = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({
+          email: process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com',
+          password: process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!',
+        }),
+      });
+      expect((await detail('demo-bogota-pausada', (await adminLogin.json()).token)).status).toBe(200);
+
+      const guest = await loginAs('conreserva.hu026@stayhub.com', 'HUESPED');
+      const reserved = await fetch(`${baseUrl}/listings/demo-bogota-pausada/reserved-periods`, {
+        method: 'POST',
+        headers: { ...json, Authorization: `Bearer ${guest}` },
+        body: JSON.stringify({ checkIn: '2026-12-02', checkOut: '2026-12-04' }),
+      });
+      expect(reserved.status).toBe(201);
+      expect((await detail('demo-bogota-pausada', guest)).status).toBe(200);
     });
   });
 });

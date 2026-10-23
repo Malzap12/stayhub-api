@@ -494,7 +494,7 @@
             "description": "Sin imágenes, o un archivo no es JPG, PNG o WEBP"
           },
           "403": {
-            "description": "Solo anfitriones y administradores"
+            "description": "Solo el ANFITRIÓN sube imágenes de sus publicaciones (RN-001)"
           },
           "413": {
             "description": "Una imagen supera los 5 MB"
@@ -839,6 +839,111 @@
                 }
               }
             }
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/{id}/pricing": {
+      "get": {
+        "operationId": "ListingsController_getPricing",
+        "summary": "Consultar tarifa de limpieza y descuento por estancia larga · HU-015",
+        "description": "Retorna la tarifa de limpieza fija (COP) y el descuento por estancia larga de una publicación propia (RN-005).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación del anfitrión",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tarifas de la publicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingPricingResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ANFITRION)"
+          },
+          "404": {
+            "description": "La publicación no existe o pertenece a otro anfitrión (RN-005)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "ListingsController_updatePricing",
+        "summary": "Definir limpieza y descuento por estancia larga · HU-015 (CA1, CA2, CA3)",
+        "description": "Define la tarifa de limpieza fija (>= 0 COP, CA1) y un descuento entre 0 % y 50 % a partir de un número mínimo de noches (CA2). Valores fuera de rango se rechazan (CA3). Aplica a las cotizaciones nuevas. RF-019, RN-004, RN-013.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación del anfitrión",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateListingPricingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tarifas guardadas (CA1, CA2)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingPricingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Tarifa de limpieza negativa, descuento fuera de 0-50 % o noches mínimas inválidas (CA3)"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ANFITRION)"
+          },
+          "404": {
+            "description": "La publicación no existe o pertenece a otro anfitrión (RN-005)"
           }
         },
         "tags": [
@@ -1237,8 +1342,8 @@
     "/api/listings/{id}": {
       "get": {
         "operationId": "ListingsController_findOne",
-        "summary": "Obtener detalle de un alojamiento (Público · HU-003 CA3)",
-        "description": "Retorna toda la información de un alojamiento específico por su ID sin exigir inicio de sesión.",
+        "summary": "Consultar el detalle de una publicación · HU-026 (CA1, CA2) / HU-003 CA3",
+        "description": "Público para publicaciones ACTIVAS: título, descripción, ubicación textual, tipo, capacidad, precio por noche, servicios, reglas, imágenes, política de cancelación, servicios adicionales y calificación promedio (RF-034). Una publicación que no está ACTIVA solo la ven su anfitrión, el administrador y los huéspedes con reservas en ella; para los demás responde 404 (RN-006).",
         "parameters": [
           {
             "name": "id",
@@ -1248,25 +1353,38 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Detalle del alojamiento",
+            "description": "Detalle de la publicación (CA1)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListingResponseDto"
+                  "$ref": "#/components/schemas/ListingDetailDto"
                 }
               }
             }
           },
           "404": {
-            "description": "Alojamiento no encontrado"
+            "description": "Esta publicación no está disponible (CA2)"
           }
         },
         "tags": [
           "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
         ]
       }
     },
@@ -1508,6 +1626,7 @@
                 "PROFILE_UPDATE",
                 "PASSWORD_CHANGE",
                 "LISTING_STATUS_CHANGE",
+                "LISTING_PRICING_UPDATE",
                 "AVAILABILITY_PERIOD_CREATE",
                 "RESERVED_PERIOD_BLOCK",
                 "BOOKING_STATUS_CHANGE",
@@ -2215,6 +2334,43 @@
           "title"
         ]
       },
+      "LongStayDiscountDto": {
+        "type": "object",
+        "properties": {
+          "minNights": {
+            "type": "number",
+            "example": 7,
+            "description": "Noches mínimas a partir de las cuales aplica el descuento"
+          },
+          "percentage": {
+            "type": "number",
+            "example": 10,
+            "description": "Porcentaje de descuento sobre el subtotal de noches"
+          }
+        },
+        "required": [
+          "minNights",
+          "percentage"
+        ]
+      },
+      "AdditionalServiceDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Traslado desde el aeropuerto"
+          },
+          "cost": {
+            "type": "number",
+            "example": 80000,
+            "description": "Costo por estancia en COP"
+          }
+        },
+        "required": [
+          "name",
+          "cost"
+        ]
+      },
       "ListingResponseDto": {
         "type": "object",
         "properties": {
@@ -2265,6 +2421,19 @@
           "pricePerNight": {
             "type": "number",
             "example": 85.5
+          },
+          "cleaningFee": {
+            "type": "number",
+            "example": 60000,
+            "description": "Tarifa de limpieza fija por estancia en COP (HU-015 CA1)"
+          },
+          "longStayDiscount": {
+            "description": "Descuento por estancia larga (HU-015 CA2)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LongStayDiscountDto"
+              }
+            ]
           },
           "maxGuests": {
             "type": "number",
@@ -2370,6 +2539,18 @@
             "type": "string",
             "example": "Fotografías que no corresponden al inmueble",
             "description": "Motivo de bloqueo indicado por el administrador (HU-012 CA2)"
+          },
+          "cancellationPolicy": {
+            "type": "string",
+            "example": "FLEXIBLE",
+            "description": "Política de cancelación del catálogo (Flexible si no se eligió)"
+          },
+          "additionalServices": {
+            "description": "Servicios adicionales opcionales (HU-026)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdditionalServiceDto"
+            }
           },
           "createdAt": {
             "format": "date-time",
@@ -2606,6 +2787,65 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "ListingPricingResponseDto": {
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "example": "listing-uuid"
+          },
+          "cleaningFee": {
+            "type": "number",
+            "example": 60000,
+            "description": "Tarifa de limpieza fija por estancia (COP)"
+          },
+          "longStayDiscount": {
+            "nullable": true,
+            "description": "Descuento por estancia larga; null si no hay",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LongStayDiscountDto"
+              }
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "example": "COP"
+          }
+        },
+        "required": [
+          "listingId",
+          "cleaningFee",
+          "currency"
+        ]
+      },
+      "UpdateListingPricingDto": {
+        "type": "object",
+        "properties": {
+          "cleaningFee": {
+            "type": "number",
+            "example": 60000,
+            "description": "Tarifa de limpieza fija por estancia en COP (CA1: mayor o igual a 0)",
+            "minimum": 0
+          },
+          "longStayDiscountPercent": {
+            "type": "number",
+            "example": 10,
+            "description": "Porcentaje de descuento por estancia larga (CA2: entre 0 y 50). 0 u omitido = sin descuento",
+            "minimum": 0,
+            "maximum": 50
+          },
+          "longStayMinNights": {
+            "type": "number",
+            "example": 7,
+            "description": "Noches mínimas para aplicar el descuento (CA2). Obligatorio si el descuento es mayor que 0",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "cleaningFee"
         ]
       },
       "CreateAvailabilityPeriodDto": {
@@ -2889,6 +3129,221 @@
           "pricePerNight"
         ]
       },
+      "ListingLocationDto": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "example": "Carrera 4 # 57-20, Chapinero Alto"
+          },
+          "city": {
+            "type": "string",
+            "example": "Bogotá"
+          },
+          "department": {
+            "type": "string",
+            "example": "Cundinamarca"
+          },
+          "country": {
+            "type": "string",
+            "example": "Colombia"
+          },
+          "text": {
+            "type": "string",
+            "example": "Carrera 4 # 57-20, Chapinero Alto, Bogotá, Cundinamarca, Colombia",
+            "description": "Ubicación textual completa (HU-026 CA1)"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "CancellationRuleDto": {
+        "type": "object",
+        "properties": {
+          "minHoursBeforeCheckIn": {
+            "type": "number",
+            "example": 48,
+            "description": "Horas mínimas de anticipación a la llegada para aplicar este reembolso"
+          },
+          "refundPercentage": {
+            "type": "number",
+            "example": 100,
+            "description": "Porcentaje del total que se devuelve"
+          }
+        },
+        "required": [
+          "minHoursBeforeCheckIn",
+          "refundPercentage"
+        ]
+      },
+      "CancellationPolicyDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "FLEXIBLE"
+          },
+          "name": {
+            "type": "string",
+            "example": "Flexible"
+          },
+          "description": {
+            "type": "string",
+            "example": "Reembolso del 100 % si cancelas hasta 48 horas antes de la llegada; después, del 50 %."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CancellationRuleDto"
+            }
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "description",
+          "rules"
+        ]
+      },
+      "ListingDetailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "demo-bogota-chapinero"
+          },
+          "title": {
+            "type": "string",
+            "example": "Apartamento en Chapinero Alto"
+          },
+          "description": {
+            "type": "string",
+            "example": "Apartamento luminoso con balcón."
+          },
+          "location": {
+            "$ref": "#/components/schemas/ListingLocationDto"
+          },
+          "propertyType": {
+            "type": "string",
+            "enum": [
+              "CASA",
+              "APARTAMENTO",
+              "CABANA",
+              "FINCA",
+              "HABITACION",
+              "OTRO"
+            ],
+            "example": "APARTAMENTO"
+          },
+          "propertyTypeLabel": {
+            "type": "string",
+            "example": "Apartamento",
+            "description": "Nombre del tipo de alojamiento"
+          },
+          "maxGuests": {
+            "type": "number",
+            "example": 2,
+            "description": "Capacidad máxima de huéspedes"
+          },
+          "bedrooms": {
+            "type": "number",
+            "example": 1
+          },
+          "bathrooms": {
+            "type": "number",
+            "example": 1
+          },
+          "pricePerNight": {
+            "type": "number",
+            "example": 280000,
+            "description": "Precio por noche en COP"
+          },
+          "amenities": {
+            "example": [
+              "WIFI",
+              "KITCHEN"
+            ],
+            "description": "Servicios del alojamiento",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rules": {
+            "example": [
+              "No fumar"
+            ],
+            "description": "Reglas de la casa",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "images": {
+            "example": [
+              "https://images.unsplash.com/foto.jpg"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cancellationPolicy": {
+            "description": "Política de cancelación asociada (Flexible si el anfitrión no eligió)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CancellationPolicyDto"
+              }
+            ]
+          },
+          "additionalServices": {
+            "description": "Servicios adicionales opcionales con costo por estancia",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdditionalServiceDto"
+            }
+          },
+          "averageRating": {
+            "type": "number",
+            "example": 4.9,
+            "description": "Calificación promedio; 0 si aún no tiene reseñas"
+          },
+          "reviewCount": {
+            "type": "number",
+            "example": 18,
+            "description": "Cantidad de reseñas"
+          },
+          "hostName": {
+            "type": "string",
+            "example": "Valentina Rojas"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "BORRADOR",
+              "PENDIENTE_REVISION",
+              "ACTIVA",
+              "PAUSADA",
+              "BLOQUEADA"
+            ],
+            "example": "ACTIVA"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "location",
+          "amenities",
+          "rules",
+          "images",
+          "cancellationPolicy",
+          "additionalServices",
+          "averageRating",
+          "reviewCount",
+          "status"
+        ]
+      },
       "QuoteBookingDto": {
         "type": "object",
         "properties": {
@@ -2951,10 +3406,20 @@
             "example": 427.5,
             "description": "Subtotal noches (noches x tarifa)"
           },
+          "discountPercentage": {
+            "type": "number",
+            "example": 0,
+            "description": "Porcentaje de descuento por estancia larga aplicado (HU-015 CA2); 0 si no alcanza las noches mínimas"
+          },
+          "discount": {
+            "type": "number",
+            "example": 0,
+            "description": "Monto descontado del subtotal de noches por estancia larga (HU-015 CA2)"
+          },
           "cleaningFee": {
             "type": "number",
             "example": 35,
-            "description": "Tarifa de limpieza fija"
+            "description": "Tarifa de limpieza fija definida por el anfitrión (HU-015 CA1)"
           },
           "serviceFee": {
             "type": "number",
@@ -2979,6 +3444,8 @@
           "nights",
           "nightlyRate",
           "baseAmount",
+          "discountPercentage",
+          "discount",
           "cleaningFee",
           "serviceFee",
           "totalAmount",
@@ -3131,6 +3598,7 @@
               "PROFILE_UPDATE",
               "PASSWORD_CHANGE",
               "LISTING_STATUS_CHANGE",
+              "LISTING_PRICING_UPDATE",
               "AVAILABILITY_PERIOD_CREATE",
               "RESERVED_PERIOD_BLOCK",
               "BOOKING_STATUS_CHANGE",

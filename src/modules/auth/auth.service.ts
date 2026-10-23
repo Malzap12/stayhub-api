@@ -12,6 +12,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { Role } from '../../common/enums/role.enum';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { AuditEvent, AuditService } from '../audit/audit.service';
+import { StatePersistenceService } from '../persistence/state-persistence.service';
 import {
   LoginDto,
   LoginResponseDto,
@@ -53,9 +54,18 @@ export class AuthService implements OnModuleInit {
   constructor(
     private readonly auditService: AuditService,
     @Optional() private readonly configService?: ConfigService,
+    @Optional() private readonly persistence?: StatePersistenceService,
   ) {}
 
   onModuleInit(): void {
+    this.persistence?.register('auth', {
+      dump: () => ({ users: [...this.users.entries()], sessions: [...this.activeSessions.entries()] }),
+      restore: (data) => {
+        const state = data as { users: Array<[string, UserAccount]>; sessions: Array<[string, ActiveSession]> };
+        state.users.forEach(([email, account]) => this.users.set(email, account));
+        state.sessions.forEach(([token, session]) => this.activeSessions.set(token, session));
+      },
+    });
     this.seedInitialAdmin();
   }
 

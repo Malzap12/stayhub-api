@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
+import { StatePersistenceService } from '../persistence/state-persistence.service';
 
 export const ANONYMOUS_ACTOR = 'anonimo';
 
@@ -39,6 +40,19 @@ export interface AuditEventFilters {
 @Injectable()
 export class AuditService {
   private readonly events: AuditEvent[] = [];
+
+  /**
+   * La bitácora se recupera del disco al crear el servicio (persistencia en volumen).
+   * Se registra en el constructor para no exponer ningún método adicional: sigue siendo de solo inserción (CA2).
+   */
+  constructor(@Optional() persistence?: StatePersistenceService) {
+    persistence?.register('audit', {
+      dump: () => this.events,
+      restore: (data) => {
+        (data as AuditEvent[]).forEach((event) => this.events.push(Object.freeze({ ...event })));
+      },
+    });
+  }
 
   record(input: RecordAuditEventInput): AuditEvent {
     const event: AuditEvent = Object.freeze({
