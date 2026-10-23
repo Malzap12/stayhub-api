@@ -23,6 +23,9 @@ export class BookingResponseDto {
   @ApiProperty({ example: 518.00, description: 'Monto total facturado' })
   totalAmount: number;
 
+  @ApiPropertyOptional({ example: 55.50, description: 'Tarifa de servicio de la plataforma con que se creó la reserva (HU-029 CA2)' })
+  serviceFee?: number;
+
   @ApiProperty({ example: 'USD' })
   currency: string;
 
