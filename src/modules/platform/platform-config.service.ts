@@ -43,15 +43,9 @@ export class PlatformConfigService implements OnModuleInit {
       }),
       restore: (data) => {
         const state = data as { serviceFeePercent?: number; updatedAt?: Date | string; updatedBy?: string };
-        if (typeof state?.serviceFeePercent === 'number') {
-          this.serviceFeePercent = state.serviceFeePercent;
-        }
-        if (state?.updatedAt) {
-          this.updatedAt = new Date(state.updatedAt);
-        }
-        if (state?.updatedBy) {
-          this.updatedBy = state.updatedBy;
-        }
+        this.serviceFeePercent = typeof state?.serviceFeePercent === 'number' ? state.serviceFeePercent : DEFAULT_SERVICE_FEE_PERCENT;
+        this.updatedAt = state?.updatedAt ? new Date(state.updatedAt) : new Date();
+        this.updatedBy = state?.updatedBy ?? 'sistema';
       },
     });
   }

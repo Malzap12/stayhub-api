@@ -51,14 +51,17 @@ export class PasswordRecoveryService implements OnModuleInit {
     this.persistence?.register('passwordRecovery', {
       dump: () => ({ tokens: [...this.tokens.entries()], mailbox: this.mailbox, requestLog: [...this.requestLog.entries()] }),
       restore: (data) => {
+        this.tokens.clear();
+        this.mailbox.length = 0;
+        this.requestLog.clear();
         const state = data as {
           tokens: Array<[string, PasswordResetToken]>;
           mailbox: SimulatedMailDto[];
           requestLog: Array<[string, number[]]>;
         };
-        state.tokens.forEach(([key, token]) => this.tokens.set(key, token));
-        this.mailbox.push(...state.mailbox);
-        state.requestLog.forEach(([email, times]) => this.requestLog.set(email, times));
+        state?.tokens?.forEach(([key, token]) => this.tokens.set(key, token));
+        if (state?.mailbox) this.mailbox.push(...state.mailbox);
+        state?.requestLog?.forEach(([email, times]) => this.requestLog.set(email, times));
       },
     });
   }
