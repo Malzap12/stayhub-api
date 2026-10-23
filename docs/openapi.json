@@ -1144,6 +1144,55 @@
         ]
       }
     },
+    "/api/listings/{id}/calendar": {
+      "get": {
+        "operationId": "ListingsController_getCalendar",
+        "summary": "Consultar el calendario de disponibilidad · HU-022 (CA1, CA2)",
+        "description": "Calendario de los próximos 12 meses (desde el mes actual), noche por noche (RF-028). Público para publicaciones ACTIVAS: cada noche es DISPONIBLE o NO_DISPONIBLE (CA1). Con la sesión del anfitrión dueño o del administrador muestra RESERVADA, BLOQUEADA y SIN_PERIODO (CA2). Las noches anteriores a hoy son PASADA.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "authorization",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Calendario de 12 meses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingCalendarDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Esta publicación no está disponible"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings/search": {
       "get": {
         "operationId": "ListingsController_search",
@@ -3010,6 +3059,15 @@
             "example": "booking-uuid-1",
             "description": "ID de la reserva asociada"
           },
+          "type": {
+            "type": "string",
+            "enum": [
+              "RESERVA",
+              "BLOQUEO"
+            ],
+            "example": "RESERVA",
+            "description": "HU-022 CA2: RESERVA si lo origina una reserva (huésped o bookingId); BLOQUEO si el anfitrión bloqueó las fechas sin reserva"
+          },
           "checkIn": {
             "type": "string",
             "example": "2027-03-10",
@@ -3044,6 +3102,99 @@
           "checkOut",
           "blockedNights",
           "createdAt"
+        ]
+      },
+      "CalendarDayDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-11-10"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DISPONIBLE",
+              "NO_DISPONIBLE",
+              "RESERVADA",
+              "BLOQUEADA",
+              "SIN_PERIODO",
+              "PASADA"
+            ],
+            "example": "DISPONIBLE"
+          }
+        },
+        "required": [
+          "date",
+          "status"
+        ]
+      },
+      "CalendarMonthDto": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "example": "2026-11",
+            "description": "Mes en formato AAAA-MM"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CalendarDayDto"
+            }
+          }
+        },
+        "required": [
+          "month",
+          "days"
+        ]
+      },
+      "ListingCalendarDto": {
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "example": "demo-bogota-chapinero"
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "PUBLICA",
+              "ANFITRION"
+            ],
+            "example": "PUBLICA",
+            "description": "PUBLICA: disponible o no disponible (CA1). ANFITRION: distingue reservadas y bloqueadas (CA2)."
+          },
+          "today": {
+            "type": "string",
+            "example": "2026-10-22",
+            "description": "Hoy en America/Bogota"
+          },
+          "from": {
+            "type": "string",
+            "example": "2026-10-01",
+            "description": "Primer día del calendario (inicio del mes actual)"
+          },
+          "to": {
+            "type": "string",
+            "example": "2027-09-30",
+            "description": "Último día del calendario (fin del 12.º mes)"
+          },
+          "months": {
+            "description": "12 meses desde el mes actual",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CalendarMonthDto"
+            }
+          }
+        },
+        "required": [
+          "listingId",
+          "view",
+          "today",
+          "from",
+          "to",
+          "months"
         ]
       },
       "PaginatedListingsResponseDto": {
