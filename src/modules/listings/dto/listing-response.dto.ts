@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ListingStatus } from '../../../common/enums/listing-status.enum';
 import { PropertyType } from '../../../common/enums/property-type.enum';
+import { LongStayDiscountDto } from './listing-pricing.dto';
 
 /** HU-026: servicio adicional opcional que el anfitrión ofrece con costo por estancia. */
 export class AdditionalServiceDto {
@@ -38,6 +39,12 @@ export class ListingResponseDto {
 
   @ApiPropertyOptional({ example: 85.50 })
   pricePerNight?: number;
+
+  @ApiPropertyOptional({ example: 60000, description: 'Tarifa de limpieza fija por estancia en COP (HU-015 CA1)' })
+  cleaningFee?: number;
+
+  @ApiPropertyOptional({ type: LongStayDiscountDto, description: 'Descuento por estancia larga (HU-015 CA2)' })
+  longStayDiscount?: LongStayDiscountDto;
 
   @ApiPropertyOptional({ example: 4 })
   maxGuests?: number;

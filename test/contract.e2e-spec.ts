@@ -230,7 +230,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
           cleaningFee: expect.any(Number),
           serviceFee: expect.any(Number),
           totalAmount: expect.any(Number),
-          currency: 'USD',
+          currency: 'COP',
         }),
       );
     });

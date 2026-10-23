@@ -12,6 +12,14 @@ import {
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
+import {
+  ListingPricingResponseDto,
+  LongStayDiscountDto,
+  MAX_LONG_STAY_DISCOUNT_PERCENT,
+  MIN_LONG_STAY_DISCOUNT_PERCENT,
+  MIN_LONG_STAY_NIGHTS,
+  UpdateListingPricingDto,
+} from './dto/listing-pricing.dto';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { PropertyType } from '../../common/enums/property-type.enum';
 import { randomUUID } from 'node:crypto';
@@ -186,6 +194,42 @@ interface PersistedListingsState {
   availabilityPeriods: AvailabilityPeriodResponseDto[];
   reservedPeriods: BlockedPeriodResponseDto[];
   guestsWithReservations: string[];
+}
+
+/** Redondea montos y porcentajes a 2 decimales, como NUMERIC(12,2) en la base de datos. */
+export function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * HU-015 CA3: valida la tarifa de limpieza (>= 0 COP) y el descuento (0 % a 50 % desde al menos 1 noche).
+ * Se valida también en el servicio para no depender solo del ValidationPipe. Retorna los errores por campo.
+ */
+export function validateListingPricing(dto?: Partial<UpdateListingPricingDto>): Record<string, string> {
+  const errors: Record<string, string> = {};
+  const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+
+  if (!isNumber(dto?.cleaningFee) || dto.cleaningFee < 0) {
+    errors.cleaningFee = 'La tarifa de limpieza debe ser mayor o igual a 0 COP.';
+  }
+
+  const percent = dto?.longStayDiscountPercent;
+  const hasPercent = percent !== undefined && percent !== null;
+  if (
+    hasPercent &&
+    (!isNumber(percent) || percent < MIN_LONG_STAY_DISCOUNT_PERCENT || percent > MAX_LONG_STAY_DISCOUNT_PERCENT)
+  ) {
+    errors.longStayDiscountPercent = 'El descuento por estancia larga debe estar entre 0 % y 50 %.';
+  }
+
+  const minNights = dto?.longStayMinNights;
+  const needsNights = isNumber(percent) && percent > 0;
+  const hasNights = minNights !== undefined && minNights !== null;
+  if ((needsNights || hasNights) && (!Number.isInteger(minNights) || (minNights as number) < MIN_LONG_STAY_NIGHTS)) {
+    errors.longStayMinNights = 'Las noches mínimas para el descuento deben ser un número entero mayor o igual a 1.';
+  }
+
+  return errors;
 }
 
 @Injectable()
@@ -521,6 +565,95 @@ export class ListingsService implements OnModuleInit {
       `Periodo disponible registrado: ${startDate} al ${endDate}`,
     );
     return createdPeriod;
+  }
+
+  /**
+   * HU-015 · Consultar la tarifa de limpieza y el descuento por estancia larga de una publicación propia.
+   */
+  getPricing(listingId: string, host?: ActiveSession): ListingPricingResponseDto {
+    this.findOwnListing(listingId, host);
+    return this.toPricing(this.listingsStore.find((item) => item.id === listingId)!);
+  }
+
+  /**
+   * HU-015 · Definir limpieza y descuento por estancia larga (CA1, CA2, CA3, RF-019, RN-004, RN-013).
+   * Solo el anfitrión dueño define los valores (RN-005). La tarifa de limpieza debe ser >= 0 COP (CA1) y
+   * el descuento estar entre 0 % y 50 % a partir de al menos 1 noche (CA2); fuera de rango se rechaza (CA3).
+   * Los cambios aplican a las cotizaciones nuevas; cada intento queda en la auditoría (RN-021).
+   */
+  updatePricing(listingId: string, dto: UpdateListingPricingDto, host?: ActiveSession): ListingPricingResponseDto {
+    const fail = (detail: string) =>
+      this.recordPricingChange(host?.email, listingId, AuditResult.FALLIDO, `Tarifas rechazadas: ${detail}`);
+
+    this.findOwnListing(listingId, host, fail);
+    const listing = this.listingsStore.find((item) => item.id === listingId)!;
+
+    const fieldErrors = validateListingPricing(dto);
+    if (Object.keys(fieldErrors).length > 0) {
+      const message = Object.values(fieldErrors).join(' ');
+      fail(message);
+      throw new BadRequestException({ statusCode: 400, error: 'Bad Request', message, fieldErrors });
+    }
+
+    const percentage = Number(dto.longStayDiscountPercent ?? 0);
+    listing.cleaningFee = roundMoney(Number(dto.cleaningFee));
+    listing.longStayDiscount =
+      percentage > 0 ? { minNights: Number(dto.longStayMinNights), percentage: roundMoney(percentage) } : undefined;
+
+    const pricing = this.toPricing(listing);
+    const discountDetail = pricing.longStayDiscount
+      ? `${pricing.longStayDiscount.percentage} % desde ${pricing.longStayDiscount.minNights} noche(s)`
+      : 'sin descuento';
+    this.recordPricingChange(
+      host?.email,
+      listingId,
+      AuditResult.EXITOSO,
+      `Tarifa de limpieza: ${pricing.cleaningFee} COP; descuento por estancia larga: ${discountDetail}`,
+    );
+    return pricing;
+  }
+
+  /**
+   * HU-015 CA1 y CA2: valores de precio que usa la cotización. Retorna undefined si la publicación
+   * no está registrada (la cotización conserva entonces sus valores de demostración).
+   */
+  getQuotePricing(
+    listingId: string,
+  ): { pricePerNight?: number; cleaningFee: number; longStayDiscount?: LongStayDiscountDto } | undefined {
+    const listing = this.listingsStore.find((item) => item.id === listingId);
+    if (!listing) {
+      return undefined;
+    }
+    return {
+      pricePerNight: listing.pricePerNight,
+      cleaningFee: listing.cleaningFee ?? 0,
+      longStayDiscount: listing.longStayDiscount ? { ...listing.longStayDiscount } : undefined,
+    };
+  }
+
+  private toPricing(listing: ListingResponseDto): ListingPricingResponseDto {
+    return {
+      listingId: listing.id,
+      cleaningFee: listing.cleaningFee ?? 0,
+      longStayDiscount: listing.longStayDiscount ? { ...listing.longStayDiscount } : null,
+      currency: 'COP',
+    };
+  }
+
+  private recordPricingChange(
+    actor: string | undefined,
+    listingId: string,
+    result: AuditResult,
+    detail: string,
+  ): void {
+    this.auditService.record({
+      actor,
+      action: AuditAction.LISTING_PRICING_UPDATE,
+      entity: 'Listing',
+      entityId: listingId,
+      result,
+      detail,
+    });
   }
 
   /** HU-019: periodos del alojamiento, visibles solo para su anfitrión. */

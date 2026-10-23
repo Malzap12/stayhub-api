@@ -42,16 +42,27 @@ export class BookingsService implements OnModuleInit {
     });
   }
 
+  /**
+   * Cotiza una estancia. HU-015 (CA1, CA2, RF-019, RN-004, RN-013): usa la tarifa de limpieza vigente de la
+   * publicaciÃ³n y aplica su descuento por estancia larga cuando las noches alcanzan el mÃ­nimo definido.
+   * Si la publicaciÃ³n no estÃ¡ registrada conserva los valores de demostraciÃ³n.
+   */
   async quote(quoteDto: QuoteBookingDto): Promise<QuoteResponseDto> {
     const checkIn = new Date(quoteDto.checkIn);
     const checkOut = new Date(quoteDto.checkOut);
     const diffTime = Math.abs(checkOut.getTime() - checkIn.getTime());
     const nights = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-    const nightlyRate = 85.50;
-    const baseAmount = nights * nightlyRate;
-    const cleaningFee = 35.00;
-    const serviceFee = parseFloat((baseAmount * 0.12).toFixed(2));
-    const totalAmount = parseFloat((baseAmount + cleaningFee + serviceFee).toFixed(2));
+    const round = (value: number) => Math.round(value * 100) / 100;
+
+    const pricing = this.listingsService?.getQuotePricing(quoteDto.listingId);
+    const nightlyRate = pricing?.pricePerNight ?? 85.50;
+    const baseAmount = round(nights * nightlyRate);
+    const cleaningFee = pricing ? pricing.cleaningFee : 35.00;
+    const longStay = pricing?.longStayDiscount;
+    const discountPercentage = longStay && nights >= longStay.minNights ? longStay.percentage : 0;
+    const discount = round((baseAmount * discountPercentage) / 100);
+    const serviceFee = round((baseAmount - discount) * 0.12);
+    const totalAmount = round(baseAmount - discount + cleaningFee + serviceFee);
 
     return {
       listingId: quoteDto.listingId,
@@ -60,10 +71,12 @@ export class BookingsService implements OnModuleInit {
       nights,
       nightlyRate,
       baseAmount,
+      discountPercentage,
+      discount,
       cleaningFee,
       serviceFee,
       totalAmount,
-      currency: 'USD',
+      currency: pricing ? 'COP' : 'USD',
     };
   }
 
