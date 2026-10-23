@@ -9,6 +9,8 @@ import {
   sourceToRows,
   stableJson,
   TABLE_DEFINITIONS,
+  toDateOnly,
+  toIso,
 } from './state-tables';
 import {
   createDataSourceOptions,
@@ -426,9 +428,23 @@ describe('Persistencia en PostgreSQL (Unitarias sin base de datos)', () => {
       const currentRows = [{ id: 'u1', nombre: 'Uno' }];
       const changes = computeChanges('usuarios', savedMap, currentRows);
 
-      expect(changes.deletes.length).toBe(1);
+      expect(changes.deletes).toHaveLength(1);
       expect(changes.deletes[0].id).toBe('u2');
-      expect(changes.upserts.length).toBe(0);
+      expect(changes.upserts).toHaveLength(0);
+    });
+
+    it('toIso y toDateOnly formatean fechas y manejan casos inválidos o nulos', () => {
+      expect(toIso(null)).toBeNull();
+      expect(toIso(123)).toBeNull();
+      const d = new Date('2026-10-23T12:00:00Z');
+      expect(toIso(d)).toBe(d.toISOString());
+      expect(toIso('2026-10-23T12:00:00Z')).toBe('2026-10-23T12:00:00.000Z');
+      expect(toIso('fecha-invalida')).toBe('fecha-invalida');
+
+      expect(toDateOnly(null)).toBeNull();
+      expect(toDateOnly(123)).toBeNull();
+      expect(toDateOnly('2026-10-23T12:00:00Z')).toBe('2026-10-23');
+      expect(toDateOnly(d)).toBe('2026-10-23');
     });
   });
 
@@ -531,6 +547,62 @@ describe('Persistencia en PostgreSQL (Unitarias sin base de datos)', () => {
 
       await expect(service.flush()).rejects.toThrow('PostgreSQL write failed');
       expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+    });
+
+    it('onApplicationBootstrap inicializa conexión, corre migraciones y carga tablas', async () => {
+      const service = new StatePersistenceService();
+      (service as any).enabled = true;
+
+      const mockDataSource = {
+        isInitialized: true,
+        initialize: jest.fn().mockResolvedValue(undefined),
+        query: jest.fn().mockImplementation((sql: string) => {
+          if (sql.includes('SELECT * FROM')) return Promise.resolve([{ id: 'admin-1', orden: 1 }]);
+          return Promise.resolve([]);
+        }),
+        showMigrations: jest.fn().mockResolvedValue(true),
+        runMigrations: jest.fn().mockResolvedValue([{ name: 'Migracion1' }]),
+        createQueryRunner: () => ({
+          connect: jest.fn().mockResolvedValue(undefined),
+          startTransaction: jest.fn().mockResolvedValue(undefined),
+          commitTransaction: jest.fn().mockResolvedValue(undefined),
+          rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+          release: jest.fn().mockResolvedValue(undefined),
+          query: jest.fn().mockResolvedValue([]),
+        }),
+      };
+
+      jest.spyOn(service as any, 'connectWithRetries').mockImplementation(async () => {
+        (service as any).dataSource = mockDataSource;
+      });
+
+      await service.onApplicationBootstrap();
+
+      expect(mockDataSource.query).toHaveBeenCalledWith(expect.stringContaining('CREATE SCHEMA IF NOT EXISTS'));
+      expect(mockDataSource.runMigrations).toHaveBeenCalled();
+      if ((service as any).periodicTimer) {
+        clearInterval((service as any).periodicTimer);
+      }
+    });
+
+    it('onApplicationBootstrap registra advertencia si una fuente no tiene tablas configuradas', async () => {
+      const service = new StatePersistenceService();
+      (service as any).enabled = true;
+      service.register('fuente_desconocida', { dump: () => ({}), restore: jest.fn() });
+      jest.spyOn(service as any, 'connectWithRetries').mockImplementation(async () => {});
+
+      await service.onApplicationBootstrap();
+    });
+
+    it('connectWithRetries lanza error tras agotar reintentos si no conecta', async () => {
+      const service = new StatePersistenceService();
+      const origPort = process.env.DATABASE_PORT;
+      process.env.DATABASE_PORT = '54329';
+      try {
+        await expect((service as any).connectWithRetries(2, 5)).rejects.toThrow();
+      } finally {
+        process.env.DATABASE_PORT = origPort;
+      }
     });
   });
 });
