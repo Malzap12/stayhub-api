@@ -415,11 +415,12 @@ export function sourceToRows(sourceKey: string, dump: unknown): Record<string, R
         };
       });
 
+      // ListingsService guarda cada clave como `publicaciónId|usuarioId` (HU-026); se separa en el primer "|".
       result.huespedes_con_reserva = (guestsWithReservations ?? []).map((key: string) => {
-        const [pubId, uId] = key.split(':');
+        const separator = key.indexOf('|');
         return {
-          publicacion_id: pubId,
-          usuario_id: uId,
+          publicacion_id: key.slice(0, separator),
+          usuario_id: key.slice(separator + 1),
           extra: {},
         };
       });
@@ -653,7 +654,7 @@ export function rowsToSource(sourceKey: string, tablesData: Record<string, Recor
         };
       });
 
-      const guestsWithReservations = huespedes.map((row: any) => `${row.publicacion_id}:${row.usuario_id}`);
+      const guestsWithReservations = huespedes.map((row: any) => `${row.publicacion_id}|${row.usuario_id}`);
 
       return {
         listings,

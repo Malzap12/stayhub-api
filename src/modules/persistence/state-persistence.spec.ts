@@ -648,3 +648,56 @@ describe('Persistencia en PostgreSQL (Unitarias sin base de datos)', () => {
     });
   });
 });
+
+describe('huespedes_con_reserva · clave publicación|usuario (HU-026)', () => {
+  it('separa la clave por "|" y la reconstruye igual', () => {
+    const dump = { listings: [], hostNotifications: [], availabilityPeriods: [], reservedPeriods: [], guestsWithReservations: ['demo-bogota-pausada|user-7'] };
+    const rows = sourceToRows('listings', dump);
+    expect(rows.huespedes_con_reserva).toEqual([{ publicacion_id: 'demo-bogota-pausada', usuario_id: 'user-7', extra: {} }]);
+    expect((rowsToSource('listings', rows) as { guestsWithReservations: string[] }).guestsWithReservations).toEqual(['demo-bogota-pausada|user-7']);
+  });
+
+  it('sin huéspedes con reserva en los datos no genera filas', () => {
+    const rows = sourceToRows('listings', { listings: [], hostNotifications: [], availabilityPeriods: [], reservedPeriods: [] });
+    expect(rows.huespedes_con_reserva).toEqual([]);
+  });
+});
+
+describe('ListingsService · restaurar desde PostgreSQL reemplaza los datos', () => {
+  const bootListings = () => {
+    const registry: Record<string, { dump: () => any; restore: (data: unknown) => void }> = {};
+    const fakePersistence = { register: (k: string, src: any) => (registry[k] = src) } as any;
+    const listings = new ListingsService(new AuditService(), undefined, fakePersistence);
+    listings.onModuleInit();
+    return { listings, source: registry.listings };
+  };
+
+  it('descarta lo no guardado: publicaciones, periodos, reservas y huéspedes con reserva', () => {
+    const { listings, source } = bootListings();
+    // Copia del último estado confirmado (dump() devuelve los arreglos vivos del servicio).
+    const saved = structuredClone(source.dump());
+    listings.create({ title: 'Borrador no guardado' }, { token: 't', userId: 'h', email: 'h@x.com', role: Role.ANFITRION, expiresAt: Date.now() + 60_000 });
+    listings.blockReservedPeriod('demo-bogota-chapinero', { checkIn: '2026-12-10', checkOut: '2026-12-12' }, 'g@x.com', 'user-9');
+
+    source.restore(saved);
+
+    const after = source.dump();
+    expect(after.listings.map((l: any) => l.id)).toEqual(saved.listings.map((l: any) => l.id));
+    expect(after.reservedPeriods).toEqual([]);
+    expect(after.guestsWithReservations).toEqual([]);
+  });
+
+  it('con datos incompletos o vacíos vuelve a las publicaciones y periodos de ejemplo', () => {
+    const { source } = bootListings();
+    const seeds = structuredClone(source.dump());
+
+    source.restore({});
+
+    const after = source.dump();
+    expect(after.listings.map((l: any) => l.id)).toEqual(seeds.listings.map((l: any) => l.id));
+    expect(after.availabilityPeriods.map((p: any) => p.id)).toEqual(seeds.availabilityPeriods.map((p: any) => p.id));
+    expect(after.hostNotifications).toEqual([]);
+    expect(after.reservedPeriods).toEqual([]);
+    expect(after.guestsWithReservations).toEqual([]);
+  });
+});
