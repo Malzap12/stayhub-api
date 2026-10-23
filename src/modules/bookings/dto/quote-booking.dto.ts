@@ -42,7 +42,13 @@ export class QuoteResponseDto {
   @ApiProperty({ example: 427.50, description: 'Subtotal noches (noches x tarifa)' })
   baseAmount: number;
 
-  @ApiProperty({ example: 35.00, description: 'Tarifa de limpieza fija' })
+  @ApiProperty({ example: 0, description: 'Porcentaje de descuento por estancia larga aplicado (HU-015 CA2); 0 si no alcanza las noches mínimas' })
+  discountPercentage: number;
+
+  @ApiProperty({ example: 0, description: 'Monto descontado del subtotal de noches por estancia larga (HU-015 CA2)' })
+  discount: number;
+
+  @ApiProperty({ example: 35.00, description: 'Tarifa de limpieza fija definida por el anfitrión (HU-015 CA1)' })
   cleaningFee: number;
 
   @ApiProperty({ example: 55.50, description: 'Comisión de servicio de la plataforma (12%)' })
