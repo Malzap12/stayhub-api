@@ -1465,7 +1465,14 @@
             }
           },
           "400": {
-            "description": "Salida no posterior a la llegada, servicio adicional inexistente o datos inválidos"
+            "description": "HU-028: salida no posterior a la llegada (FECHAS_INVALIDAS), más huéspedes que la capacidad (CAPACIDAD_EXCEDIDA, con maxGuests) o periodo no disponible (PERIODO_NO_DISPONIBLE, con unavailableNights); también un servicio adicional inexistente o datos inválidos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuoteValidationErrorDto"
+                }
+              }
+            }
           },
           "404": {
             "description": "La publicación no existe o no tiene precio por noche"
@@ -3605,7 +3612,7 @@
           "guests": {
             "type": "number",
             "example": 2,
-            "description": "Número de huéspedes",
+            "description": "Número de huéspedes; no puede superar la capacidad (HU-028 CA2)",
             "minimum": 1
           },
           "additionalServices": {
@@ -3744,6 +3751,49 @@
           "serviceFee",
           "totalAmount",
           "currency"
+        ]
+      },
+      "QuoteValidationErrorDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 400
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "FECHAS_INVALIDAS",
+              "CAPACIDAD_EXCEDIDA",
+              "PERIODO_NO_DISPONIBLE"
+            ],
+            "example": "CAPACIDAD_EXCEDIDA"
+          },
+          "message": {
+            "type": "string",
+            "example": "Esta publicación admite máximo 2 huéspedes"
+          },
+          "maxGuests": {
+            "type": "number",
+            "example": 2,
+            "description": "Capacidad máxima (CAPACIDAD_EXCEDIDA)"
+          },
+          "unavailableNights": {
+            "example": [
+              "2027-03-10",
+              "2027-03-11"
+            ],
+            "description": "Noches que no se pueden reservar (PERIODO_NO_DISPONIBLE)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "statusCode",
+          "reason",
+          "message"
         ]
       },
       "BookingResponseDto": {
