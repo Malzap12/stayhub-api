@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ListingsController } from './listings.controller';
 import { ListingsService } from './listings.service';
 import { AuditService } from '../audit/audit.service';
+import { Role } from '../../common/enums/role.enum';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
 
 describe('ListingsController', () => {
@@ -26,10 +27,10 @@ describe('ListingsController', () => {
     expect(result.data).toBeDefined();
   });
 
-  it('should find one listing', async () => {
-    const result = await controller.findOne('test-id');
-    expect(result).toBeDefined();
-    expect(result.id).toBe('test-id');
+  it('should find one active listing', () => {
+    const result = controller.findOne('demo-bogota-chapinero');
+    expect(result.id).toBe('demo-bogota-chapinero');
+    expect(result.status).toBe(ListingStatus.ACTIVA);
   });
 
   it('should get availability', () => {
@@ -106,9 +107,11 @@ describe('ListingsController', () => {
       expect(moderation.notification.type).toBe('DEVUELTA');
       expect(moderation.notification.reason).toBe(reason);
 
-      const detail = await controller.findOne('pending-listing-2');
-      expect(detail.status).toBe(ListingStatus.BORRADOR);
-      expect(detail.returnReason).toBe(reason);
+      const [returned] = controller
+        .findMine({ token: 't', userId: 'host-uuid-2', email: 'carlos@stayhub.com', role: Role.ANFITRION, expiresAt: Date.now() + 60_000 })
+        .filter((item) => item.id === 'pending-listing-2');
+      expect(returned.status).toBe(ListingStatus.BORRADOR);
+      expect(returned.adminReason).toBe(reason);
     });
   });
 });
