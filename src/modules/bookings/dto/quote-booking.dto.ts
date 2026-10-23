@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ArrayMaxSize, IsArray, IsString, IsNotEmpty, IsDateString, IsNumber, IsOptional, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsString, IsNotEmpty, IsDateString, IsInt, IsOptional, Min } from 'class-validator';
 
 export class QuoteBookingDto {
   @ApiProperty({ example: 'demo-bogota-chapinero', description: 'ID del alojamiento a cotizar' })
@@ -17,9 +17,9 @@ export class QuoteBookingDto {
   @IsDateString({}, { message: 'La fecha de salida debe tener el formato AAAA-MM-DD' })
   checkOut: string;
 
-  @ApiProperty({ example: 2, description: 'Número de huéspedes', minimum: 1 })
-  @IsNumber()
-  @Min(1)
+  @ApiProperty({ example: 2, description: 'Número de huéspedes; no puede superar la capacidad (HU-028 CA2)', minimum: 1 })
+  @IsInt({ message: 'El número de huéspedes debe ser un número entero' })
+  @Min(1, { message: 'El número de huéspedes debe ser al menos 1' })
   guests: number;
 
   @ApiPropertyOptional({
@@ -31,6 +31,24 @@ export class QuoteBookingDto {
   @ArrayMaxSize(20)
   @IsString({ each: true, message: 'Cada servicio adicional debe ser un texto' })
   additionalServices?: string[];
+}
+
+/** HU-028: respuesta 400 al rechazar una cotización, con el motivo y el dato para corregirla. */
+export class QuoteValidationErrorDto {
+  @ApiProperty({ example: 400 })
+  statusCode: number;
+
+  @ApiProperty({ enum: ['FECHAS_INVALIDAS', 'CAPACIDAD_EXCEDIDA', 'PERIODO_NO_DISPONIBLE'], example: 'CAPACIDAD_EXCEDIDA' })
+  reason: string;
+
+  @ApiProperty({ example: 'Esta publicación admite máximo 2 huéspedes' })
+  message: string;
+
+  @ApiPropertyOptional({ example: 2, description: 'Capacidad máxima (CAPACIDAD_EXCEDIDA)' })
+  maxGuests?: number;
+
+  @ApiPropertyOptional({ example: ['2027-03-10', '2027-03-11'], description: 'Noches que no se pueden reservar (PERIODO_NO_DISPONIBLE)' })
+  unavailableNights?: string[];
 }
 
 export class QuoteAdditionalServiceDto {

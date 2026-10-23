@@ -52,6 +52,48 @@ export class BookingsService implements OnModuleInit {
    * servicio es el porcentaje configurado (HU-029) sobre esa suma. El descuento por estancia larga y la limpieza
    * son los vigentes de la publicación (HU-015). Todos los importes en COP.
    */
+  /**
+   * HU-028 · Validar la solicitud de cotización (CA1, CA2, CA3, RF-039, RN-010, RN-011, RN-033).
+   * Rechaza, en este orden, la salida no posterior a la llegada, más huéspedes que la capacidad y un periodo
+   * no disponible. Cada rechazo indica el motivo (`reason`) y el dato necesario para corregirlo.
+   */
+  private validateQuoteRequest(
+    listingId: string,
+    checkIn: string,
+    checkOut: string,
+    nights: number,
+    guests: number,
+    maxGuests?: number,
+  ): void {
+    if (!Number.isFinite(nights) || nights < 1) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        reason: 'FECHAS_INVALIDAS',
+        message: 'La fecha de salida debe ser posterior a la fecha de llegada',
+      });
+    }
+    if (maxGuests != null && guests > maxGuests) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        reason: 'CAPACIDAD_EXCEDIDA',
+        message: `Esta publicación admite máximo ${maxGuests} ${maxGuests === 1 ? 'huésped' : 'huéspedes'}`,
+        maxGuests,
+      });
+    }
+    const unavailableNights = this.listingsService?.unavailableNights(listingId, checkIn, checkOut) ?? [];
+    if (unavailableNights.length > 0) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        reason: 'PERIODO_NO_DISPONIBLE',
+        message: `El periodo del ${checkIn} al ${checkOut} no está disponible en esta publicación`,
+        unavailableNights,
+      });
+    }
+  }
+
   async quote(quoteDto: QuoteBookingDto): Promise<QuoteResponseDto> {
     const pricing = this.listingsService?.getQuotePricing(quoteDto.listingId);
     if (!pricing || pricing.pricePerNight == null) {
@@ -61,9 +103,7 @@ export class BookingsService implements OnModuleInit {
     const checkIn = String(quoteDto.checkIn).slice(0, 10);
     const checkOut = String(quoteDto.checkOut).slice(0, 10);
     const nights = Math.round((Date.parse(`${checkOut}T00:00:00Z`) - Date.parse(`${checkIn}T00:00:00Z`)) / 86_400_000);
-    if (!Number.isFinite(nights) || nights < 1) {
-      throw new BadRequestException('La fecha de salida debe ser posterior a la fecha de llegada');
-    }
+    this.validateQuoteRequest(quoteDto.listingId, checkIn, checkOut, nights, Number(quoteDto.guests), pricing.maxGuests);
 
     const requested = [...new Set((quoteDto.additionalServices ?? []).map((name) => name.trim()).filter(Boolean))];
     const additionalServices = requested.map((name) => {

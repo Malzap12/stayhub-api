@@ -615,8 +615,8 @@ export class ListingsService implements OnModuleInit {
   }
 
   /**
-   * HU-015 CA1 y CA2: valores de precio que usa la cotización. Retorna undefined si la publicación
-   * no está registrada (la cotización conserva entonces sus valores de demostración).
+   * HU-015, HU-027 y HU-028: datos de la publicación que usa la cotización (precio, limpieza, descuento,
+   * servicios adicionales y capacidad). Retorna undefined si la publicación no está registrada.
    */
   getQuotePricing(
     listingId: string,
@@ -625,6 +625,7 @@ export class ListingsService implements OnModuleInit {
     cleaningFee: number;
     longStayDiscount?: LongStayDiscountDto;
     additionalServices: AdditionalServiceDto[];
+    maxGuests?: number;
   } | undefined {
     const listing = this.listingsStore.find((item) => item.id === listingId);
     if (!listing) {
@@ -635,7 +636,25 @@ export class ListingsService implements OnModuleInit {
       cleaningFee: listing.cleaningFee ?? 0,
       longStayDiscount: listing.longStayDiscount ? { ...listing.longStayDiscount } : undefined,
       additionalServices: (listing.additionalServices ?? []).map((service) => ({ ...service })),
+      maxGuests: listing.maxGuests,
     };
+  }
+
+  /**
+   * HU-028 CA3 (RF-030, RF-039): noches del rango [llegada, salida) que no se pueden reservar, porque están
+   * fuera de los periodos disponibles o reservadas o bloqueadas. Lista vacía = el rango está disponible.
+   */
+  unavailableNights(listingId: string, checkIn: string, checkOut: string): string[] {
+    if (this.isRangeAvailable(listingId, checkIn, checkOut)) {
+      return [];
+    }
+    const periods = this.periodsOf(listingId);
+    const blocked = this.blockedNightsSetOf(listingId);
+    const nights = nightsInInterval(checkIn, checkOut);
+    const unavailable = nights.filter(
+      (night) => blocked.has(night) || !periods.some((period) => night >= period.startDate && night < period.endDate),
+    );
+    return unavailable.length > 0 ? unavailable : nights;
   }
 
   private toPricing(listing: ListingResponseDto): ListingPricingResponseDto {
