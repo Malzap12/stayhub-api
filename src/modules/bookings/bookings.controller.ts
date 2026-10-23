@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Patch, Body, Param, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
-import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
+import { QuoteBookingDto, QuoteResponseDto, QuoteValidationErrorDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { BookingResponseDto } from './dto/booking-response.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
@@ -23,7 +23,12 @@ export class BookingsController {
       'Desglose en COP (RF-036 a RF-038): noches, precio base, descuento por estancia larga, limpieza, cada servicio adicional seleccionado y tarifa de servicio. total = (precio base − descuento) + limpieza + adicionales + tarifa de servicio; la tarifa es el porcentaje configurado (HU-029) sobre esa suma.',
   })
   @ApiResponse({ status: 200, description: 'Cotización calculada', type: QuoteResponseDto })
-  @ApiResponse({ status: 400, description: 'Salida no posterior a la llegada, servicio adicional inexistente o datos inválidos' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'HU-028: salida no posterior a la llegada (FECHAS_INVALIDAS), más huéspedes que la capacidad (CAPACIDAD_EXCEDIDA, con maxGuests) o periodo no disponible (PERIODO_NO_DISPONIBLE, con unavailableNights); también un servicio adicional inexistente o datos inválidos',
+    type: QuoteValidationErrorDto,
+  })
   @ApiResponse({ status: 404, description: 'La publicación no existe o no tiene precio por noche' })
   quote(@Body() quoteDto: QuoteBookingDto): Promise<QuoteResponseDto> {
     return this.bookingsService.quote(quoteDto);

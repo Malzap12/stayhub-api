@@ -208,13 +208,20 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
 
     it('3.1 POST /api/bookings/quote responde 200 según QuoteResponseDto', async () => {
+      // HU-028: solo se cotizan fechas disponibles; se habilita un periodo desde mañana.
+      const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+      await fetch(`${baseUrl}/listings/${listingId}/availability-periods`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ startDate: day(1), endDate: day(60) }),
+      });
       const res = await fetch(`${baseUrl}/bookings/quote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           listingId,
-          checkIn: '2026-11-01',
-          checkOut: '2026-11-06',
+          checkIn: day(10),
+          checkOut: day(15),
           guests: 2,
         }),
       });
@@ -1250,8 +1257,14 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
         headers: auth(host),
         body: JSON.stringify({ cleaningFee: 50000, longStayDiscountPercent: 10, longStayMinNights: 7 }),
       });
+      const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+      await fetch(`${baseUrl}/listings/${listingId}/availability-periods`, {
+        method: 'POST',
+        headers: auth(host),
+        body: JSON.stringify({ startDate: day(1), endDate: day(90) }),
+      });
 
-      const three = await quote({ listingId, checkIn: '2027-03-01', checkOut: '2027-03-04', guests: 2 });
+      const three = await quote({ listingId, checkIn: day(30), checkOut: day(33), guests: 2 });
       expect(three.status).toBe(200);
       expect(await three.json()).toMatchObject({
         nights: 3,
@@ -1263,7 +1276,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
         currency: 'COP',
       });
 
-      const seven = await (await quote({ listingId, checkIn: '2027-03-01', checkOut: '2027-03-08', guests: 2 })).json();
+      const seven = await (await quote({ listingId, checkIn: day(30), checkOut: day(37), guests: 2 })).json();
       expect(seven).toMatchObject({ baseAmount: 1400000, discount: 140000, serviceFee: 131000, totalAmount: 1441000 });
     });
 
@@ -1271,8 +1284,8 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       // Apartamento en Chapinero Alto: 280.000 por noche, sin limpieza, traslado de 80.000.
       const res = await quote({
         listingId: 'demo-bogota-chapinero',
-        checkIn: '2027-03-01',
-        checkOut: '2027-03-04',
+        checkIn: '2026-12-01',
+        checkOut: '2026-12-04',
         guests: 2,
         additionalServices: ['Traslado desde el aeropuerto'],
       });
@@ -1285,10 +1298,43 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     it('17.3 rechaza fechas invertidas, adicionales inexistentes y publicaciones que no existen', async () => {
       expect((await quote({ listingId: 'demo-bogota-chapinero', checkIn: '2027-03-04', checkOut: '2027-03-01', guests: 2 })).status).toBe(400);
       expect(
-        (await quote({ listingId: 'demo-bogota-chapinero', checkIn: '2027-03-01', checkOut: '2027-03-04', guests: 2, additionalServices: ['Spa'] }))
+        (await quote({ listingId: 'demo-bogota-chapinero', checkIn: '2026-12-01', checkOut: '2026-12-04', guests: 2, additionalServices: ['Spa'] }))
           .status,
       ).toBe(400);
       expect((await quote({ listingId: 'no-existe', checkIn: '2027-03-01', checkOut: '2027-03-04', guests: 2 })).status).toBe(404);
+    });
+  });
+
+  describe('HU-028 · Validar la solicitud de cotización (CA1, CA2, CA3, RF-039)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const quote = async (body: object) => {
+      const res = await fetch(`${baseUrl}/bookings/quote`, { method: 'POST', headers: json, body: JSON.stringify(body) });
+      return { status: res.status, body: await res.json() };
+    };
+    // Apartamento en Chapinero Alto: capacidad 2, disponible del 2026-11-01 al 2026-12-20.
+    const base = { listingId: 'demo-bogota-chapinero', checkIn: '2026-12-01', checkOut: '2026-12-04', guests: 2 };
+
+    it('18.1 (CA1) salida igual o anterior a la llegada', async () => {
+      const res = await quote({ ...base, checkOut: '2026-12-01' });
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ reason: 'FECHAS_INVALIDAS', message: 'La fecha de salida debe ser posterior a la fecha de llegada' });
+    });
+
+    it('18.2 (CA2) más huéspedes que la capacidad informa el máximo', async () => {
+      const res = await quote({ ...base, guests: 3 });
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({ reason: 'CAPACIDAD_EXCEDIDA', maxGuests: 2, message: 'Esta publicación admite máximo 2 huéspedes' });
+    });
+
+    it('18.3 (CA3) fechas no disponibles indican el periodo y las noches', async () => {
+      const res = await quote({ ...base, checkIn: '2026-12-19', checkOut: '2026-12-22' });
+      expect(res.status).toBe(400);
+      expect(res.body).toMatchObject({
+        reason: 'PERIODO_NO_DISPONIBLE',
+        message: 'El periodo del 2026-12-19 al 2026-12-22 no está disponible en esta publicación',
+        unavailableNights: ['2026-12-20', '2026-12-21'],
+      });
+      expect((await quote(base)).status).toBe(200);
     });
   });
 });

@@ -34,8 +34,13 @@ describe('HU-015 · Definir limpieza y descuento por estancia larga (CA1, CA2, C
     pricePerNight: 200000,
   };
 
-  /** Cotiza una estancia de `nights` noches desde el 2027-03-01. */
-  const quoteNights = (listingId: string, nights: number) => {
+  /** Cotiza una estancia de `nights` noches desde el 2027-03-01 (con un periodo disponible, como exige HU-028). */
+  const available = new Set<string>();
+  const quoteNights = async (listingId: string, nights: number) => {
+    if (!available.has(listingId)) {
+      await controller.registerAvailabilityPeriod(listingId, { startDate: '2027-02-01', endDate: '2027-04-30' }, host);
+      available.add(listingId);
+    }
     const checkOut = new Date(Date.UTC(2027, 2, 1 + nights)).toISOString().slice(0, 10);
     return bookingsService.quote({ listingId, checkIn: '2027-03-01', checkOut, guests: 2 });
   };
