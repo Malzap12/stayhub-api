@@ -1645,6 +1645,85 @@
         ]
       }
     },
+    "/api/platform/service-fee": {
+      "get": {
+        "operationId": "PlatformController_getServiceFee",
+        "summary": "Consultar tarifa de servicio de la plataforma · HU-029",
+        "description": "Retorna el porcentaje vigente de la tarifa de servicio. Exclusivo para administradores.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Tarifa de servicio actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceFeeResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ADMINISTRADOR)"
+          }
+        },
+        "tags": [
+          "Configuración de Plataforma (Platform)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "PlatformController_updateServiceFee",
+        "summary": "Configurar la tarifa de servicio · HU-029 (CA1, CA2, CA3)",
+        "description": "Actualiza el porcentaje de la tarifa de servicio entre 0 % y 30 % (RN-014). Las cotizaciones nuevas usan el nuevo porcentaje (CA1). Las reservas confirmadas conservan su tarifa previa (CA2). Se registra en auditoría el valor anterior y el nuevo (CA3, RN-021).",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServiceFeeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tarifa de servicio actualizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceFeeResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Porcentaje fuera del rango [0, 30] %"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ADMINISTRADOR)"
+          }
+        },
+        "tags": [
+          "Configuración de Plataforma (Platform)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/audit/events": {
       "get": {
         "operationId": "AuditController_findAll",
@@ -1676,6 +1755,7 @@
                 "PASSWORD_CHANGE",
                 "LISTING_STATUS_CHANGE",
                 "LISTING_PRICING_UPDATE",
+                "SERVICE_FEE_UPDATE",
                 "AVAILABILITY_PERIOD_CREATE",
                 "RESERVED_PERIOD_BLOCK",
                 "BOOKING_STATUS_CHANGE",
@@ -3647,6 +3727,11 @@
             "example": 518,
             "description": "Monto total facturado"
           },
+          "serviceFee": {
+            "type": "number",
+            "example": 55.5,
+            "description": "Tarifa de servicio de la plataforma con que se creó la reserva (HU-029 CA2)"
+          },
           "currency": {
             "type": "string",
             "example": "USD"
@@ -3734,6 +3819,53 @@
           "idempotencyKey"
         ]
       },
+      "ServiceFeeResponseDto": {
+        "type": "object",
+        "properties": {
+          "serviceFeePercent": {
+            "type": "number",
+            "example": 12,
+            "description": "Porcentaje vigente de la tarifa de servicio (0 % a 30 %)"
+          },
+          "percentage": {
+            "type": "number",
+            "example": 12,
+            "description": "Alias del porcentaje para compatibilidad"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-22T22:00:00.000Z",
+            "description": "Fecha de última actualización"
+          },
+          "updatedBy": {
+            "type": "string",
+            "example": "admin@inversioneslr.com",
+            "description": "Usuario que realizó la última actualización"
+          }
+        },
+        "required": [
+          "serviceFeePercent",
+          "percentage",
+          "updatedAt",
+          "updatedBy"
+        ]
+      },
+      "UpdateServiceFeeDto": {
+        "type": "object",
+        "properties": {
+          "serviceFeePercent": {
+            "type": "number",
+            "example": 15,
+            "description": "Porcentaje de tarifa de servicio de la plataforma (RN-014: 0 % a 30 %)",
+            "minimum": 0,
+            "maximum": 30
+          }
+        },
+        "required": [
+          "serviceFeePercent"
+        ]
+      },
       "AuditEventDto": {
         "type": "object",
         "properties": {
@@ -3759,6 +3891,7 @@
               "PASSWORD_CHANGE",
               "LISTING_STATUS_CHANGE",
               "LISTING_PRICING_UPDATE",
+              "SERVICE_FEE_UPDATE",
               "AVAILABILITY_PERIOD_CREATE",
               "RESERVED_PERIOD_BLOCK",
               "BOOKING_STATUS_CHANGE",
