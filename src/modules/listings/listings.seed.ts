@@ -44,6 +44,7 @@ export const DEMO_LISTINGS: ListingData[] = [
     reviewCount: 18,
     hostId: 'host-demo-1',
     hostName: 'Valentina Rojas',
+    additionalServices: [{ name: 'Traslado desde el aeropuerto', cost: 80000 }, { name: 'Desayuno para dos', cost: 45000 }],
   }),
   demoListing({
     id: 'demo-bogota-candelaria',
@@ -62,6 +63,7 @@ export const DEMO_LISTINGS: ListingData[] = [
     reviewCount: 25,
     hostId: 'host-demo-1',
     hostName: 'Valentina Rojas',
+    additionalServices: [{ name: 'Tour guiado por el centro histórico', cost: 60000 }],
   }),
   demoListing({
     id: 'demo-bogota-usaquen',
@@ -165,6 +167,7 @@ export const DEMO_LISTINGS: ListingData[] = [
     reviewCount: 22,
     hostId: 'host-demo-5',
     hostName: 'Andrés Salgado',
+    additionalServices: [{ name: 'Traslado desde el aeropuerto', cost: 70000 }, { name: 'Limpieza adicional', cost: 50000 }],
   }),
   demoListing({
     id: 'demo-salento-cabana',
@@ -182,6 +185,7 @@ export const DEMO_LISTINGS: ListingData[] = [
     reviewCount: 14,
     hostId: 'host-demo-5',
     hostName: 'Andrés Salgado',
+    additionalServices: [{ name: 'Cabalgata al valle de Cocora', cost: 90000 }],
   }),
 ];
 

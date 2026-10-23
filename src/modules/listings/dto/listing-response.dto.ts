@@ -2,6 +2,15 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ListingStatus } from '../../../common/enums/listing-status.enum';
 import { PropertyType } from '../../../common/enums/property-type.enum';
 
+/** HU-026: servicio adicional opcional que el anfitrión ofrece con costo por estancia. */
+export class AdditionalServiceDto {
+  @ApiProperty({ example: 'Traslado desde el aeropuerto' })
+  name: string;
+
+  @ApiProperty({ example: 80000, description: 'Costo por estancia en COP' })
+  cost: number;
+}
+
 export class ListingResponseDto {
   @ApiProperty({ example: 'uuid-1234-listing', description: 'Identificador único del alojamiento' })
   id: string;
@@ -77,6 +86,12 @@ export class ListingResponseDto {
 
   @ApiPropertyOptional({ example: 'Fotografías que no corresponden al inmueble', description: 'Motivo de bloqueo indicado por el administrador (HU-012 CA2)' })
   blockReason?: string;
+
+  @ApiPropertyOptional({ example: 'FLEXIBLE', description: 'Política de cancelación del catálogo (Flexible si no se eligió)' })
+  cancellationPolicy?: 'FLEXIBLE';
+
+  @ApiPropertyOptional({ type: [AdditionalServiceDto], description: 'Servicios adicionales opcionales (HU-026)' })
+  additionalServices?: AdditionalServiceDto[];
 
   @ApiProperty({ example: '2026-10-05T00:00:00.000Z' })
   createdAt: Date;

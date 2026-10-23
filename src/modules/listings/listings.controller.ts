@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Query, Param } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Query, Param, Headers } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { ListingsService } from './listings.service';
 import { CreateListingDto } from './dto/create-listing.dto';
@@ -15,6 +15,7 @@ import {
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
+import { ListingDetailDto } from './dto/listing-detail.dto';
 import { ActivationMissingFieldsErrorDto } from './dto/request-activation.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -205,7 +206,8 @@ export class ListingsController {
     @Body() dto: BlockReservedPeriodDto,
     @CurrentUser() user?: ActiveSession,
   ): BlockedPeriodResponseDto {
-    return this.listingsService.blockReservedPeriod(id, dto, user?.email);
+    const guestId = user?.role === Role.HUESPED ? user.userId : undefined;
+    return this.listingsService.blockReservedPeriod(id, dto, user?.email, guestId);
   }
 
   @Get(':id/reserved-periods')
@@ -265,14 +267,16 @@ export class ListingsController {
 
   @Get(':id')
   @Public()
+  @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Obtener detalle de un alojamiento (Público · HU-003 CA3)',
-    description: 'Retorna toda la información de un alojamiento específico por su ID sin exigir inicio de sesión.',
+    summary: 'Consultar el detalle de una publicación · HU-026 (CA1, CA2) / HU-003 CA3',
+    description:
+      'Público para publicaciones ACTIVAS: título, descripción, ubicación textual, tipo, capacidad, precio por noche, servicios, reglas, imágenes, política de cancelación, servicios adicionales y calificación promedio (RF-034). Una publicación que no está ACTIVA solo la ven su anfitrión, el administrador y los huéspedes con reservas en ella; para los demás responde 404 (RN-006).',
   })
   @ApiParam({ name: 'id', description: 'ID del alojamiento' })
-  @ApiResponse({ status: 200, description: 'Detalle del alojamiento', type: ListingResponseDto })
-  @ApiResponse({ status: 404, description: 'Alojamiento no encontrado' })
-  findOne(@Param('id') id: string): Promise<ListingResponseDto> {
-    return this.listingsService.findOne(id);
+  @ApiResponse({ status: 200, description: 'Detalle de la publicación (CA1)', type: ListingDetailDto })
+  @ApiResponse({ status: 404, description: 'Esta publicación no está disponible (CA2)' })
+  findOne(@Param('id') id: string, @Headers('authorization') authHeader?: string): ListingDetailDto {
+    return this.listingsService.getListingDetail(id, authHeader);
   }
 }
