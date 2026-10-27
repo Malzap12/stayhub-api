@@ -51,11 +51,19 @@ export class BookingsController {
   @Post('instant')
   @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Crear reserva inmediata', description: 'Crea una reserva garantizando idempotencia (idempotencyKey) para evitar cobros y reservas duplicadas.' })
+  @ApiOperation({
+    summary: 'Crear reserva inmediata · HU-030 · HU-032 (CA1, CA2)',
+    description:
+      'Crea una reserva garantizando idempotencia (idempotencyKey) para evitar cobros y reservas duplicadas (RF-044, RN-018): reenviar la misma clave por un reintento o un doble clic devuelve la reserva original sin crear otra ni repetir el cobro simulado, aunque la primera solicitud siga en proceso. Una clave nueva crea una reserva nueva.',
+  })
   @ApiResponse({ status: 201, description: 'Reserva creada exitosamente', type: BookingResponseDto })
   @ApiResponse({ status: 400, description: 'Alojamiento no disponible o datos inválidos' })
   @ApiResponse({ status: 401, description: 'No autenticado (CA1)' })
-  @ApiResponse({ status: 409, description: 'Conflicto de reserva o clave de idempotencia duplicada' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'HU-032: la clave ya la usó otro usuario (CLAVE_IDEMPOTENCIA_EN_USO) o se usó para otra estancia (CLAVE_IDEMPOTENCIA_REUTILIZADA)',
+  })
   createInstant(
     @Body() bookingDto: CreateBookingDto,
     @CurrentUser() user?: ActiveSession,
