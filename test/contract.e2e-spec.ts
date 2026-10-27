@@ -1382,4 +1382,39 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(detail.payment).toBeUndefined();
     });
   });
+  describe('HU-032 · Evitar reservas duplicadas por reintentos (CA1, CA2, RF-044, RN-018)', () => {
+    const card = { cardNumber: '4242424242424242', cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' };
+    const reserve = (idempotencyKey: string, checkIn = '2026-12-10', checkOut = '2026-12-12') =>
+      fetch(`${baseUrl}/bookings/instant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ listingId: 'demo-bogota-chapinero', checkIn, checkOut, guests: 2, idempotencyKey, card }),
+      });
+
+    it('20.1 (CA1) un doble clic y un reintento con la misma clave devuelven la misma reserva con un solo pago', async () => {
+      const key = '32000000-0000-4000-8000-0000000000e1';
+      const [first, second] = await Promise.all([reserve(key), reserve(key)]);
+      const retry = await reserve(key);
+      const bodies = await Promise.all([first.json(), second.json(), retry.json()]);
+
+      expect([first.status, second.status, retry.status]).toEqual([201, 201, 201]);
+      expect(new Set(bodies.map((body) => body.id)).size).toBe(1);
+      expect(new Set(bodies.map((body) => body.payment.reference)).size).toBe(1);
+      expect(bodies[0]).toMatchObject({ status: 'CONFIRMADA', idempotencyKey: key });
+    });
+
+    it('20.2 (CA2) una clave nueva para otra estancia crea otra reserva', async () => {
+      const res = await reserve('32000000-0000-4000-8000-0000000000e2', '2026-12-14', '2026-12-16');
+      const body = await res.json();
+
+      expect(res.status).toBe(201);
+      expect(body).toMatchObject({ status: 'CONFIRMADA', checkIn: '2026-12-14' });
+    });
+
+    it('20.3 la misma clave para otra estancia responde 409', async () => {
+      const res = await reserve('32000000-0000-4000-8000-0000000000e1', '2026-12-17', '2026-12-19');
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ reason: 'CLAVE_IDEMPOTENCIA_REUTILIZADA' });
+    });
+  });
 });
