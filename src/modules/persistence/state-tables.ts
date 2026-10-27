@@ -97,6 +97,15 @@ export const TABLE_DEFINITIONS: Record<string, TableDefinition> = {
     ],
     jsonbColumns: ['extra'],
   },
+  notificaciones: {
+    tableName: 'notificaciones',
+    primaryKey: ['id'],
+    columns: [
+      'id', 'orden', 'destinatario_id', 'destinatario_correo', 'tipo', 'mensaje', 'entidad', 'entidad_id',
+      'creado_en', 'leida', 'leida_en', 'extra',
+    ],
+    jsonbColumns: ['extra'],
+  },
   configuracion_plataforma: {
     tableName: 'configuracion_plataforma',
     primaryKey: ['clave'],
@@ -112,6 +121,7 @@ export const REGISTERED_SOURCE_TABLES: Record<string, string[]> = {
   bookings: ['reservas'],
   listings: ['publicaciones', 'notificaciones_anfitrion', 'periodos_disponibles', 'periodos_reservados', 'huespedes_con_reserva'],
   'platform-config': ['configuracion_plataforma'],
+  notifications: ['notificaciones'],
 };
 
 export function toIso(date: unknown): string | null {
@@ -427,6 +437,29 @@ export function sourceToRows(sourceKey: string, dump: unknown): Record<string, R
       break;
     }
 
+    case 'notifications': {
+      // HU-043 CA3: destinatario, tipo, mensaje, entidad relacionada, fecha y estado de lectura.
+      const notifications = (dump as Record<string, unknown>[]) ?? [];
+      result.notificaciones = notifications.map((n: any, index) => {
+        const { id, recipientId, recipientEmail, type, message, entity, entityId, createdAt, read, readAt, ...rest } = n;
+        return {
+          id: String(id),
+          orden: index,
+          destinatario_id: recipientId ?? null,
+          destinatario_correo: recipientEmail ?? null,
+          tipo: String(type),
+          mensaje: String(message),
+          entidad: String(entity),
+          entidad_id: String(entityId),
+          creado_en: toIso(createdAt) ?? new Date().toISOString(),
+          leida: Boolean(read),
+          leida_en: toIso(readAt),
+          extra: rest,
+        };
+      });
+      break;
+    }
+
     case 'platform-config': {
       const config = (dump as Record<string, unknown>) ?? {};
       const { serviceFeePercent, updatedAt, updatedBy, ...rest } = config as any;
@@ -663,6 +696,23 @@ export function rowsToSource(sourceKey: string, tablesData: Record<string, Recor
         reservedPeriods,
         guestsWithReservations,
       };
+    }
+
+    case 'notifications': {
+      const rows = [...(tablesData.notificaciones ?? [])].sort((a: any, b: any) => (a.orden ?? 0) - (b.orden ?? 0));
+      return rows.map((row: any) => ({
+        id: row.id,
+        ...(row.destinatario_id ? { recipientId: row.destinatario_id } : {}),
+        ...(row.destinatario_correo ? { recipientEmail: row.destinatario_correo } : {}),
+        type: row.tipo,
+        message: row.mensaje,
+        entity: row.entidad,
+        entityId: row.entidad_id,
+        createdAt: new Date(row.creado_en),
+        read: Boolean(row.leida),
+        ...(row.leida_en ? { readAt: new Date(row.leida_en) } : {}),
+        ...(row.extra ?? {}),
+      }));
     }
 
     case 'platform-config': {

@@ -24,6 +24,7 @@ import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { PaymentsService } from '../payments/payments.service';
 import { PaymentCardDto } from '../payments/dto/payment.dto';
 import { PaymentStatus } from '../../common/enums/payment-status.enum';
+import { BookingNotice, NotificationsService } from '../notifications/notifications.service';
 
 /**
  * HU-040 · Momento de la llegada: el día de llegada a la hora de check-in (15:00, como en el ejemplo de la
@@ -102,6 +103,7 @@ export class BookingsService implements OnModuleInit {
     @Optional() private readonly persistence?: StatePersistenceService,
     @Optional() private readonly platformConfigService?: PlatformConfigService,
     @Optional() private readonly paymentsService?: PaymentsService,
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
 
   /** HU-031 · Cola de pagos y confirmaciones por alojamiento: se procesan de a una (CA2, RN-011, RNF-010). */
@@ -396,8 +398,23 @@ export class BookingsService implements OnModuleInit {
       result: AuditResult.EXITOSO,
       detail: `Reserva confirmada (${booking.checkIn} al ${booking.checkOut}) y noches bloqueadas`,
     });
+    this.notificationsService?.bookingConfirmed(this.noticeOf(booking));
 
     return booking;
+  }
+
+  /** HU-043: datos de la reserva y de su anfitrión para notificar a ambos. */
+  private noticeOf(booking: BookingResponseDto): BookingNotice {
+    const listing = this.listingsService?.getListing(booking.listingId);
+    return {
+      id: booking.id,
+      code: booking.code,
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      guestEmail: booking.guestId,
+      hostId: listing?.hostId,
+      listingTitle: listing?.title,
+    };
   }
 
   /**
@@ -590,6 +607,11 @@ export class BookingsService implements OnModuleInit {
           `Reserva cancelada por ${actor}. Motivo: ${reason}. Devolución simulada ${refundAmount} ${booking.currency} ` +
           `(${refundPercentage} % de ${refundableAmount}, política ${policyCode}). Estado final: CANCELADA. ` +
           `Noches liberadas: ${releasedNights.join(', ') || 'ninguna'}`,
+      });
+      this.notificationsService?.bookingCancelled(this.noticeOf(booking), {
+        amount: refundAmount,
+        percentage: refundPercentage,
+        currency: booking.currency,
       });
       return booking;
     });

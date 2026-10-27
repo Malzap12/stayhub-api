@@ -232,6 +232,7 @@ export function validateListingPricing(dto?: Partial<UpdateListingPricingDto>): 
 
   return errors;
 }
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ListingsService implements OnModuleInit {
@@ -323,6 +324,7 @@ export class ListingsService implements OnModuleInit {
     private readonly auditService: AuditService,
     @Optional() private readonly authService?: AuthService,
     @Optional() private readonly persistence?: StatePersistenceService,
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {
     this.seedListings = structuredClone(this.listingsStore);
     this.seedAvailabilityPeriods = structuredClone(this.availabilityPeriodsStore);
@@ -945,6 +947,7 @@ export class ListingsService implements OnModuleInit {
       createdAt: new Date(),
     };
     this.hostNotifications.push(notification);
+    this.notificationsService?.listingModerated(listing, 'PUBLICACION_APROBADA');
 
     return {
       listingId: listing.id,
@@ -998,6 +1001,7 @@ export class ListingsService implements OnModuleInit {
       createdAt: new Date(),
     };
     this.hostNotifications.push(notification);
+    this.notificationsService?.listingModerated(listing, 'PUBLICACION_DEVUELTA', reason);
 
     return {
       listingId: listing.id,
