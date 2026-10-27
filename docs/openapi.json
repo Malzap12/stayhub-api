@@ -1564,11 +1564,74 @@
         ]
       }
     },
+    "/api/bookings/{id}/pay": {
+      "post": {
+        "operationId": "BookingsController_payBooking",
+        "summary": "Pagar la reserva con una tarjeta de prueba · HU-037 (CA1, CA2, CA3)",
+        "description": "Procesa el pago en el modo de pruebas del proveedor (nunca con claves de producción). Si se aprueba, el pago queda APROBADO con su referencia y la reserva se confirma bloqueando sus noches; si se rechaza, el pago queda RECHAZADO, la reserva sigue PENDIENTE y las fechas no se bloquean. HU-031: antes de cobrar verifica de nuevo la disponibilidad; los pagos y confirmaciones de un mismo alojamiento se procesan de a una, así que con solicitudes simultáneas sobre el mismo periodo como máximo una queda CONFIRMADA. Si el bloqueo falla después de aprobar el pago, el pago queda REVERTIDO.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la reserva",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaymentCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resultado del pago y estado de la reserva",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingPaymentResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Tarjeta que no es de prueba (TARJETA_NO_DE_PRUEBA), reserva no pendiente o periodo que ya no está disponible (HU-031 CA1: PERIODO_NO_DISPONIBLE con unavailableNights; no se hace el cobro)"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "404": {
+            "description": "Reserva no encontrada"
+          },
+          "409": {
+            "description": "La reserva ya está confirmada y pagada"
+          },
+          "503": {
+            "description": "El proveedor no está en modo de pruebas o hay claves de producción configuradas (CA3)"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/bookings/{id}/confirm": {
       "patch": {
         "operationId": "BookingsController_confirmBooking",
-        "summary": "Confirmar reserva y bloquear automáticamente el periodo reservado · HU-023 (CA1, CA2, CA3)",
-        "description": "Registra la confirmación de la reserva y bloquea automáticamente las noches del intervalo [checkIn, checkOut) (AMB-09) en el alojamiento.",
+        "summary": "Confirmar reserva y bloquear automáticamente el periodo reservado · HU-023 (CA1, CA2, CA3) · HU-031 (CA1, CA2)",
+        "description": "Verifica de nuevo la disponibilidad (RF-042), registra la confirmación de la reserva y bloquea automáticamente las noches del intervalo [checkIn, checkOut) (AMB-09). Se procesa en el mismo turno que los pagos del alojamiento (RF-043). Confirmar una reserva ya CONFIRMADA la devuelve sin cambios.",
         "parameters": [
           {
             "name": "id",
@@ -1592,7 +1655,7 @@
             }
           },
           "400": {
-            "description": "El rango incluye noches ya reservadas o bloqueadas (CA3)"
+            "description": "El periodo ya no está disponible (PERIODO_NO_DISPONIBLE, con unavailableNights) o la reserva no está PENDIENTE"
           },
           "404": {
             "description": "Reserva no encontrada"
@@ -1909,6 +1972,63 @@
         },
         "tags": [
           "Auditoría (Audit)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/payments/test-cards": {
+      "get": {
+        "operationId": "PaymentsController_listTestCards",
+        "summary": "Tarjetas de prueba disponibles · HU-037 (CA1, CA2)",
+        "description": "Tarjetas del proveedor simulado y el resultado (APROBADO / RECHAZADO) que produce cada una.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TestCardDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Pagos (Payments)"
+        ]
+      }
+    },
+    "/api/payments/config": {
+      "get": {
+        "operationId": "PaymentsController_getConfig",
+        "summary": "Revisar la configuración del proveedor de pagos · HU-037 (CA3, RNF-005)",
+        "description": "Confirma que los pagos usan el modo de pruebas y que no hay claves de producción configuradas.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentConfigDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Solo el administrador puede revisar la configuración"
+          }
+        },
+        "tags": [
+          "Pagos (Payments)"
         ],
         "security": [
           {
@@ -3796,6 +3916,91 @@
           "message"
         ]
       },
+      "PaymentResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "pay-5f1c…",
+            "description": "ID interno del pago"
+          },
+          "reference": {
+            "type": "string",
+            "example": "TEST-8KQ2M7X1ZP",
+            "description": "Referencia del pago entregada por el proveedor (CA1)"
+          },
+          "bookingId": {
+            "type": "string",
+            "example": "booking-…",
+            "description": "Reserva a la que pertenece el pago"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "APROBADO",
+              "RECHAZADO",
+              "REVERTIDO"
+            ],
+            "example": "APROBADO",
+            "description": "Resultado del pago (CA1, CA2)"
+          },
+          "declineReason": {
+            "type": "string",
+            "example": "TARJETA_RECHAZADA",
+            "description": "Motivo del rechazo cuando el pago queda RECHAZADO (CA2)"
+          },
+          "message": {
+            "type": "string",
+            "example": "Pago aprobado",
+            "description": "Mensaje legible del resultado"
+          },
+          "amount": {
+            "type": "number",
+            "example": 1210000
+          },
+          "currency": {
+            "type": "string",
+            "example": "COP"
+          },
+          "cardBrand": {
+            "type": "string",
+            "example": "VISA"
+          },
+          "cardLast4": {
+            "type": "string",
+            "example": "4242",
+            "description": "Últimos 4 dígitos de la tarjeta"
+          },
+          "mode": {
+            "type": "string",
+            "example": "TEST",
+            "description": "Modo del proveedor con que se procesó el pago (CA3)"
+          },
+          "provider": {
+            "type": "string",
+            "example": "StayHub Sandbox"
+          },
+          "processedAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-26T20:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "reference",
+          "bookingId",
+          "status",
+          "message",
+          "amount",
+          "currency",
+          "cardBrand",
+          "cardLast4",
+          "mode",
+          "provider",
+          "processedAt"
+        ]
+      },
       "BookingResponseDto": {
         "type": "object",
         "properties": {
@@ -3803,6 +4008,11 @@
             "type": "string",
             "example": "uuid-reserva-789",
             "description": "ID único de la reserva"
+          },
+          "code": {
+            "type": "string",
+            "example": "RES-8KQ2M7X1",
+            "description": "Cdigo amigable de la reserva (HU-030 CA1)"
           },
           "listingId": {
             "type": "string",
@@ -3864,6 +4074,64 @@
             "format": "date-time",
             "type": "string",
             "example": "2026-10-05T09:50:00.000Z"
+          },
+          "payment": {
+            "description": "Último pago procesado para la reserva (HU-037)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaymentResponseDto"
+              }
+            ]
+          },
+          "breakdown": {
+            "description": "Desglose detallado de precios y tarifas vigente al confirmar (HU-030 CA2)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QuoteResponseDto"
+              }
+            ]
+          },
+          "nights": {
+            "type": "number",
+            "example": 3
+          },
+          "nightlyRate": {
+            "type": "number",
+            "example": 200000
+          },
+          "baseAmount": {
+            "type": "number",
+            "example": 600000
+          },
+          "discountPercentage": {
+            "type": "number",
+            "example": 10
+          },
+          "discount": {
+            "type": "number",
+            "example": 60000
+          },
+          "cleaningFee": {
+            "type": "number",
+            "example": 50000
+          },
+          "additionalServices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "additionalServicesTotal": {
+            "type": "number",
+            "example": 80000
+          },
+          "subtotal": {
+            "type": "number",
+            "example": 670000
+          },
+          "serviceFeePercentage": {
+            "type": "number",
+            "example": 10
           }
         },
         "required": [
@@ -3878,6 +4146,45 @@
           "status",
           "idempotencyKey",
           "createdAt"
+        ]
+      },
+      "PaymentCardDto": {
+        "type": "object",
+        "properties": {
+          "cardNumber": {
+            "type": "string",
+            "example": "4242 4242 4242 4242",
+            "description": "Número de una tarjeta de prueba (ver GET /payments/test-cards)"
+          },
+          "cardHolder": {
+            "type": "string",
+            "example": "Ana Pérez",
+            "description": "Nombre del titular"
+          },
+          "expMonth": {
+            "type": "number",
+            "example": 12,
+            "minimum": 1,
+            "maximum": 12,
+            "description": "Mes de vencimiento"
+          },
+          "expYear": {
+            "type": "number",
+            "example": 2030,
+            "description": "Año de vencimiento (4 dígitos)"
+          },
+          "cvc": {
+            "type": "string",
+            "example": "123",
+            "description": "Código de seguridad (3 o 4 dígitos)"
+          }
+        },
+        "required": [
+          "cardNumber",
+          "cardHolder",
+          "expMonth",
+          "expYear",
+          "cvc"
         ]
       },
       "CreateBookingDto": {
@@ -3909,6 +4216,24 @@
             "example": "Llegaremos tarde alrededor de las 10 PM.",
             "description": "Peticiones o notas para el anfitrión"
           },
+          "additionalServices": {
+            "example": [
+              "Desayuno"
+            ],
+            "description": "Servicios adicionales seleccionados",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "card": {
+            "description": "Tarjeta de prueba para pagar de inmediato (HU-037)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaymentCardDto"
+              }
+            ]
+          },
           "idempotencyKey": {
             "type": "string",
             "example": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
@@ -3921,6 +4246,31 @@
           "checkOut",
           "guests",
           "idempotencyKey"
+        ]
+      },
+      "BookingPaymentResultDto": {
+        "type": "object",
+        "properties": {
+          "booking": {
+            "description": "Reserva: CONFIRMADA si el pago se aprobó, PENDIENTE si se rechazó",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BookingResponseDto"
+              }
+            ]
+          },
+          "payment": {
+            "description": "Resultado del pago (APROBADO o RECHAZADO) con su referencia",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaymentResponseDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "booking",
+          "payment"
         ]
       },
       "ServiceFeeResponseDto": {
@@ -4044,6 +4394,83 @@
           "entity",
           "occurredAt",
           "result"
+        ]
+      },
+      "TestCardDto": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "example": "4242424242424242"
+          },
+          "brand": {
+            "type": "string",
+            "example": "VISA"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "APROBADO",
+              "RECHAZADO",
+              "REVERTIDO"
+            ],
+            "example": "APROBADO",
+            "description": "Resultado que produce la tarjeta"
+          },
+          "declineReason": {
+            "type": "string",
+            "example": "TARJETA_RECHAZADA"
+          },
+          "description": {
+            "type": "string",
+            "example": "Pago aprobado"
+          }
+        },
+        "required": [
+          "number",
+          "brand",
+          "outcome",
+          "description"
+        ]
+      },
+      "PaymentConfigDto": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "example": "StayHub Sandbox"
+          },
+          "mode": {
+            "type": "string",
+            "example": "TEST",
+            "description": "Siempre TEST: no se procesa dinero real (CA3, RNF-005)"
+          },
+          "testMode": {
+            "type": "boolean",
+            "example": true
+          },
+          "liveKeysConfigured": {
+            "type": "boolean",
+            "example": false,
+            "description": "Indica si se detectó alguna clave de producción configurada (CA3)"
+          },
+          "configuredKeys": {
+            "example": [
+              "PAYMENT_SECRET_KEY"
+            ],
+            "description": "Variables de clave configuradas (sin revelar su valor)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "provider",
+          "mode",
+          "testMode",
+          "liveKeysConfigured",
+          "configuredKeys"
         ]
       }
     }
