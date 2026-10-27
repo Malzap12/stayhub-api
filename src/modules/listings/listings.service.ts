@@ -342,16 +342,22 @@ export class ListingsService implements OnModuleInit {
   }
 
   /** Recupera lo guardado y agrega las publicaciones y periodos de ejemplo que se sumen después al código. */
+  /**
+   * REEMPLAZA los datos por los guardados en PostgreSQL y agrega las publicaciones y periodos de ejemplo que
+   * falten. Debe reemplazar (no sumar): tras un error al guardar, la persistencia restaura el último estado
+   * confirmado y lo no guardado tiene que desaparecer de memoria.
+   */
   private restoreState(state: PersistedListingsState): void {
     const withSeeds = <T extends { id: string }>(saved: T[], seeds: T[]) => [
       ...saved,
-      ...seeds.filter((seed) => !saved.some((item) => item.id === seed.id)),
+      ...structuredClone(seeds).filter((seed) => !saved.some((item) => item.id === seed.id)),
     ];
-    this.listingsStore = withSeeds(state.listings, this.listingsStore);
-    this.availabilityPeriodsStore = withSeeds(state.availabilityPeriods, this.availabilityPeriodsStore);
-    this.hostNotifications = state.hostNotifications;
-    this.reservedPeriodsStore = state.reservedPeriods;
-    state.guestsWithReservations.forEach((key) => this.guestsWithReservations.add(key));
+    this.listingsStore = withSeeds(state.listings ?? [], this.seedListings);
+    this.availabilityPeriodsStore = withSeeds(state.availabilityPeriods ?? [], this.seedAvailabilityPeriods);
+    this.hostNotifications = state.hostNotifications ?? [];
+    this.reservedPeriodsStore = state.reservedPeriods ?? [];
+    this.guestsWithReservations.clear();
+    (state.guestsWithReservations ?? []).forEach((key) => this.guestsWithReservations.add(key));
   }
 
   private recordStatusChange(
