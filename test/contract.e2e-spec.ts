@@ -243,6 +243,8 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
 
     it('3.2 POST /api/bookings/instant responde 201 según BookingResponseDto', async () => {
+      // HU-030: solo se reservan publicaciones ACTIVAS; Chapinero (demo) está activa y disponible en diciembre.
+      const activeListingId = 'demo-bogota-chapinero';
       const res = await fetch(`${baseUrl}/bookings/instant`, {
         method: 'POST',
         headers: {
@@ -250,9 +252,9 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
           Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
-          listingId,
-          checkIn: '2026-11-01',
-          checkOut: '2026-11-06',
+          listingId: activeListingId,
+          checkIn: '2026-12-01',
+          checkOut: '2026-12-04',
           guests: 2,
           specialRequests: 'Llegaremos a las 10 PM.',
           idempotencyKey: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d',
@@ -264,7 +266,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(body).toEqual(
         expect.objectContaining({
           id: expect.any(String),
-          listingId,
+          listingId: activeListingId,
           guests: 2,
           totalAmount: expect.any(Number),
           status: 'PENDIENTE',
