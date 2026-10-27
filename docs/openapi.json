@@ -538,6 +538,32 @@
         ]
       }
     },
+    "/api/listings/cancellation-policies": {
+      "get": {
+        "operationId": "ListingsController_getCancellationPolicies",
+        "summary": "Consultar el catálogo de políticas de cancelación · HU-039 (CA1)",
+        "description": "Retorna el catálogo de políticas de cancelación disponibles para asociar a una publicación. Incluye la política Flexible: 100 % de devolución hasta 48 h antes de la llegada y 50 % después (RF-058, RN-016).",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Catálogo de políticas de cancelación (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CancellationPolicyDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ]
+      }
+    },
     "/api/listings": {
       "post": {
         "operationId": "ListingsController_create",
@@ -839,6 +865,66 @@
                 }
               }
             }
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/{id}/cancellation-policy": {
+      "patch": {
+        "operationId": "ListingsController_updateCancellationPolicy",
+        "summary": "Asociar una política de cancelación del catálogo a mi publicación · HU-039 (CA1)",
+        "description": "Permite al anfitrión asociar una política del catálogo (ej. Flexible) a su publicación (RF-058, RN-016).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación del anfitrión",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCancellationPolicyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Política de cancelación asociada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancellationPolicyDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Política de cancelación inválida"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ANFITRION)"
+          },
+          "404": {
+            "description": "La publicación no existe o pertenece a otro anfitrión (RN-005)"
           }
         },
         "tags": [
@@ -2480,6 +2566,54 @@
           "urls"
         ]
       },
+      "CancellationRuleDto": {
+        "type": "object",
+        "properties": {
+          "minHoursBeforeCheckIn": {
+            "type": "number",
+            "example": 48,
+            "description": "Horas mínimas de anticipación a la llegada para aplicar este reembolso"
+          },
+          "refundPercentage": {
+            "type": "number",
+            "example": 100,
+            "description": "Porcentaje del total que se devuelve"
+          }
+        },
+        "required": [
+          "minHoursBeforeCheckIn",
+          "refundPercentage"
+        ]
+      },
+      "CancellationPolicyDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "FLEXIBLE"
+          },
+          "name": {
+            "type": "string",
+            "example": "Flexible"
+          },
+          "description": {
+            "type": "string",
+            "example": "Reembolso del 100 % si cancelas hasta 48 horas antes de la llegada y del 50 % después. Por ejemplo, si tu llegada es el 15 de noviembre a las 15:00, recibes el 100 % de devolución si cancelas hasta el 13 de noviembre a las 15:00 y el 50 % si cancelas entre el 13 y el 15 de noviembre antes del check-in."
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CancellationRuleDto"
+            }
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "description",
+          "rules"
+        ]
+      },
       "CreateListingDto": {
         "type": "object",
         "properties": {
@@ -2584,6 +2718,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "cancellationPolicy": {
+            "type": "string",
+            "example": "FLEXIBLE",
+            "enum": [
+              "FLEXIBLE"
+            ],
+            "description": "Política de cancelación asociada del catálogo (HU-039, por defecto FLEXIBLE)"
           }
         },
         "required": [
@@ -3043,6 +3185,22 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "UpdateCancellationPolicyDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "FLEXIBLE",
+            "enum": [
+              "FLEXIBLE"
+            ],
+            "description": "Código de la política de cancelación del catálogo"
+          }
+        },
+        "required": [
+          "code"
         ]
       },
       "ListingPricingResponseDto": {
@@ -3523,54 +3681,6 @@
         },
         "required": [
           "text"
-        ]
-      },
-      "CancellationRuleDto": {
-        "type": "object",
-        "properties": {
-          "minHoursBeforeCheckIn": {
-            "type": "number",
-            "example": 48,
-            "description": "Horas mínimas de anticipación a la llegada para aplicar este reembolso"
-          },
-          "refundPercentage": {
-            "type": "number",
-            "example": 100,
-            "description": "Porcentaje del total que se devuelve"
-          }
-        },
-        "required": [
-          "minHoursBeforeCheckIn",
-          "refundPercentage"
-        ]
-      },
-      "CancellationPolicyDto": {
-        "type": "object",
-        "properties": {
-          "code": {
-            "type": "string",
-            "example": "FLEXIBLE"
-          },
-          "name": {
-            "type": "string",
-            "example": "Flexible"
-          },
-          "description": {
-            "type": "string",
-            "example": "Reembolso del 100 % si cancelas hasta 48 horas antes de la llegada; después, del 50 %."
-          },
-          "rules": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/CancellationRuleDto"
-            }
-          }
-        },
-        "required": [
-          "code",
-          "name",
-          "description",
-          "rules"
         ]
       },
       "ListingDetailDto": {

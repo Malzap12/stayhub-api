@@ -28,9 +28,9 @@ import { AuditService } from '../audit/audit.service';
 import { StatePersistenceService } from '../persistence/state-persistence.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { DEMO_AVAILABILITY_PERIODS, DEMO_LISTINGS } from './listings.seed';
-import { ListingDetailDto } from './dto/listing-detail.dto';
+import { CancellationPolicyDto, ListingDetailDto, UpdateCancellationPolicyDto } from './dto/listing-detail.dto';
 import { CalendarDayStatus, CalendarMonthDto, ListingCalendarDto } from './dto/calendar.dto';
-import { CANCELLATION_POLICIES, DEFAULT_CANCELLATION_POLICY } from './cancellation-policies';
+import { CANCELLATION_POLICIES, DEFAULT_CANCELLATION_POLICY, getCancellationPoliciesCatalog, type CancellationPolicyCode } from './cancellation-policies';
 import { Role } from '../../common/enums/role.enum';
 
 /** HU-026 CA2: mismo mensaje si no existe o no se puede ver, para no revelar publicaciones no activas. */
@@ -426,6 +426,7 @@ export class ListingsService implements OnModuleInit {
       // HU-050: el administrador ve en la cola de revisión quién publicó.
       hostName: host ? this.authService?.findById(host.userId)?.name : undefined,
       status: ListingStatus.BORRADOR,
+      ...(createDto.cancellationPolicy ? { cancellationPolicy: createDto.cancellationPolicy } : {}),
       createdAt: new Date(),
     });
 
@@ -437,6 +438,23 @@ export class ListingsService implements OnModuleInit {
       `Publicación creada en estado ${created.status}${created.isComplete ? '' : ' (incompleta)'}`,
     );
     return created;
+  }
+
+  /** HU-039 CA1: catálogo de políticas de cancelación disponibles (RF-058). */
+  getCancellationPolicies(): CancellationPolicyDto[] {
+    return getCancellationPoliciesCatalog();
+  }
+
+  /** HU-039 CA1: asocia una política de cancelación del catálogo a una publicación propia del anfitrión (RF-058, RN-016). */
+  updateCancellationPolicy(listingId: string, dto: UpdateCancellationPolicyDto, host?: ActiveSession): CancellationPolicyDto {
+    this.findOwnListing(listingId, host);
+    const policy = CANCELLATION_POLICIES[dto?.code as CancellationPolicyCode];
+    if (!policy) {
+      throw new BadRequestException('Selecciona una política de cancelación válida del catálogo');
+    }
+    const listing = this.listingsStore.find((item) => item.id === listingId)!;
+    listing.cancellationPolicy = dto.code;
+    return policy;
   }
 
   /**
