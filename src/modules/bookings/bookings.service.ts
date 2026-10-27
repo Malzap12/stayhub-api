@@ -184,7 +184,7 @@ export class BookingsService implements OnModuleInit {
       return this.replayBooking(existing, bookingDto, actor);
     }
     const inProgress = this.bookingsInProgress.get(key);
-    if (inProgress) {
+    if (inProgress !== undefined) {
       return this.replayBooking(await inProgress, bookingDto, actor);
     }
 
