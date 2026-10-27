@@ -52,6 +52,8 @@ export class BookingsService implements OnModuleInit {
 
   /** HU-031 · Cola de pagos y confirmaciones por alojamiento: se procesan de a una (CA2, RN-011, RNF-010). */
   private readonly listingLocks = new Map<string, Promise<unknown>>();
+  /** HU-032 · Solicitudes de reserva en curso por clave de idempotencia, para que un doble clic no cree otra. */
+  private readonly bookingsInProgress = new Map<string, Promise<BookingResponseDto>>();
 
   onModuleInit(): void {
     this.persistence?.register('bookings', {
@@ -169,12 +171,67 @@ export class BookingsService implements OnModuleInit {
    * Conserva el desglose de precios y tarifas vigente al confirmar (CA2). Si se incluye tarjeta de prueba,
    * procesa el pago y si se aprueba confirma la reserva con su código y desglose (CA1).
    */
+  /**
+   * HU-032 · Evitar reservas duplicadas por reintentos (CA1, CA2 · RF-044, RN-018).
+   * Una solicitud con una clave de idempotencia ya usada devuelve la reserva original, sin crear otra ni repetir
+   * el cobro simulado, también si llega mientras la original se está procesando (doble clic). Una clave nueva se
+   * procesa como una reserva nueva. La clave solo sirve a quien la usó y para la misma estancia.
+   */
   async createInstant(bookingDto: CreateBookingDto, actor?: string): Promise<BookingResponseDto> {
-    const existing = this.bookingsStore.find((item) => item.idempotencyKey === bookingDto.idempotencyKey);
+    const key = bookingDto.idempotencyKey;
+    const existing = this.bookingsStore.find((item) => item.idempotencyKey === key);
     if (existing) {
-      return existing;
+      return this.replayBooking(existing, bookingDto, actor);
+    }
+    const inProgress = this.bookingsInProgress.get(key);
+    if (inProgress) {
+      return this.replayBooking(await inProgress, bookingDto, actor);
     }
 
+    const creation = this.createNewBooking(bookingDto, actor);
+    this.bookingsInProgress.set(key, creation);
+    try {
+      return await creation;
+    } finally {
+      this.bookingsInProgress.delete(key);
+    }
+  }
+
+  private replayBooking(booking: BookingResponseDto, bookingDto: CreateBookingDto, actor?: string): BookingResponseDto {
+    if (booking.guestId !== (actor ?? 'mock-guest-uuid')) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        reason: 'CLAVE_IDEMPOTENCIA_EN_USO',
+        message: 'La clave de idempotencia ya fue usada en otra solicitud; genera una clave nueva para esta reserva',
+      });
+    }
+    const sameStay =
+      booking.listingId === bookingDto.listingId &&
+      String(booking.checkIn).slice(0, 10) === String(bookingDto.checkIn).slice(0, 10) &&
+      String(booking.checkOut).slice(0, 10) === String(bookingDto.checkOut).slice(0, 10) &&
+      Number(booking.guests) === Number(bookingDto.guests);
+    if (!sameStay) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        reason: 'CLAVE_IDEMPOTENCIA_REUTILIZADA',
+        message: 'La clave de idempotencia ya se usó para otra estancia; usa una clave nueva para reservar otra estancia',
+      });
+    }
+
+    this.auditService.record({
+      actor,
+      action: AuditAction.BOOKING_STATUS_CHANGE,
+      entity: 'Booking',
+      entityId: booking.id,
+      result: AuditResult.EXITOSO,
+      detail: `Reintento con la misma clave de idempotencia: se devuelve la reserva ${booking.status} sin crear otra ni cobrar de nuevo`,
+    });
+    return booking;
+  }
+
+  private async createNewBooking(bookingDto: CreateBookingDto, actor?: string): Promise<BookingResponseDto> {
     const listing = this.listingsService?.getListing(bookingDto.listingId);
     if (listing && listing.status !== ListingStatus.ACTIVA) {
       throw new BadRequestException({
