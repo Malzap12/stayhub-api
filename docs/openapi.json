@@ -1673,9 +1673,43 @@
     "/api/bookings/my": {
       "get": {
         "operationId": "BookingsController_findMyBookings",
-        "summary": "Consultar mis reservas · HU-003 (CA1)",
-        "description": "Ruta protegida que exige sesión activa. Si el visitante no ha iniciado sesión, responde 401 Unauthorized.",
-        "parameters": [],
+        "summary": "Consultar mis reservas · HU-003 · HU-034 (CA1, CA2)",
+        "description": "Ruta protegida que exige sesión activa (RF-048, RNF-022). Devuelve el historial de reservas del usuario autenticado ordenadas por fecha de llegada, con soporte de filtro por estado y paginación.",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filtrar por estado de la reserva (HU-034 CA1)",
+            "schema": {
+              "enum": [
+                "PENDIENTE",
+                "CONFIRMADA",
+                "CANCELADA",
+                "COMPLETADA"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Número de página para paginación (HU-034 CA2)",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Cantidad de elementos por página (HU-034 CA2)",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Listado de reservas del usuario autenticado",

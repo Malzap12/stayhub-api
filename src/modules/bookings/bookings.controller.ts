@@ -1,5 +1,5 @@
-import { Controller, Post, Get, Patch, Body, Param, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import { Controller, Post, Get, Patch, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { BookingsService } from './bookings.service';
 import { QuoteBookingDto, QuoteResponseDto, QuoteValidationErrorDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -10,6 +10,7 @@ import { Public, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { ActiveSession } from '../auth/auth.service';
 import { Role } from '../../common/enums/role.enum';
+import { BookingStatus } from '../../common/enums/booking-status.enum';
 
 @ApiTags('Reservas y Cotizaciones (Bookings)')
 @Controller('bookings')
@@ -40,13 +41,26 @@ export class BookingsController {
   @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Consultar mis reservas · HU-003 (CA1)',
-    description: 'Ruta protegida que exige sesión activa. Si el visitante no ha iniciado sesión, responde 401 Unauthorized.',
+    summary: 'Consultar mis reservas · HU-003 · HU-034 (CA1, CA2)',
+    description:
+      'Ruta protegida que exige sesión activa (RF-048, RNF-022). Devuelve el historial de reservas del usuario autenticado ordenadas por fecha de llegada, con soporte de filtro por estado y paginación.',
   })
+  @ApiQuery({ name: 'status', required: false, enum: BookingStatus, description: 'Filtrar por estado de la reserva (HU-034 CA1)' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página para paginación (HU-034 CA2)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Cantidad de elementos por página (HU-034 CA2)' })
   @ApiResponse({ status: 200, description: 'Listado de reservas del usuario autenticado', type: [BookingResponseDto] })
   @ApiResponse({ status: 401, description: 'Debes iniciar sesión para acceder a mis reservas (CA1)' })
-  findMyBookings(@CurrentUser() user?: ActiveSession): Promise<BookingResponseDto[]> {
-    return this.bookingsService.findMyBookings(user?.email);
+  findMyBookings(
+    @CurrentUser() user?: ActiveSession,
+    @Query('status') status?: BookingStatus,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ): Promise<BookingResponseDto[]> {
+    return this.bookingsService.findMyBookings(user?.email, {
+      status,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @Post('instant')
