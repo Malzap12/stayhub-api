@@ -142,6 +142,16 @@ export class PaymentsService implements OnModuleInit {
     };
   }
 
+  /** HU-031 · Anula un pago aprobado cuando la reserva no se pudo confirmar, para no cobrar sin reserva (RNF-009). */
+  revert(payment: PaymentResponseDto): PaymentResponseDto {
+    return {
+      ...payment,
+      status: PaymentStatus.REVERTIDO,
+      message: 'Pago revertido: la reserva no se pudo confirmar',
+      processedAt: new Date(),
+    };
+  }
+
   private isExpired(month: number, year: number, now = new Date()): boolean {
     const current = now.getFullYear() * 12 + now.getMonth() + 1;
     return year * 12 + month < current;

@@ -70,11 +70,15 @@ export class BookingsController {
   @ApiOperation({
     summary: 'Pagar la reserva con una tarjeta de prueba · HU-037 (CA1, CA2, CA3)',
     description:
-      'Procesa el pago en el modo de pruebas del proveedor (nunca con claves de producción). Si se aprueba, el pago queda APROBADO con su referencia y la reserva se confirma bloqueando sus noches; si se rechaza, el pago queda RECHAZADO, la reserva sigue PENDIENTE y las fechas no se bloquean.',
+      'Procesa el pago en el modo de pruebas del proveedor (nunca con claves de producción). Si se aprueba, el pago queda APROBADO con su referencia y la reserva se confirma bloqueando sus noches; si se rechaza, el pago queda RECHAZADO, la reserva sigue PENDIENTE y las fechas no se bloquean. HU-031: antes de cobrar verifica de nuevo la disponibilidad; los pagos y confirmaciones de un mismo alojamiento se procesan de a una, así que con solicitudes simultáneas sobre el mismo periodo como máximo una queda CONFIRMADA. Si el bloqueo falla después de aprobar el pago, el pago queda REVERTIDO.',
   })
   @ApiParam({ name: 'id', description: 'ID de la reserva' })
   @ApiResponse({ status: 200, description: 'Resultado del pago y estado de la reserva', type: BookingPaymentResultDto })
-  @ApiResponse({ status: 400, description: 'Tarjeta que no es de prueba (TARJETA_NO_DE_PRUEBA), periodo no disponible o reserva no pendiente' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Tarjeta que no es de prueba (TARJETA_NO_DE_PRUEBA), reserva no pendiente o periodo que ya no está disponible (HU-031 CA1: PERIODO_NO_DISPONIBLE con unavailableNights; no se hace el cobro)',
+  })
   @ApiResponse({ status: 401, description: 'No autenticado' })
   @ApiResponse({ status: 404, description: 'Reserva no encontrada' })
   @ApiResponse({ status: 409, description: 'La reserva ya está confirmada y pagada' })
@@ -91,13 +95,16 @@ export class BookingsController {
   @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Confirmar reserva y bloquear automáticamente el periodo reservado · HU-023 (CA1, CA2, CA3)',
+    summary: 'Confirmar reserva y bloquear automáticamente el periodo reservado · HU-023 (CA1, CA2, CA3) · HU-031 (CA1, CA2)',
     description:
-      'Registra la confirmación de la reserva y bloquea automáticamente las noches del intervalo [checkIn, checkOut) (AMB-09) en el alojamiento.',
+      'Verifica de nuevo la disponibilidad (RF-042), registra la confirmación de la reserva y bloquea automáticamente las noches del intervalo [checkIn, checkOut) (AMB-09). Se procesa en el mismo turno que los pagos del alojamiento (RF-043). Confirmar una reserva ya CONFIRMADA la devuelve sin cambios.',
   })
   @ApiParam({ name: 'id', description: 'ID de la reserva' })
   @ApiResponse({ status: 200, description: 'Reserva confirmada y noches bloqueadas (CA1)', type: BookingResponseDto })
-  @ApiResponse({ status: 400, description: 'El rango incluye noches ya reservadas o bloqueadas (CA3)' })
+  @ApiResponse({
+    status: 400,
+    description: 'El periodo ya no está disponible (PERIODO_NO_DISPONIBLE, con unavailableNights) o la reserva no está PENDIENTE',
+  })
   @ApiResponse({ status: 404, description: 'Reserva no encontrada' })
   confirmBooking(
     @Param('id') id: string,
