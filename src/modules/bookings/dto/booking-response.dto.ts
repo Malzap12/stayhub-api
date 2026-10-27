@@ -3,7 +3,7 @@ import { BookingStatus } from '../../../common/enums/booking-status.enum';
 import { PaymentResponseDto } from '../../payments/dto/payment.dto';
 import { QuoteResponseDto } from './quote-booking.dto';
 
-/** HU-040 · Registro de la cancelación (CA3 · RF-056, RN-017). */
+/** HU-040 y HU-041 · Registro de la cancelación y cálculo de devolución según la política (CA3 · RF-054, RF-056, RN-016, RN-017, RN-030). */
 export class BookingCancellationDto {
   @ApiProperty({ example: 'huesped@stayhub.com', description: 'Usuario que canceló' })
   cancelledBy: string;
@@ -20,11 +20,17 @@ export class BookingCancellationDto {
   @ApiProperty({ example: 100, description: 'Porcentaje de devolución según la anticipación a la llegada' })
   refundPercentage: number;
 
-  @ApiProperty({ example: 1100000, description: 'Valor reembolsable: total menos la tarifa de servicio' })
+  @ApiProperty({ example: 650000, description: 'Valor reembolsable: total menos la tarifa de servicio (HU-041 CA1)' })
   refundableAmount: number;
 
-  @ApiProperty({ example: 1100000, description: 'Valor de la devolución simulada, sin movimiento de dinero real (RN-030)' })
+  @ApiProperty({ example: 650000, description: 'Valor de la devolución simulada, sin movimiento de dinero real (HU-041 CA1/CA2, RN-030)' })
   refundAmount: number;
+
+  @ApiProperty({
+    example: 'Política Flexible: 100 % de devolución (sin la tarifa de servicio) por cancelar al menos 48 h antes de la llegada',
+    description: 'Regla aplicada en el cálculo de la devolución mostrada en el detalle de la cancelación (HU-041 CA3)',
+  })
+  appliedRule: string;
 
   @ApiProperty({ example: 'COP' })
   currency: string;

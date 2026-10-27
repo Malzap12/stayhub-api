@@ -4115,13 +4115,18 @@
           },
           "refundableAmount": {
             "type": "number",
-            "example": 1100000,
-            "description": "Valor reembolsable: total menos la tarifa de servicio"
+            "example": 650000,
+            "description": "Valor reembolsable: total menos la tarifa de servicio (HU-041 CA1)"
           },
           "refundAmount": {
             "type": "number",
-            "example": 1100000,
-            "description": "Valor de la devolución simulada, sin movimiento de dinero real (RN-030)"
+            "example": 650000,
+            "description": "Valor de la devolución simulada, sin movimiento de dinero real (HU-041 CA1/CA2, RN-030)"
+          },
+          "appliedRule": {
+            "type": "string",
+            "example": "Política Flexible: 100 % de devolución (sin la tarifa de servicio) por cancelar al menos 48 h antes de la llegada",
+            "description": "Regla aplicada en el cálculo de la devolución mostrada en el detalle de la cancelación (HU-041 CA3)"
           },
           "currency": {
             "type": "string",
@@ -4152,6 +4157,7 @@
           "refundPercentage",
           "refundableAmount",
           "refundAmount",
+          "appliedRule",
           "currency",
           "finalStatus",
           "releasedNights"

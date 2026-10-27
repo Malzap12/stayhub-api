@@ -33,6 +33,50 @@ export const CHECK_IN_TIME_BOGOTA = 'T15:00:00-05:00';
 
 export const arrivalInstant = (checkIn: string): number => Date.parse(`${String(checkIn).slice(0, 10)}${CHECK_IN_TIME_BOGOTA}`);
 
+export interface RefundCalculationResult {
+  policy: string;
+  refundPercentage: number;
+  refundableAmount: number;
+  refundAmount: number;
+  appliedRule: string;
+}
+
+/**
+ * HU-041 · Calcular la devolución según la política (CA1, CA2, CA3 · RF-054, RN-016, RN-030, RNF-024, AMB-10).
+ * Base reembolsable sin tarifa de servicio (totalAmount − serviceFee). Aplica la regla de la política según la
+ * anticipación a la llegada e incluye el texto de la regla aplicada para el detalle de la cancelación (CA3).
+ */
+export function calculatePolicyRefund(
+  totalAmount: number,
+  serviceFee: number | undefined,
+  hoursBeforeArrival: number,
+  policy?: { code: string; name: string; rules: Array<{ minHoursBeforeCheckIn: number; refundPercentage: number }> },
+): RefundCalculationResult {
+  const round = (value: number) => Math.round(value * 100) / 100;
+  const refundableAmount = round(Math.max(0, totalAmount - (serviceFee ?? 0)));
+  const rule = [...(policy?.rules ?? [])]
+    .sort((a, b) => b.minHoursBeforeCheckIn - a.minHoursBeforeCheckIn)
+    .find((item) => hoursBeforeArrival >= item.minHoursBeforeCheckIn);
+  const refundPercentage = rule?.refundPercentage ?? 0;
+  const refundAmount = round((refundableAmount * refundPercentage) / 100);
+  const policyCode = policy?.code ?? 'SIN_POLITICA';
+  const policyName = policy?.name ?? policyCode;
+  let appliedRule = 'Sin política de devolución aplicable';
+  if (rule && rule.minHoursBeforeCheckIn > 0) {
+    appliedRule = `Política ${policyName}: ${refundPercentage} % de devolución (sin la tarifa de servicio) por cancelar al menos ${rule.minHoursBeforeCheckIn} h antes de la llegada`;
+  } else if (rule) {
+    appliedRule = `Política ${policyName}: ${refundPercentage} % de devolución (sin la tarifa de servicio) por cancelar con menos de 48 h de anticipación a la llegada`;
+  }
+
+  return {
+    policy: policyCode,
+    refundPercentage,
+    refundableAmount,
+    refundAmount,
+    appliedRule,
+  };
+}
+
 @Injectable()
 export class BookingsService implements OnModuleInit {
   private bookingsStore: BookingResponseDto[] = [
@@ -512,16 +556,15 @@ export class BookingsService implements OnModuleInit {
 
       const policy = this.listingsService?.getCancellationPolicyOf(booking.listingId);
       const hoursBeforeArrival = (arrival - now) / 3_600_000;
-      const rule = [...(policy?.rules ?? [])]
-        .sort((a, b) => b.minHoursBeforeCheckIn - a.minHoursBeforeCheckIn)
-        .find((item) => hoursBeforeArrival >= item.minHoursBeforeCheckIn);
-      const round = (value: number) => Math.round(value * 100) / 100;
-      const refundableAmount = round(Math.max(0, booking.totalAmount - (booking.serviceFee ?? 0)));
-      const refundPercentage = rule?.refundPercentage ?? 0;
-      const refundAmount = round((refundableAmount * refundPercentage) / 100);
+      const {
+        policy: policyCode,
+        refundPercentage,
+        refundableAmount,
+        refundAmount,
+        appliedRule,
+      } = calculatePolicyRefund(booking.totalAmount, booking.serviceFee, hoursBeforeArrival, policy);
 
       const releasedNights = this.listingsService?.releaseReservedPeriod(booking.listingId, booking.id, actor) ?? [];
-      const policyCode = policy?.code ?? 'SIN_POLITICA';
       booking.status = BookingStatus.CANCELADA;
       booking.cancellation = {
         cancelledBy: actor,
@@ -531,6 +574,7 @@ export class BookingsService implements OnModuleInit {
         refundPercentage,
         refundableAmount,
         refundAmount,
+        appliedRule,
         currency: booking.currency,
         finalStatus: BookingStatus.CANCELADA,
         releasedNights,
