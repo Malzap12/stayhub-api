@@ -1820,8 +1820,8 @@
     "/api/bookings/{id}": {
       "get": {
         "operationId": "BookingsController_findOne",
-        "summary": "Consultar estado de reserva",
-        "description": "Retorna el detalle y estado actual de una reserva.",
+        "summary": "Consultar el estado y el detalle de mi reserva · HU-033 (CA1, CA2)",
+        "description": "Devuelve alojamiento (título, ciudad e imagen), fechas, huéspedes, desglose de la cotización, política de cancelación y estado de la reserva (RF-047). Solo la consulta el huésped que la hizo o un administrador.",
         "parameters": [
           {
             "name": "id",
@@ -1845,7 +1845,10 @@
             }
           },
           "401": {
-            "description": "No autenticado (CA1)"
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "La reserva es de otro huésped (CA2)"
           },
           "404": {
             "description": "Reserva no encontrada"
@@ -4333,22 +4336,27 @@
           "listingTitle": {
             "type": "string",
             "example": "Apartamento en Chapinero Alto",
-            "description": "Título de la publicación (solo en Mis reservas)"
+            "description": "Título de la publicación (Mis reservas y detalle)"
           },
           "listingCity": {
             "type": "string",
             "example": "Bogotá",
-            "description": "Ciudad de la publicación (solo en Mis reservas)"
+            "description": "Ciudad de la publicación (Mis reservas y detalle)"
           },
           "listingImage": {
             "type": "string",
             "example": "https://images.unsplash.com/photo-1",
-            "description": "Primera imagen de la publicación (solo en Mis reservas)"
+            "description": "Primera imagen de la publicación (Mis reservas y detalle)"
           },
           "cancellationPolicyName": {
             "type": "string",
             "example": "Flexible",
-            "description": "Política de cancelación de la publicación (solo en Mis reservas)"
+            "description": "Política de cancelación de la publicación (Mis reservas y detalle)"
+          },
+          "cancellationPolicyDescription": {
+            "type": "string",
+            "example": "Reembolso del 100 % si cancelas hasta 48 horas antes de la llegada y del 50 % después.",
+            "description": "Texto de la política de cancelación de la publicación (HU-033)"
           },
           "payment": {
             "description": "Último pago procesado para la reserva (HU-037)",

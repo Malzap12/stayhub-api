@@ -88,17 +88,23 @@ export class BookingResponseDto {
   @ApiPropertyOptional({ type: BookingCancellationDto, description: 'Registro de la cancelación, presente cuando la reserva está CANCELADA (HU-040)' })
   cancellation?: BookingCancellationDto;
 
-  @ApiPropertyOptional({ example: 'Apartamento en Chapinero Alto', description: 'Título de la publicación (solo en Mis reservas)' })
+  @ApiPropertyOptional({ example: 'Apartamento en Chapinero Alto', description: 'Título de la publicación (Mis reservas y detalle)' })
   listingTitle?: string;
 
-  @ApiPropertyOptional({ example: 'Bogotá', description: 'Ciudad de la publicación (solo en Mis reservas)' })
+  @ApiPropertyOptional({ example: 'Bogotá', description: 'Ciudad de la publicación (Mis reservas y detalle)' })
   listingCity?: string;
 
-  @ApiPropertyOptional({ example: 'https://images.unsplash.com/photo-1', description: 'Primera imagen de la publicación (solo en Mis reservas)' })
+  @ApiPropertyOptional({ example: 'https://images.unsplash.com/photo-1', description: 'Primera imagen de la publicación (Mis reservas y detalle)' })
   listingImage?: string;
 
-  @ApiPropertyOptional({ example: 'Flexible', description: 'Política de cancelación de la publicación (solo en Mis reservas)' })
+  @ApiPropertyOptional({ example: 'Flexible', description: 'Política de cancelación de la publicación (Mis reservas y detalle)' })
   cancellationPolicyName?: string;
+
+  @ApiPropertyOptional({
+    example: 'Reembolso del 100 % si cancelas hasta 48 horas antes de la llegada y del 50 % después.',
+    description: 'Texto de la política de cancelación de la publicación (HU-033)',
+  })
+  cancellationPolicyDescription?: string;
 
   @ApiPropertyOptional({ type: () => PaymentResponseDto, description: 'Último pago procesado para la reserva (HU-037)' })
   payment?: PaymentResponseDto;

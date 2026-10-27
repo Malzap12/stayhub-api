@@ -150,12 +150,17 @@ export class BookingsController {
   @Get(':id')
   @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Consultar estado de reserva', description: 'Retorna el detalle y estado actual de una reserva.' })
+  @ApiOperation({
+    summary: 'Consultar el estado y el detalle de mi reserva · HU-033 (CA1, CA2)',
+    description:
+      'Devuelve alojamiento (título, ciudad e imagen), fechas, huéspedes, desglose de la cotización, política de cancelación y estado de la reserva (RF-047). Solo la consulta el huésped que la hizo o un administrador.',
+  })
   @ApiParam({ name: 'id', description: 'ID de la reserva' })
   @ApiResponse({ status: 200, description: 'Detalle de la reserva', type: BookingResponseDto })
-  @ApiResponse({ status: 401, description: 'No autenticado (CA1)' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'La reserva es de otro huésped (CA2)' })
   @ApiResponse({ status: 404, description: 'Reserva no encontrada' })
-  findOne(@Param('id') id: string): Promise<BookingResponseDto> {
-    return this.bookingsService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user?: ActiveSession): Promise<BookingResponseDto> {
+    return this.bookingsService.findOne(id, user ? { email: user.email, role: user.role } : undefined);
   }
 }

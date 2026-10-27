@@ -1528,4 +1528,47 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(await again.json()).toMatchObject({ reason: 'ESTADO_NO_CANCELABLE' });
     });
   });
+  describe('HU-033 · Consultar el estado de mis reservas (CA1, CA2, RF-047)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const detail = (token: string, id = bookingId) => fetch(`${baseUrl}/bookings/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+
+    it('22.1 (CA1) el huésped ve alojamiento, fechas, huéspedes, desglose, política y estado de su reserva', async () => {
+      const res = await detail(authToken);
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body).toMatchObject({
+        id: bookingId,
+        status: 'PENDIENTE',
+        listingTitle: expect.any(String),
+        listingCity: 'Bogotá',
+        checkIn: '2026-12-01',
+        checkOut: '2026-12-04',
+        guests: 2,
+        nights: 3,
+        baseAmount: expect.any(Number),
+        serviceFee: expect.any(Number),
+        totalAmount: expect.any(Number),
+        cancellationPolicyName: 'Flexible',
+        cancellationPolicyDescription: expect.stringContaining('48 horas'),
+      });
+    });
+
+    it('22.2 (CA2) otro huésped recibe 403 y una reserva inexistente 404', async () => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: 'Otro', email: 'otro.hu033@stayhub.com', password: 'Password123', role: 'HUESPED' }),
+      });
+      const login = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email: 'otro.hu033@stayhub.com', password: 'Password123' }),
+      });
+      const other = (await login.json()).token;
+
+      expect((await detail(other)).status).toBe(403);
+      expect((await detail(authToken, 'no-existe')).status).toBe(404);
+    });
+  });
 });
