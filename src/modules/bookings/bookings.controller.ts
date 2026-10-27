@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@ne
 import { BookingsService } from './bookings.service';
 import { QuoteBookingDto, QuoteResponseDto, QuoteValidationErrorDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
+import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { BookingPaymentResultDto, BookingResponseDto } from './dto/booking-response.dto';
 import { PaymentCardDto } from '../payments/dto/payment.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
@@ -44,8 +45,8 @@ export class BookingsController {
   })
   @ApiResponse({ status: 200, description: 'Listado de reservas del usuario autenticado', type: [BookingResponseDto] })
   @ApiResponse({ status: 401, description: 'Debes iniciar sesión para acceder a mis reservas (CA1)' })
-  findMyBookings(): Promise<BookingResponseDto[]> {
-    return this.bookingsService.findMyBookings();
+  findMyBookings(@CurrentUser() user?: ActiveSession): Promise<BookingResponseDto[]> {
+    return this.bookingsService.findMyBookings(user?.email);
   }
 
   @Post('instant')
@@ -119,6 +120,31 @@ export class BookingsController {
     @CurrentUser() user?: ActiveSession,
   ): Promise<BookingResponseDto> {
     return this.bookingsService.confirmBooking(id, user?.email);
+  }
+
+  @Patch(':id/cancel')
+  @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Cancelar mi reserva · HU-040 (CA1, CA2, CA3)',
+    description:
+      'El huésped cancela su reserva CONFIRMADA antes de la llegada (15:00 del día de llegada, hora de Colombia) indicando un motivo (RF-053). La reserva pasa a CANCELADA, sus noches vuelven a estar disponibles (RF-055, RN-029) y se registra usuario, fecha y hora, motivo, devolución simulada según la política de la publicación (sobre el total menos la tarifa de servicio) y estado final (RF-056, RN-017), con un evento de auditoría (RN-021).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la reserva' })
+  @ApiResponse({ status: 200, description: 'Reserva CANCELADA con su registro de cancelación', type: BookingResponseDto })
+  @ApiResponse({
+    status: 400,
+    description: 'La llegada ya pasó (LLEGADA_PASADA, CA2), la reserva no está CONFIRMADA (ESTADO_NO_CANCELABLE) o falta el motivo',
+  })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'La reserva es de otro huésped' })
+  @ApiResponse({ status: 404, description: 'Reserva no encontrada' })
+  cancelBooking(
+    @Param('id') id: string,
+    @Body() dto: CancelBookingDto,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<BookingResponseDto> {
+    return this.bookingsService.cancelBooking(id, dto, user?.email);
   }
 
   @Get(':id')

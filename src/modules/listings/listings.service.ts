@@ -798,6 +798,32 @@ export class ListingsService implements OnModuleInit {
     return blocked;
   }
 
+  /**
+   * HU-040 · Libera las noches que bloqueó una reserva al cancelarla (CA1 · RF-055, RN-029): vuelven a estar
+   * disponibles. Retorna las noches liberadas.
+   */
+  releaseReservedPeriod(listingId: string, bookingId: string, actor?: string): string[] {
+    const released = this.reservedPeriodsStore.filter((period) => period.listingId === listingId && period.bookingId === bookingId);
+    if (released.length === 0) {
+      return [];
+    }
+    this.reservedPeriodsStore = this.reservedPeriodsStore.filter((period) => !released.includes(period));
+    const nights = released.flatMap((period) => period.blockedNights);
+    this.recordReservedBlockChange(
+      actor,
+      listingId,
+      AuditResult.EXITOSO,
+      `Periodo liberado por la cancelación de la reserva ${bookingId}: noches ${nights.join(', ')}`,
+    );
+    return nights;
+  }
+
+  /** HU-040: política de cancelación asociada a la publicación (Flexible si el anfitrión no eligió otra). */
+  getCancellationPolicyOf(listingId: string): CancellationPolicyDto {
+    const listing = this.listingsStore.find((item) => item.id === listingId);
+    return CANCELLATION_POLICIES[listing?.cancellationPolicy ?? DEFAULT_CANCELLATION_POLICY];
+  }
+
   /** HU-023: lista los periodos reservados/bloqueados de un alojamiento. */
   getReservedPeriods(listingId: string): BlockedPeriodResponseDto[] {
     return this.reservedPeriodsOf(listingId);
