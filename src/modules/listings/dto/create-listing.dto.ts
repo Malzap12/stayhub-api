@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsArray,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -13,6 +14,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { PropertyType } from '../../../common/enums/property-type.enum';
+import type { CancellationPolicyCode } from '../cancellation-policies';
 
 /**
  * HU-010 · Crear una publicación en borrador (RF-013, RF-014).
@@ -97,4 +99,13 @@ export class CreateListingDto {
   @IsArray({ message: 'Las imágenes deben ser una lista' })
   @IsString({ each: true, message: 'Cada imagen debe ser una URL en texto' })
   images?: string[];
+
+  @ApiPropertyOptional({
+    example: 'FLEXIBLE',
+    enum: ['FLEXIBLE'],
+    description: 'Política de cancelación asociada del catálogo (HU-039, por defecto FLEXIBLE)',
+  })
+  @IsOptional()
+  @IsIn(['FLEXIBLE'], { message: 'Selecciona una política de cancelación válida del catálogo' })
+  cancellationPolicy?: CancellationPolicyCode;
 }

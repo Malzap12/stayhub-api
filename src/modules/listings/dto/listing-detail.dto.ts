@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsIn, IsNotEmpty, IsString } from 'class-validator';
 import { ListingStatus } from '../../../common/enums/listing-status.enum';
 import { PropertyType } from '../../../common/enums/property-type.enum';
 import { AdditionalServiceDto } from './listing-response.dto';
@@ -18,11 +19,23 @@ export class CancellationPolicyDto {
   @ApiProperty({ example: 'Flexible' })
   name: string;
 
-  @ApiProperty({ example: 'Reembolso del 100 % si cancelas hasta 48 horas antes de la llegada; después, del 50 %.' })
+  @ApiProperty({
+    example:
+      'Reembolso del 100 % si cancelas hasta 48 horas antes de la llegada y del 50 % después. Por ejemplo, si tu llegada es el 15 de noviembre a las 15:00, recibes el 100 % de devolución si cancelas hasta el 13 de noviembre a las 15:00 y el 50 % si cancelas entre el 13 y el 15 de noviembre antes del check-in.',
+  })
   description: string;
 
   @ApiProperty({ type: [CancellationRuleDto] })
   rules: CancellationRuleDto[];
+}
+
+/** HU-039 · Asociar una política de cancelación del catálogo a una publicación del anfitrión (RF-058, RN-016). */
+export class UpdateCancellationPolicyDto {
+  @ApiProperty({ example: 'FLEXIBLE', enum: ['FLEXIBLE'], description: 'Código de la política de cancelación del catálogo' })
+  @IsString({ message: 'La política de cancelación debe ser un texto' })
+  @IsNotEmpty({ message: 'La política de cancelación es obligatoria' })
+  @IsIn(['FLEXIBLE'], { message: 'Selecciona una política de cancelación válida del catálogo' })
+  code: 'FLEXIBLE';
 }
 
 export class ListingLocationDto {

@@ -15,7 +15,7 @@ import {
 } from './dto/availability.dto';
 import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
-import { ListingDetailDto } from './dto/listing-detail.dto';
+import { CancellationPolicyDto, ListingDetailDto, UpdateCancellationPolicyDto } from './dto/listing-detail.dto';
 import { ListingCalendarDto } from './dto/calendar.dto';
 import { ListingPricingResponseDto, UpdateListingPricingDto } from './dto/listing-pricing.dto';
 import { ActivationMissingFieldsErrorDto } from './dto/request-activation.dto';
@@ -28,6 +28,18 @@ import { Role } from '../../common/enums/role.enum';
 @Controller('listings')
 export class ListingsController {
   constructor(private readonly listingsService: ListingsService) {}
+
+  @Get('cancellation-policies')
+  @Public()
+  @ApiOperation({
+    summary: 'Consultar el catálogo de políticas de cancelación · HU-039 (CA1)',
+    description:
+      'Retorna el catálogo de políticas de cancelación disponibles para asociar a una publicación. Incluye la política Flexible: 100 % de devolución hasta 48 h antes de la llegada y 50 % después (RF-058, RN-016).',
+  })
+  @ApiResponse({ status: 200, description: 'Catálogo de políticas de cancelación (CA1)', type: [CancellationPolicyDto] })
+  getCancellationPolicies(): CancellationPolicyDto[] {
+    return this.listingsService.getCancellationPolicies();
+  }
 
   @Post()
   // RN-001/RN-002: solo un ANFITRIÓN crea publicaciones y queda como su dueño; el ADMINISTRADOR modera (RN-003) pero nunca es dueño.
@@ -148,6 +160,28 @@ export class ListingsController {
   @ApiResponse({ status: 200, description: 'Listado de notificaciones del anfitrión', type: [HostNotificationDto] })
   getHostNotifications(@Query('hostId') hostId?: string): Promise<HostNotificationDto[]> {
     return this.listingsService.getHostNotifications(hostId);
+  }
+
+  @Patch(':id/cancellation-policy')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Asociar una política de cancelación del catálogo a mi publicación · HU-039 (CA1)',
+    description:
+      'Permite al anfitrión asociar una política del catálogo (ej. Flexible) a su publicación (RF-058, RN-016).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
+  @ApiResponse({ status: 200, description: 'Política de cancelación asociada', type: CancellationPolicyDto })
+  @ApiResponse({ status: 400, description: 'Política de cancelación inválida' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ANFITRION)' })
+  @ApiResponse({ status: 404, description: 'La publicación no existe o pertenece a otro anfitrión (RN-005)' })
+  updateCancellationPolicy(
+    @Param('id') id: string,
+    @Body() dto: UpdateCancellationPolicyDto,
+    @CurrentUser() user?: ActiveSession,
+  ): CancellationPolicyDto {
+    return this.listingsService.updateCancellationPolicy(id, dto, user);
   }
 
   @Get(':id/pricing')
