@@ -1757,6 +1757,66 @@
         ]
       }
     },
+    "/api/bookings/{id}/cancel": {
+      "patch": {
+        "operationId": "BookingsController_cancelBooking",
+        "summary": "Cancelar mi reserva · HU-040 (CA1, CA2, CA3)",
+        "description": "El huésped cancela su reserva CONFIRMADA antes de la llegada (15:00 del día de llegada, hora de Colombia) indicando un motivo (RF-053). La reserva pasa a CANCELADA, sus noches vuelven a estar disponibles (RF-055, RN-029) y se registra usuario, fecha y hora, motivo, devolución simulada según la política de la publicación (sobre el total menos la tarifa de servicio) y estado final (RF-056, RN-017), con un evento de auditoría (RN-021).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la reserva",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelBookingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reserva CANCELADA con su registro de cancelación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "La llegada ya pasó (LLEGADA_PASADA, CA2), la reserva no está CONFIRMADA (ESTADO_NO_CANCELABLE) o falta el motivo"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "La reserva es de otro huésped"
+          },
+          "404": {
+            "description": "Reserva no encontrada"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/bookings/{id}": {
       "get": {
         "operationId": "BookingsController_findOne",
@@ -4026,6 +4086,77 @@
           "message"
         ]
       },
+      "BookingCancellationDto": {
+        "type": "object",
+        "properties": {
+          "cancelledBy": {
+            "type": "string",
+            "example": "huesped@stayhub.com",
+            "description": "Usuario que canceló"
+          },
+          "cancelledAt": {
+            "type": "string",
+            "example": "2026-11-05T14:30:00.000Z",
+            "description": "Fecha y hora de la cancelación"
+          },
+          "reason": {
+            "type": "string",
+            "example": "Cambio imprevisto de itinerario"
+          },
+          "policy": {
+            "type": "string",
+            "example": "FLEXIBLE",
+            "description": "Política de cancelación aplicada (HU-039)"
+          },
+          "refundPercentage": {
+            "type": "number",
+            "example": 100,
+            "description": "Porcentaje de devolución según la anticipación a la llegada"
+          },
+          "refundableAmount": {
+            "type": "number",
+            "example": 1100000,
+            "description": "Valor reembolsable: total menos la tarifa de servicio"
+          },
+          "refundAmount": {
+            "type": "number",
+            "example": 1100000,
+            "description": "Valor de la devolución simulada, sin movimiento de dinero real (RN-030)"
+          },
+          "currency": {
+            "type": "string",
+            "example": "COP"
+          },
+          "finalStatus": {
+            "type": "string",
+            "example": "CANCELADA",
+            "description": "Estado final de la reserva"
+          },
+          "releasedNights": {
+            "example": [
+              "2026-11-20",
+              "2026-11-21"
+            ],
+            "description": "Noches que volvieron a estar disponibles (RF-055)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "cancelledBy",
+          "cancelledAt",
+          "reason",
+          "policy",
+          "refundPercentage",
+          "refundableAmount",
+          "refundAmount",
+          "currency",
+          "finalStatus",
+          "releasedNights"
+        ]
+      },
       "PaymentResponseDto": {
         "type": "object",
         "properties": {
@@ -4184,6 +4315,34 @@
             "format": "date-time",
             "type": "string",
             "example": "2026-10-05T09:50:00.000Z"
+          },
+          "cancellation": {
+            "description": "Registro de la cancelación, presente cuando la reserva está CANCELADA (HU-040)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BookingCancellationDto"
+              }
+            ]
+          },
+          "listingTitle": {
+            "type": "string",
+            "example": "Apartamento en Chapinero Alto",
+            "description": "Título de la publicación (solo en Mis reservas)"
+          },
+          "listingCity": {
+            "type": "string",
+            "example": "Bogotá",
+            "description": "Ciudad de la publicación (solo en Mis reservas)"
+          },
+          "listingImage": {
+            "type": "string",
+            "example": "https://images.unsplash.com/photo-1",
+            "description": "Primera imagen de la publicación (solo en Mis reservas)"
+          },
+          "cancellationPolicyName": {
+            "type": "string",
+            "example": "Flexible",
+            "description": "Política de cancelación de la publicación (solo en Mis reservas)"
           },
           "payment": {
             "description": "Último pago procesado para la reserva (HU-037)",
@@ -4381,6 +4540,21 @@
         "required": [
           "booking",
           "payment"
+        ]
+      },
+      "CancelBookingDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "Cambio imprevisto de itinerario",
+            "description": "Motivo de la cancelación",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "ServiceFeeResponseDto": {

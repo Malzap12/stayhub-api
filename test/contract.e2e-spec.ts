@@ -1417,4 +1417,115 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(await res.json()).toMatchObject({ reason: 'CLAVE_IDEMPOTENCIA_REUTILIZADA' });
     });
   });
+  describe('HU-040 · Cancelar mi reserva (CA1, CA3, RF-053, RF-055, RF-056)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const registerAndLogin = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, { method: 'POST', headers: json, body: JSON.stringify({ name: email, email, password: 'Password123', role }) });
+      return login(email, 'Password123');
+    };
+    const card = { cardNumber: '4242424242424242', cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' };
+    let listing40: string;
+    let guestToken: string;
+    let booking40: { id: string; totalAmount: number; serviceFee: number };
+
+    beforeAll(async () => {
+      const host = await registerAndLogin('anfitrion.hu040@stayhub.com', 'ANFITRION');
+      const created = await (
+        await fetch(`${baseUrl}/listings`, {
+          method: 'POST',
+          headers: auth(host),
+          body: JSON.stringify({
+            title: 'Cabaña para cancelar',
+            description: 'HU-040',
+            city: 'Guatapé',
+            department: 'Antioquia',
+            address: 'Vereda El Roble',
+            propertyType: 'CABANA',
+            maxGuests: 4,
+            pricePerNight: 300000,
+            amenities: ['WIFI'],
+            rules: ['No fumar'],
+            images: ['https://storage.stayhub.com/cabana-40.jpg'],
+          }),
+        })
+      ).json();
+      listing40 = created.id;
+      await fetch(`${baseUrl}/listings/${listing40}/availability-periods`, {
+        method: 'POST',
+        headers: auth(host),
+        body: JSON.stringify({ startDate: day(1), endDate: day(90) }),
+      });
+      await fetch(`${baseUrl}/listings/${listing40}/request-activation`, { method: 'PATCH', headers: auth(host) });
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      await fetch(`${baseUrl}/listings/${listing40}/approve`, { method: 'PATCH', headers: auth(admin) });
+
+      guestToken = await registerAndLogin('huesped.hu040@stayhub.com', 'HUESPED');
+      const res = await fetch(`${baseUrl}/bookings/instant`, {
+        method: 'POST',
+        headers: auth(guestToken),
+        body: JSON.stringify({ listingId: listing40, checkIn: day(20), checkOut: day(23), guests: 2, idempotencyKey: '40000000-0000-4000-8000-0000000000e1', card }),
+      });
+      booking40 = await res.json();
+    });
+
+    const cancel = (token: string, body: object) =>
+      fetch(`${baseUrl}/bookings/${booking40.id}/cancel`, { method: 'PATCH', headers: auth(token), body: JSON.stringify(body) });
+
+    it('21.1 Mis reservas lista la reserva CONFIRMADA del huésped con su publicación', async () => {
+      const mine = await (await fetch(`${baseUrl}/bookings/my`, { headers: auth(guestToken) })).json();
+      expect(mine).toEqual([
+        expect.objectContaining({ id: booking40.id, status: 'CONFIRMADA', listingTitle: 'Cabaña para cancelar', cancellationPolicyName: 'Flexible' }),
+      ]);
+    });
+
+    it('21.2 otro huésped no la cancela y sin motivo se rechaza', async () => {
+      const other = await registerAndLogin('otro.hu040@stayhub.com', 'HUESPED');
+      expect((await cancel(other, { reason: 'No es mía' })).status).toBe(403);
+      expect((await cancel(guestToken, { reason: '   ' })).status).toBe(400);
+    });
+
+    it('21.3 (CA1, CA3) la reserva pasa a CANCELADA, registra la cancelación y el periodo vuelve a estar disponible', async () => {
+      const res = await cancel(guestToken, { reason: 'Cambio imprevisto de itinerario' });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.status).toBe('CANCELADA');
+      expect(body.cancellation).toMatchObject({
+        cancelledBy: 'huesped.hu040@stayhub.com',
+        reason: 'Cambio imprevisto de itinerario',
+        policy: 'FLEXIBLE',
+        refundPercentage: 100,
+        refundAmount: booking40.totalAmount - booking40.serviceFee,
+        finalStatus: 'CANCELADA',
+        releasedNights: [day(20), day(21), day(22)],
+      });
+      expect(Number.isNaN(Date.parse(body.cancellation.cancelledAt))).toBe(false);
+
+      const quote = await fetch(`${baseUrl}/bookings/quote`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ listingId: listing40, checkIn: day(20), checkOut: day(23), guests: 2 }),
+      });
+      expect(quote.status).toBe(200);
+    });
+
+    it('21.4 (CA3) la cancelación queda en la auditoría y no se puede repetir', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      const events = await (await fetch(`${baseUrl}/audit/events?action=BOOKING_CANCELLATION`, { headers: auth(admin) })).json();
+      const items = Array.isArray(events) ? events : events.data;
+      expect(items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ entityId: booking40.id, result: 'EXITOSO', actor: 'huesped.hu040@stayhub.com' }),
+        ]),
+      );
+      const again = await cancel(guestToken, { reason: 'Otra vez' });
+      expect(again.status).toBe(400);
+      expect(await again.json()).toMatchObject({ reason: 'ESTADO_NO_CANCELABLE' });
+    });
+  });
 });

@@ -3,6 +3,39 @@ import { BookingStatus } from '../../../common/enums/booking-status.enum';
 import { PaymentResponseDto } from '../../payments/dto/payment.dto';
 import { QuoteResponseDto } from './quote-booking.dto';
 
+/** HU-040 · Registro de la cancelación (CA3 · RF-056, RN-017). */
+export class BookingCancellationDto {
+  @ApiProperty({ example: 'huesped@stayhub.com', description: 'Usuario que canceló' })
+  cancelledBy: string;
+
+  @ApiProperty({ example: '2026-11-05T14:30:00.000Z', description: 'Fecha y hora de la cancelación' })
+  cancelledAt: string;
+
+  @ApiProperty({ example: 'Cambio imprevisto de itinerario' })
+  reason: string;
+
+  @ApiProperty({ example: 'FLEXIBLE', description: 'Política de cancelación aplicada (HU-039)' })
+  policy: string;
+
+  @ApiProperty({ example: 100, description: 'Porcentaje de devolución según la anticipación a la llegada' })
+  refundPercentage: number;
+
+  @ApiProperty({ example: 1100000, description: 'Valor reembolsable: total menos la tarifa de servicio' })
+  refundableAmount: number;
+
+  @ApiProperty({ example: 1100000, description: 'Valor de la devolución simulada, sin movimiento de dinero real (RN-030)' })
+  refundAmount: number;
+
+  @ApiProperty({ example: 'COP' })
+  currency: string;
+
+  @ApiProperty({ example: 'CANCELADA', description: 'Estado final de la reserva' })
+  finalStatus: string;
+
+  @ApiProperty({ example: ['2026-11-20', '2026-11-21'], description: 'Noches que volvieron a estar disponibles (RF-055)' })
+  releasedNights: string[];
+}
+
 export class BookingResponseDto {
   @ApiProperty({ example: 'uuid-reserva-789', description: 'ID único de la reserva' })
   id: string;
@@ -45,6 +78,21 @@ export class BookingResponseDto {
 
   @ApiProperty({ example: '2026-10-05T09:50:00.000Z' })
   createdAt: Date;
+
+  @ApiPropertyOptional({ type: BookingCancellationDto, description: 'Registro de la cancelación, presente cuando la reserva está CANCELADA (HU-040)' })
+  cancellation?: BookingCancellationDto;
+
+  @ApiPropertyOptional({ example: 'Apartamento en Chapinero Alto', description: 'Título de la publicación (solo en Mis reservas)' })
+  listingTitle?: string;
+
+  @ApiPropertyOptional({ example: 'Bogotá', description: 'Ciudad de la publicación (solo en Mis reservas)' })
+  listingCity?: string;
+
+  @ApiPropertyOptional({ example: 'https://images.unsplash.com/photo-1', description: 'Primera imagen de la publicación (solo en Mis reservas)' })
+  listingImage?: string;
+
+  @ApiPropertyOptional({ example: 'Flexible', description: 'Política de cancelación de la publicación (solo en Mis reservas)' })
+  cancellationPolicyName?: string;
 
   @ApiPropertyOptional({ type: () => PaymentResponseDto, description: 'Último pago procesado para la reserva (HU-037)' })
   payment?: PaymentResponseDto;

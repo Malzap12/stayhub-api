@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   OnModuleInit,
@@ -9,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
+import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { BookingPaymentResultDto, BookingResponseDto } from './dto/booking-response.dto';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
 import { AuditService } from '../audit/audit.service';
@@ -22,6 +24,14 @@ import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { PaymentsService } from '../payments/payments.service';
 import { PaymentCardDto } from '../payments/dto/payment.dto';
 import { PaymentStatus } from '../../common/enums/payment-status.enum';
+
+/**
+ * HU-040 · Momento de la llegada: el día de llegada a la hora de check-in (15:00, como en el ejemplo de la
+ * política de HU-039), en hora de Colombia (UTC−5, sin horario de verano).
+ */
+export const CHECK_IN_TIME_BOGOTA = 'T15:00:00-05:00';
+
+export const arrivalInstant = (checkIn: string): number => Date.parse(`${String(checkIn).slice(0, 10)}${CHECK_IN_TIME_BOGOTA}`);
 
 @Injectable()
 export class BookingsService implements OnModuleInit {
@@ -463,8 +473,114 @@ export class BookingsService implements OnModuleInit {
     }
   }
 
-  async findMyBookings(): Promise<BookingResponseDto[]> {
-    return this.bookingsStore;
+  /**
+   * HU-040 · Cancelar mi reserva (CA1, CA2, CA3 · RF-053, RF-055, RF-056 · RN-017, RN-021, RN-029).
+   * Solo el huésped de la reserva la cancela, solo si está CONFIRMADA y antes de la llegada. La reserva pasa a
+   * CANCELADA, sus noches vuelven a estar disponibles y se registra quién, cuándo, el motivo, la devolución
+   * simulada según la política de la publicación (HU-039, sobre el total menos la tarifa de servicio) y el
+   * estado final, con su evento de auditoría. Se procesa en el turno del alojamiento, como pagos y confirmaciones.
+   */
+  async cancelBooking(id: string, dto: CancelBookingDto, actor?: string): Promise<BookingResponseDto> {
+    const booking = this.findBookingOrFail(id);
+    return this.withListingLock(booking.listingId, async () => {
+      const reason = String(dto?.reason ?? '').trim();
+      if (booking.guestId !== actor) {
+        this.recordCancellationFailure(booking, actor, 'solo el huésped de la reserva puede cancelarla');
+        throw new ForbiddenException('Solo el huésped que hizo la reserva puede cancelarla');
+      }
+      if (booking.status !== BookingStatus.CONFIRMADA) {
+        this.recordCancellationFailure(booking, actor, `la reserva está ${booking.status}`);
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          reason: 'ESTADO_NO_CANCELABLE',
+          message: `Solo se pueden cancelar reservas confirmadas (estado actual: ${booking.status})`,
+        });
+      }
+
+      const now = Date.now();
+      const arrival = arrivalInstant(booking.checkIn);
+      if (now >= arrival) {
+        this.recordCancellationFailure(booking, actor, `la llegada (${booking.checkIn}) ya pasó`);
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          reason: 'LLEGADA_PASADA',
+          message: `La fecha de llegada (${booking.checkIn}) ya pasó; la reserva no se puede cancelar`,
+        });
+      }
+
+      const policy = this.listingsService?.getCancellationPolicyOf(booking.listingId);
+      const hoursBeforeArrival = (arrival - now) / 3_600_000;
+      const rule = [...(policy?.rules ?? [])]
+        .sort((a, b) => b.minHoursBeforeCheckIn - a.minHoursBeforeCheckIn)
+        .find((item) => hoursBeforeArrival >= item.minHoursBeforeCheckIn);
+      const round = (value: number) => Math.round(value * 100) / 100;
+      const refundableAmount = round(Math.max(0, booking.totalAmount - (booking.serviceFee ?? 0)));
+      const refundPercentage = rule?.refundPercentage ?? 0;
+      const refundAmount = round((refundableAmount * refundPercentage) / 100);
+
+      const releasedNights = this.listingsService?.releaseReservedPeriod(booking.listingId, booking.id, actor) ?? [];
+      const policyCode = policy?.code ?? 'SIN_POLITICA';
+      booking.status = BookingStatus.CANCELADA;
+      booking.cancellation = {
+        cancelledBy: actor,
+        cancelledAt: new Date(now).toISOString(),
+        reason,
+        policy: policyCode,
+        refundPercentage,
+        refundableAmount,
+        refundAmount,
+        currency: booking.currency,
+        finalStatus: BookingStatus.CANCELADA,
+        releasedNights,
+      };
+
+      this.auditService.record({
+        actor,
+        action: AuditAction.BOOKING_CANCELLATION,
+        entity: 'Booking',
+        entityId: booking.id,
+        result: AuditResult.EXITOSO,
+        detail:
+          `Reserva cancelada por ${actor}. Motivo: ${reason}. Devolución simulada ${refundAmount} ${booking.currency} ` +
+          `(${refundPercentage} % de ${refundableAmount}, política ${policyCode}). Estado final: CANCELADA. ` +
+          `Noches liberadas: ${releasedNights.join(', ') || 'ninguna'}`,
+      });
+      return booking;
+    });
+  }
+
+  private recordCancellationFailure(booking: BookingResponseDto, actor: string | undefined, detail: string): void {
+    this.auditService.record({
+      actor,
+      action: AuditAction.BOOKING_CANCELLATION,
+      entity: 'Booking',
+      entityId: booking.id,
+      result: AuditResult.FALLIDO,
+      detail: `Cancelación rechazada: ${detail}`,
+    });
+  }
+
+  /**
+   * HU-003 · Reservas del usuario de la sesión. HU-040: cada una incluye el título, la ciudad, la imagen y la
+   * política de cancelación de su publicación para mostrarlas en "Mis reservas".
+   */
+  async findMyBookings(actor?: string): Promise<BookingResponseDto[]> {
+    const mine = actor === undefined ? this.bookingsStore : this.bookingsStore.filter((booking) => booking.guestId === actor);
+    return mine.map((booking) => {
+      const listing = this.listingsService?.getListing(booking.listingId);
+      if (!listing) {
+        return booking;
+      }
+      return {
+        ...booking,
+        listingTitle: listing.title,
+        listingCity: listing.city,
+        listingImage: listing.images?.[0],
+        cancellationPolicyName: this.listingsService?.getCancellationPolicyOf(booking.listingId).name,
+      };
+    });
   }
 
   async findOne(id: string): Promise<BookingResponseDto> {
