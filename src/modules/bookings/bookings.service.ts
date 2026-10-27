@@ -41,6 +41,12 @@ export interface RefundCalculationResult {
   appliedRule: string;
 }
 
+export interface FindMyBookingsOptions {
+  status?: BookingStatus;
+  page?: number;
+  limit?: number;
+}
+
 /**
  * HU-041 · Calcular la devolución según la política (CA1, CA2, CA3 · RF-054, RN-016, RN-030, RNF-024, AMB-10).
  * Base reembolsable sin tarifa de servicio (totalAmount − serviceFee). Aplica la regla de la política según la
@@ -607,12 +613,28 @@ export class BookingsService implements OnModuleInit {
   }
 
   /**
-   * HU-003 · Reservas del usuario de la sesión. HU-040: cada una incluye el título, la ciudad, la imagen y la
-   * política de cancelación de su publicación para mostrarlas en "Mis reservas".
+   * HU-003 · HU-034 (CA1, CA2 · RF-048, RNF-022):
+   * Reservas del usuario de la sesión ordenadas por fecha de llegada (checkIn).
+   * Soporta filtro por estado (status) y paginación (page, limit).
+   * HU-040: cada una incluye el título, la ciudad, la imagen y la política de cancelación de su publicación.
    */
-  async findMyBookings(actor?: string): Promise<BookingResponseDto[]> {
-    const mine = actor === undefined ? this.bookingsStore : this.bookingsStore.filter((booking) => booking.guestId === actor);
-    return mine.map((booking) => this.withListingInfo(booking));
+  async findMyBookings(actor?: string, options?: FindMyBookingsOptions): Promise<BookingResponseDto[]> {
+    let mine = actor === undefined ? this.bookingsStore : this.bookingsStore.filter((booking) => booking.guestId === actor);
+    if (options?.status) {
+      mine = mine.filter((booking) => booking.status === options.status);
+    }
+    const sorted = mine
+      .map((booking) => this.withListingInfo(booking))
+      .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
+
+    if (options?.page && options?.limit) {
+      const page = Math.max(1, options.page);
+      const limit = Math.max(1, options.limit);
+      const start = (page - 1) * limit;
+      return sorted.slice(start, start + limit);
+    }
+
+    return sorted;
   }
 
   /** HU-033 CA1: agrega a la reserva el alojamiento y su política de cancelación, sin modificar la guardada. */
