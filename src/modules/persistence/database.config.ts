@@ -2,6 +2,7 @@ import { DataSource, DataSourceOptions } from 'typeorm';
 import { types } from 'pg';
 import { CrearEsquemaStayhub1729640000000 } from '../../migrations/1729640000000-crear-esquema-stayhub';
 import { ConfiguracionPlataforma1729640001000 } from '../../migrations/1729640001000-configuracion-plataforma';
+import { Notificaciones1729640002000 } from '../../migrations/1729640002000-notificaciones';
 
 // Parser para DATE (OID 1082) -> string 'AAAA-MM-DD'
 types.setTypeParser(1082, (val: string) => val);
@@ -45,7 +46,7 @@ export function createDataSourceOptions(customSchema?: string): DataSourceOption
     ssl,
     synchronize: false,
     migrationsTableName: 'migraciones',
-    migrations: [CrearEsquemaStayhub1729640000000, ConfiguracionPlataforma1729640001000],
+    migrations: [CrearEsquemaStayhub1729640000000, ConfiguracionPlataforma1729640001000, Notificaciones1729640002000],
   };
 }
 

@@ -12,6 +12,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { MailModule } from './modules/mail/mail.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { PersistenceModule } from './modules/persistence/persistence.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { RolesGuard } from './common/guards/roles.guard';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { StructuredLoggingInterceptor } from './common/interceptors/structured-logging.interceptor';
@@ -21,6 +22,7 @@ import { GlobalExceptionsFilter } from './common/filters/global-exceptions.filte
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     PersistenceModule,
+    NotificationsModule,
     AuthModule,
     UsersModule,
     ListingsModule,
