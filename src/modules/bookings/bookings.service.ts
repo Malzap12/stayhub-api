@@ -568,39 +568,45 @@ export class BookingsService implements OnModuleInit {
    */
   async findMyBookings(actor?: string): Promise<BookingResponseDto[]> {
     const mine = actor === undefined ? this.bookingsStore : this.bookingsStore.filter((booking) => booking.guestId === actor);
-    return mine.map((booking) => {
-      const listing = this.listingsService?.getListing(booking.listingId);
-      if (!listing) {
-        return booking;
-      }
-      return {
-        ...booking,
-        listingTitle: listing.title,
-        listingCity: listing.city,
-        listingImage: listing.images?.[0],
-        cancellationPolicyName: this.listingsService?.getCancellationPolicyOf(booking.listingId).name,
-      };
-    });
+    return mine.map((booking) => this.withListingInfo(booking));
   }
 
-  async findOne(id: string): Promise<BookingResponseDto> {
-    const existing = this.bookingsStore.find((item) => item.id === id);
-    if (existing) {
-      return existing;
+  /** HU-033 CA1: agrega a la reserva el alojamiento y su política de cancelación, sin modificar la guardada. */
+  private withListingInfo(booking: BookingResponseDto): BookingResponseDto {
+    const listing = this.listingsService?.getListing(booking.listingId);
+    if (!listing) {
+      return booking;
     }
+    const policy = this.listingsService?.getCancellationPolicyOf(booking.listingId);
     return {
-      id,
-      listingId: 'mock-listing-uuid-1',
-      guestId: 'mock-guest-uuid',
-      checkIn: '2026-11-01',
-      checkOut: '2026-11-06',
-      guests: 2,
-      serviceFee: 55.50,
-      totalAmount: 518.00,
-      currency: 'USD',
-      status: BookingStatus.CONFIRMADA,
-      idempotencyKey: 'sample-idempotency-key',
-      createdAt: new Date(),
+      ...booking,
+      listingTitle: listing.title,
+      listingCity: listing.city,
+      listingImage: listing.images?.[0],
+      cancellationPolicyName: policy?.name,
+      cancellationPolicyDescription: policy?.description,
     };
+  }
+
+  /**
+   * HU-033 · Consultar el estado de mis reservas (CA1, CA2 · RF-047).
+   * Devuelve el detalle de la reserva (alojamiento, fechas, huéspedes, desglose, política de cancelación y
+   * estado). Solo lo consulta el huésped de la reserva o un administrador; otro usuario recibe 403 y el intento
+   * queda en la auditoría. Sin sesión (uso interno) no se verifica el dueño.
+   */
+  async findOne(id: string, requester?: { email: string; role: string }): Promise<BookingResponseDto> {
+    const booking = this.findBookingOrFail(id);
+    if (requester && requester.role !== 'ADMINISTRADOR' && booking.guestId !== requester.email) {
+      this.auditService.record({
+        actor: requester.email,
+        action: AuditAction.BOOKING_STATUS_CHANGE,
+        entity: 'Booking',
+        entityId: booking.id,
+        result: AuditResult.FALLIDO,
+        detail: 'Consulta rechazada: la reserva es de otro huésped',
+      });
+      throw new ForbiddenException('Esta reserva es de otro huésped; solo puedes consultar tus reservas');
+    }
+    return this.withListingInfo(booking);
   }
 }
