@@ -1520,8 +1520,8 @@
     "/api/bookings/instant": {
       "post": {
         "operationId": "BookingsController_createInstant",
-        "summary": "Crear reserva inmediata",
-        "description": "Crea una reserva garantizando idempotencia (idempotencyKey) para evitar cobros y reservas duplicadas.",
+        "summary": "Crear reserva inmediata · HU-030 · HU-032 (CA1, CA2)",
+        "description": "Crea una reserva garantizando idempotencia (idempotencyKey) para evitar cobros y reservas duplicadas (RF-044, RN-018): reenviar la misma clave por un reintento o un doble clic devuelve la reserva original sin crear otra ni repetir el cobro simulado, aunque la primera solicitud siga en proceso. Una clave nueva crea una reserva nueva.",
         "parameters": [],
         "requestBody": {
           "required": true,
@@ -1551,7 +1551,7 @@
             "description": "No autenticado (CA1)"
           },
           "409": {
-            "description": "Conflicto de reserva o clave de idempotencia duplicada"
+            "description": "HU-032: la clave ya la usó otro usuario (CLAVE_IDEMPOTENCIA_EN_USO) o se usó para otra estancia (CLAVE_IDEMPOTENCIA_REUTILIZADA)"
           }
         },
         "tags": [
