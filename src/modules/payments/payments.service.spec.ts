@@ -68,6 +68,23 @@ describe('HU-037 · Proveedor de pagos en modo de pruebas (CA1, CA2, CA3, RF-051
     });
   });
 
+  describe('HU-031 · revertir un pago aprobado (RNF-009)', () => {
+    it('conserva la referencia y el monto y deja el pago REVERTIDO', () => {
+      const service = new PaymentsService();
+      const payment = service.charge({ bookingId: 'booking-31', amount: 500000, currency: 'COP', card: card('4242424242424242') });
+
+      const reverted = service.revert(payment);
+
+      expect(reverted).toMatchObject({
+        reference: payment.reference,
+        amount: 500000,
+        status: PaymentStatus.REVERTIDO,
+        message: 'Pago revertido: la reserva no se pudo confirmar',
+      });
+      expect(payment.status).toBe(PaymentStatus.APROBADO);
+    });
+  });
+
   describe('CA2 · tarjeta de prueba rechazada', () => {
     it.each([
       ['4000000000000002', 'TARJETA_RECHAZADA'],

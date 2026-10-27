@@ -50,6 +50,9 @@ export class BookingsService implements OnModuleInit {
     @Optional() private readonly paymentsService?: PaymentsService,
   ) {}
 
+  /** HU-031 · Cola de pagos y confirmaciones por alojamiento: se procesan de a una (CA2, RN-011, RNF-010). */
+  private readonly listingLocks = new Map<string, Promise<unknown>>();
+
   onModuleInit(): void {
     this.persistence?.register('bookings', {
       dump: () => this.bookingsStore,
@@ -246,13 +249,22 @@ export class BookingsService implements OnModuleInit {
   /**
    * HU-023 · Al registrar la confirmación de una reserva, bloquea automáticamente
    * las noches del intervalo [checkIn, checkOut) (AMB-09) en el alojamiento (CA1, CA2, CA3).
+   * HU-031 · Antes de confirmar verifica de nuevo la disponibilidad (CA1, RF-042, RN-012) y, como el pago,
+   * espera su turno en la cola del alojamiento (CA2). Confirmar una reserva ya CONFIRMADA la devuelve igual.
    */
   async confirmBooking(id: string, actor?: string): Promise<BookingResponseDto> {
-    const booking = this.bookingsStore.find((item) => item.id === id);
-    if (!booking) {
-      throw new NotFoundException(`Reserva con id ${id} no encontrada`);
-    }
+    const booking = this.findBookingOrFail(id);
+    return this.withListingLock(booking.listingId, async () => {
+      if (booking.status === BookingStatus.CONFIRMADA) {
+        return booking;
+      }
+      this.ensureConfirmable(booking);
+      this.ensureStillAvailable(booking, actor);
+      return this.confirmWithinLock(booking, actor);
+    });
+  }
 
+  private confirmWithinLock(booking: BookingResponseDto, actor?: string): BookingResponseDto {
     this.listingsService?.blockReservedPeriod(
       booking.listingId,
       {
@@ -281,56 +293,117 @@ export class BookingsService implements OnModuleInit {
    * HU-037 · Pagar la reserva en modo de pruebas (CA1, CA2, CA3 · RF-051, RF-052, RN-022).
    * El pago ocurre dentro de la confirmación: si el proveedor lo aprueba, la reserva queda CONFIRMADA y se
    * bloquean sus noches (HU-023); si lo rechaza, la reserva sigue PENDIENTE y las fechas no se bloquean.
+   *
+   * HU-031 · Verificar la disponibilidad al confirmar (CA1, CA2 · RF-042, RF-043, RN-011, RN-012, RNF-009, RNF-010).
+   * La verificación, el cobro y el bloqueo de noches ocurren en el turno del alojamiento, sin intercalarse con
+   * otro pago o confirmación: si otra reserva tomó el periodo, se rechaza sin cobrar; con solicitudes
+   * simultáneas sobre el mismo periodo, como máximo una queda CONFIRMADA. Si el bloqueo falla después de un
+   * pago aprobado, el pago se revierte y la reserva sigue PENDIENTE (atomicidad).
    */
   async payBooking(id: string, card: PaymentCardDto, actor?: string): Promise<BookingPaymentResultDto> {
+    const booking = this.findBookingOrFail(id);
+    return this.withListingLock(booking.listingId, async () => {
+      if (booking.status === BookingStatus.CONFIRMADA) {
+        throw new ConflictException('La reserva ya está confirmada y pagada');
+      }
+      if (booking.status !== BookingStatus.PENDIENTE) {
+        throw new BadRequestException(`Solo se pueden pagar reservas pendientes (estado actual: ${booking.status})`);
+      }
+      if (!this.paymentsService) {
+        throw new ServiceUnavailableException('El proveedor de pagos no está disponible');
+      }
+
+      // Se verifica la disponibilidad antes de cobrar para no aprobar un pago de una reserva que no se puede confirmar.
+      this.ensureStillAvailable(booking, actor);
+
+      const payment = await this.paymentsService.charge({
+        bookingId: booking.id,
+        amount: booking.totalAmount,
+        currency: booking.currency,
+        card,
+      });
+      booking.payment = payment;
+
+      if (payment.status === PaymentStatus.APROBADO) {
+        try {
+          this.confirmWithinLock(booking, actor);
+        } catch (error) {
+          booking.payment = this.paymentsService.revert(payment);
+          this.recordConfirmationFailure(
+            booking,
+            actor,
+            `el pago ${payment.reference} se revirtió porque no se pudieron bloquear las noches`,
+          );
+          throw error;
+        }
+      } else {
+        this.auditService.record({
+          actor,
+          action: AuditAction.BOOKING_STATUS_CHANGE,
+          entity: 'Booking',
+          entityId: booking.id,
+          result: AuditResult.FALLIDO,
+          detail: `Pago ${payment.reference} rechazado (${payment.declineReason}); la reserva sigue ${booking.status} y las fechas no se bloquean`,
+        });
+      }
+
+      return { booking, payment: booking.payment };
+    });
+  }
+
+  private findBookingOrFail(id: string): BookingResponseDto {
     const booking = this.bookingsStore.find((item) => item.id === id);
     if (!booking) {
       throw new NotFoundException(`Reserva con id ${id} no encontrada`);
     }
-    if (booking.status === BookingStatus.CONFIRMADA) {
-      throw new ConflictException('La reserva ya está confirmada y pagada');
-    }
+    return booking;
+  }
+
+  private ensureConfirmable(booking: BookingResponseDto): void {
     if (booking.status !== BookingStatus.PENDIENTE) {
-      throw new BadRequestException(`Solo se pueden pagar reservas pendientes (estado actual: ${booking.status})`);
+      throw new BadRequestException(`Solo se pueden confirmar reservas pendientes (estado actual: ${booking.status})`);
     }
-    if (!this.paymentsService) {
-      throw new ServiceUnavailableException('El proveedor de pagos no está disponible');
-    }
+  }
 
-    // Se verifica la disponibilidad antes de cobrar para no aprobar un pago de una reserva que no se puede confirmar.
+  /** HU-031 CA1: si otra reserva o un bloqueo tomó alguna noche después de la cotización, rechaza sin cobrar. */
+  private ensureStillAvailable(booking: BookingResponseDto, actor?: string): void {
     const unavailableNights = this.listingsService?.unavailableNights(booking.listingId, booking.checkIn, booking.checkOut) ?? [];
-    if (unavailableNights.length > 0) {
-      throw new BadRequestException({
-        statusCode: 400,
-        error: 'Bad Request',
-        reason: 'PERIODO_NO_DISPONIBLE',
-        message: `El periodo del ${booking.checkIn} al ${booking.checkOut} ya no está disponible en esta publicación`,
-        unavailableNights,
-      });
+    if (unavailableNights.length === 0) {
+      return;
     }
-
-    const payment = this.paymentsService.charge({
-      bookingId: booking.id,
-      amount: booking.totalAmount,
-      currency: booking.currency,
-      card,
+    this.recordConfirmationFailure(booking, actor, `periodo no disponible (noches ${unavailableNights.join(', ')}); no se hizo el cobro`);
+    throw new BadRequestException({
+      statusCode: 400,
+      error: 'Bad Request',
+      reason: 'PERIODO_NO_DISPONIBLE',
+      message: `El periodo del ${booking.checkIn} al ${booking.checkOut} ya no está disponible en esta publicación`,
+      unavailableNights,
     });
-    booking.payment = payment;
+  }
 
-    if (payment.status === PaymentStatus.APROBADO) {
-      await this.confirmBooking(booking.id, actor);
-    } else {
-      this.auditService.record({
-        actor,
-        action: AuditAction.BOOKING_STATUS_CHANGE,
-        entity: 'Booking',
-        entityId: booking.id,
-        result: AuditResult.FALLIDO,
-        detail: `Pago ${payment.reference} rechazado (${payment.declineReason}); la reserva sigue ${booking.status} y las fechas no se bloquean`,
-      });
+  private recordConfirmationFailure(booking: BookingResponseDto, actor: string | undefined, detail: string): void {
+    this.auditService.record({
+      actor,
+      action: AuditAction.BOOKING_STATUS_CHANGE,
+      entity: 'Booking',
+      entityId: booking.id,
+      result: AuditResult.FALLIDO,
+      detail: `Confirmación rechazada: ${detail}`,
+    });
+  }
+
+  private async withListingLock<T>(listingId: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.listingLocks.get(listingId) ?? Promise.resolve();
+    const current = previous.then(task);
+    const tail = current.catch(() => undefined);
+    this.listingLocks.set(listingId, tail);
+    try {
+      return await current;
+    } finally {
+      if (this.listingLocks.get(listingId) === tail) {
+        this.listingLocks.delete(listingId);
+      }
     }
-
-    return { booking, payment };
   }
 
   async findMyBookings(): Promise<BookingResponseDto[]> {

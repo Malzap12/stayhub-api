@@ -102,10 +102,10 @@ describe('HU-029 · Configurar la tarifa de servicio (CA1, CA2, CA3, RF-040, RN-
       // 1. Configuramos tarifa inicial al 12%
       controller.updateServiceFee({ serviceFeePercent: 12 }, adminSession);
 
-      // 2. Creamos y confirmamos una reserva
+      // 2. Creamos y confirmamos una reserva (HU-031: la confirmación exige un periodo disponible; Chapinero lo tiene en diciembre)
       const booking = await bookingsService.createInstant(
         {
-          listingId: 'mock-listing-uuid-1',
+          listingId: 'demo-bogota-chapinero',
           checkIn: '2026-12-01',
           checkOut: '2026-12-05',
           guests: 2,
