@@ -1,7 +1,15 @@
-import { BadRequestException, Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+  Optional,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
-import { BookingResponseDto } from './dto/booking-response.dto';
+import { BookingPaymentResultDto, BookingResponseDto } from './dto/booking-response.dto';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
 import { AuditService } from '../audit/audit.service';
 import { StatePersistenceService } from '../persistence/state-persistence.service';
@@ -9,7 +17,11 @@ import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { ListingsService } from '../listings/listings.service';
 import { PlatformConfigService } from '../platform/platform-config.service';
 import { DEFAULT_SERVICE_FEE_PERCENT } from '../platform/dto/service-fee.dto';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { ListingStatus } from '../../common/enums/listing-status.enum';
+import { PaymentsService } from '../payments/payments.service';
+import { PaymentCardDto } from '../payments/dto/payment.dto';
+import { PaymentStatus } from '../../common/enums/payment-status.enum';
 
 @Injectable()
 export class BookingsService implements OnModuleInit {
@@ -35,6 +47,7 @@ export class BookingsService implements OnModuleInit {
     @Optional() private readonly listingsService?: ListingsService,
     @Optional() private readonly persistence?: StatePersistenceService,
     @Optional() private readonly platformConfigService?: PlatformConfigService,
+    @Optional() private readonly paymentsService?: PaymentsService,
   ) {}
 
   onModuleInit(): void {
@@ -147,17 +160,64 @@ export class BookingsService implements OnModuleInit {
     };
   }
 
+  /**
+   * HU-030 · Reservar de forma inmediata (CA1, CA2, CA3, CA4 · RF-041, RF-045, RF-046, RN-006, RN-015, RNF-008).
+   * Reserva inmediata para publicaciones activas. Si la publicación no está activa, rechaza la reserva (CA3).
+   * Conserva el desglose de precios y tarifas vigente al confirmar (CA2). Si se incluye tarjeta de prueba,
+   * procesa el pago y si se aprueba confirma la reserva con su código y desglose (CA1).
+   */
   async createInstant(bookingDto: CreateBookingDto, actor?: string): Promise<BookingResponseDto> {
+    const existing = this.bookingsStore.find((item) => item.idempotencyKey === bookingDto.idempotencyKey);
+    if (existing) {
+      return existing;
+    }
+
+    const listing = this.listingsService?.getListing(bookingDto.listingId);
+    if (listing && listing.status !== ListingStatus.ACTIVA) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        reason: 'PUBLICACION_NO_ACTIVA',
+        message: 'Solo se pueden reservar publicaciones activas',
+      });
+    }
+
+    let quoteData: QuoteResponseDto | undefined;
+    try {
+      quoteData = await this.quote({
+        listingId: bookingDto.listingId,
+        checkIn: bookingDto.checkIn,
+        checkOut: bookingDto.checkOut,
+        guests: bookingDto.guests,
+        additionalServices: bookingDto.additionalServices,
+      });
+    } catch (error) {
+      if (listing && error instanceof BadRequestException) { throw error; }
+    }
+
+    const bookingCode = `RES-${randomBytes(4).toString('hex').toUpperCase()}`;
     const booking: BookingResponseDto = {
       id: `booking-${randomUUID()}`,
+      code: bookingCode,
       listingId: bookingDto.listingId,
-      guestId: 'mock-guest-uuid',
+      guestId: actor ?? 'mock-guest-uuid',
       checkIn: bookingDto.checkIn,
       checkOut: bookingDto.checkOut,
       guests: bookingDto.guests,
-      serviceFee: 55.50,
-      totalAmount: 518.00,
-      currency: 'USD',
+      nights: quoteData?.nights,
+      nightlyRate: quoteData?.nightlyRate,
+      baseAmount: quoteData?.baseAmount,
+      discountPercentage: quoteData?.discountPercentage,
+      discount: quoteData?.discount,
+      cleaningFee: quoteData?.cleaningFee,
+      additionalServices: quoteData?.additionalServices,
+      additionalServicesTotal: quoteData?.additionalServicesTotal,
+      subtotal: quoteData?.subtotal,
+      serviceFeePercentage: quoteData?.serviceFeePercentage,
+      serviceFee: quoteData?.serviceFee ?? 55.50,
+      totalAmount: quoteData?.totalAmount ?? 518.00,
+      currency: quoteData?.currency ?? 'COP',
+      breakdown: quoteData,
       status: BookingStatus.PENDIENTE,
       idempotencyKey: bookingDto.idempotencyKey,
       specialRequests: bookingDto.specialRequests,
@@ -174,6 +234,11 @@ export class BookingsService implements OnModuleInit {
       result: AuditResult.EXITOSO,
       detail: `Reserva creada en estado ${booking.status}`,
     });
+
+    if (bookingDto.card) {
+      const payResult = await this.payBooking(booking.id, bookingDto.card, actor);
+      return payResult.booking;
+    }
 
     return booking;
   }
@@ -199,6 +264,7 @@ export class BookingsService implements OnModuleInit {
     );
 
     booking.status = BookingStatus.CONFIRMADA;
+    booking.code ||= `RES-${randomBytes(4).toString('hex').toUpperCase()}`;
     this.auditService.record({
       actor,
       action: AuditAction.BOOKING_STATUS_CHANGE,
@@ -209,6 +275,62 @@ export class BookingsService implements OnModuleInit {
     });
 
     return booking;
+  }
+
+  /**
+   * HU-037 · Pagar la reserva en modo de pruebas (CA1, CA2, CA3 · RF-051, RF-052, RN-022).
+   * El pago ocurre dentro de la confirmación: si el proveedor lo aprueba, la reserva queda CONFIRMADA y se
+   * bloquean sus noches (HU-023); si lo rechaza, la reserva sigue PENDIENTE y las fechas no se bloquean.
+   */
+  async payBooking(id: string, card: PaymentCardDto, actor?: string): Promise<BookingPaymentResultDto> {
+    const booking = this.bookingsStore.find((item) => item.id === id);
+    if (!booking) {
+      throw new NotFoundException(`Reserva con id ${id} no encontrada`);
+    }
+    if (booking.status === BookingStatus.CONFIRMADA) {
+      throw new ConflictException('La reserva ya está confirmada y pagada');
+    }
+    if (booking.status !== BookingStatus.PENDIENTE) {
+      throw new BadRequestException(`Solo se pueden pagar reservas pendientes (estado actual: ${booking.status})`);
+    }
+    if (!this.paymentsService) {
+      throw new ServiceUnavailableException('El proveedor de pagos no está disponible');
+    }
+
+    // Se verifica la disponibilidad antes de cobrar para no aprobar un pago de una reserva que no se puede confirmar.
+    const unavailableNights = this.listingsService?.unavailableNights(booking.listingId, booking.checkIn, booking.checkOut) ?? [];
+    if (unavailableNights.length > 0) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        reason: 'PERIODO_NO_DISPONIBLE',
+        message: `El periodo del ${booking.checkIn} al ${booking.checkOut} ya no está disponible en esta publicación`,
+        unavailableNights,
+      });
+    }
+
+    const payment = this.paymentsService.charge({
+      bookingId: booking.id,
+      amount: booking.totalAmount,
+      currency: booking.currency,
+      card,
+    });
+    booking.payment = payment;
+
+    if (payment.status === PaymentStatus.APROBADO) {
+      await this.confirmBooking(booking.id, actor);
+    } else {
+      this.auditService.record({
+        actor,
+        action: AuditAction.BOOKING_STATUS_CHANGE,
+        entity: 'Booking',
+        entityId: booking.id,
+        result: AuditResult.FALLIDO,
+        detail: `Pago ${payment.reference} rechazado (${payment.declineReason}); la reserva sigue ${booking.status} y las fechas no se bloquean`,
+      });
+    }
+
+    return { booking, payment };
   }
 
   async findMyBookings(): Promise<BookingResponseDto[]> {

@@ -3,7 +3,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@ne
 import { BookingsService } from './bookings.service';
 import { QuoteBookingDto, QuoteResponseDto, QuoteValidationErrorDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
-import { BookingResponseDto } from './dto/booking-response.dto';
+import { BookingPaymentResultDto, BookingResponseDto } from './dto/booking-response.dto';
+import { PaymentCardDto } from '../payments/dto/payment.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { ActiveSession } from '../auth/auth.service';
@@ -60,6 +61,30 @@ export class BookingsController {
     @CurrentUser() user?: ActiveSession,
   ): Promise<BookingResponseDto> {
     return this.bookingsService.createInstant(bookingDto, user?.email);
+  }
+
+  @Post(':id/pay')
+  @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Pagar la reserva con una tarjeta de prueba · HU-037 (CA1, CA2, CA3)',
+    description:
+      'Procesa el pago en el modo de pruebas del proveedor (nunca con claves de producción). Si se aprueba, el pago queda APROBADO con su referencia y la reserva se confirma bloqueando sus noches; si se rechaza, el pago queda RECHAZADO, la reserva sigue PENDIENTE y las fechas no se bloquean.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la reserva' })
+  @ApiResponse({ status: 200, description: 'Resultado del pago y estado de la reserva', type: BookingPaymentResultDto })
+  @ApiResponse({ status: 400, description: 'Tarjeta que no es de prueba (TARJETA_NO_DE_PRUEBA), periodo no disponible o reserva no pendiente' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 404, description: 'Reserva no encontrada' })
+  @ApiResponse({ status: 409, description: 'La reserva ya está confirmada y pagada' })
+  @ApiResponse({ status: 503, description: 'El proveedor no está en modo de pruebas o hay claves de producción configuradas (CA3)' })
+  payBooking(
+    @Param('id') id: string,
+    @Body() card: PaymentCardDto,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<BookingPaymentResultDto> {
+    return this.bookingsService.payBooking(id, card, user?.email);
   }
 
   @Patch(':id/confirm')
