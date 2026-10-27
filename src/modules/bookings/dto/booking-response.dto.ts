@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BookingStatus } from '../../../common/enums/booking-status.enum';
+import { PaymentResponseDto } from '../../payments/dto/payment.dto';
 
 export class BookingResponseDto {
   @ApiProperty({ example: 'uuid-reserva-789', description: 'ID único de la reserva' })
@@ -40,4 +41,15 @@ export class BookingResponseDto {
 
   @ApiProperty({ example: '2026-10-05T09:50:00.000Z' })
   createdAt: Date;
+
+  @ApiPropertyOptional({ type: () => PaymentResponseDto, description: 'Último pago procesado para la reserva (HU-037)' })
+  payment?: PaymentResponseDto;
+}
+
+export class BookingPaymentResultDto {
+  @ApiProperty({ type: () => BookingResponseDto, description: 'Reserva: CONFIRMADA si el pago se aprobó, PENDIENTE si se rechazó' })
+  booking: BookingResponseDto;
+
+  @ApiProperty({ type: () => PaymentResponseDto, description: 'Resultado del pago (APROBADO o RECHAZADO) con su referencia' })
+  payment: PaymentResponseDto;
 }
