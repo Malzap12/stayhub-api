@@ -1339,4 +1339,47 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await quote(base)).status).toBe(200);
     });
   });
+  describe('HU-031 · Verificar la disponibilidad al confirmar (CA1, CA2, RF-042, RF-043, RNF-010)', () => {
+    const card = { cardNumber: '4242424242424242', cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' };
+    const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` });
+    const reserve = async (checkIn: string, checkOut: string, idempotencyKey: string) => {
+      const res = await fetch(`${baseUrl}/bookings/instant`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({ listingId: 'demo-bogota-chapinero', checkIn, checkOut, guests: 2, idempotencyKey }),
+      });
+      expect(res.status).toBe(201);
+      return res.json();
+    };
+    const pay = (bookingId: string) =>
+      fetch(`${baseUrl}/bookings/${bookingId}/pay`, { method: 'POST', headers: headers(), body: JSON.stringify(card) });
+
+    it('19.1 (CA2) dos pagos simultáneos sobre el mismo periodo: como máximo una reserva queda CONFIRMADA', async () => {
+      const first = await reserve('2026-11-20', '2026-11-23', '31000000-0000-4000-8000-000000000001');
+      const second = await reserve('2026-11-21', '2026-11-24', '31000000-0000-4000-8000-000000000002');
+
+      const responses = await Promise.all([pay(first.id), pay(second.id)]);
+
+      expect(responses.map((res) => res.status).sort()).toEqual([200, 400]);
+      const confirmed = await Promise.all(
+        [first.id, second.id].map(async (id) => (await (await fetch(`${baseUrl}/bookings/${id}`, { headers: headers() })).json()).status),
+      );
+      expect(confirmed.filter((status) => status === 'CONFIRMADA')).toHaveLength(1);
+    });
+
+    it('19.2 (CA1) el periodo tomado después de la cotización se rechaza sin cobro', async () => {
+      const late = await reserve('2026-11-26', '2026-11-29', '31000000-0000-4000-8000-000000000003');
+      const other = await reserve('2026-11-27', '2026-11-30', '31000000-0000-4000-8000-000000000004');
+      expect((await pay(other.id)).status).toBe(200);
+
+      const res = await pay(late.id);
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body).toMatchObject({ reason: 'PERIODO_NO_DISPONIBLE', unavailableNights: ['2026-11-27', '2026-11-28'] });
+      const detail = await (await fetch(`${baseUrl}/bookings/${late.id}`, { headers: headers() })).json();
+      expect(detail.status).toBe('PENDIENTE');
+      expect(detail.payment).toBeUndefined();
+    });
+  });
 });
