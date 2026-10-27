@@ -13,6 +13,7 @@ import { Role } from '../../common/enums/role.enum';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { AuditEvent, AuditService } from '../audit/audit.service';
 import { StatePersistenceService } from '../persistence/state-persistence.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   LoginDto,
   LoginResponseDto,
@@ -55,6 +56,7 @@ export class AuthService implements OnModuleInit {
     private readonly auditService: AuditService,
     @Optional() private readonly configService?: ConfigService,
     @Optional() private readonly persistence?: StatePersistenceService,
+    @Optional() private readonly notificationsService?: NotificationsService,
   ) {}
 
   onModuleInit(): void {
@@ -196,6 +198,7 @@ export class AuthService implements OnModuleInit {
         result: AuditResult.EXITOSO,
         detail: `Cuenta restringida: ${reason}`,
       });
+      this.notificationsService?.accountRestricted(account, reason);
     }
   }
 
