@@ -1571,4 +1571,92 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await detail(authToken, 'no-existe')).status).toBe(404);
     });
   });
+  describe('HU-043 · Recibir notificaciones de los eventos (CA1, CA2, CA3, RF-059)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const registerAndLogin = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, { method: 'POST', headers: json, body: JSON.stringify({ name: email, email, password: 'Password123', role }) });
+      return login(email, 'Password123');
+    };
+    const notificationsOf = async (token: string) => (await fetch(`${baseUrl}/notifications`, { headers: auth(token) })).json();
+    let host: string;
+    let guest: string;
+    let booking: { id: string; code: string };
+
+    beforeAll(async () => {
+      host = await registerAndLogin('anfitrion.hu043@stayhub.com', 'ANFITRION');
+      const listing = await (
+        await fetch(`${baseUrl}/listings`, {
+          method: 'POST',
+          headers: auth(host),
+          body: JSON.stringify({
+            title: 'Cabaña con avisos',
+            description: 'HU-043',
+            city: 'Guatapé',
+            department: 'Antioquia',
+            address: 'Vereda El Roble',
+            propertyType: 'CABANA',
+            maxGuests: 4,
+            pricePerNight: 300000,
+            amenities: ['WIFI'],
+            rules: ['No fumar'],
+            images: ['https://storage.stayhub.com/cabana-43.jpg'],
+          }),
+        })
+      ).json();
+      await fetch(`${baseUrl}/listings/${listing.id}/availability-periods`, { method: 'POST', headers: auth(host), body: JSON.stringify({ startDate: day(1), endDate: day(90) }) });
+      await fetch(`${baseUrl}/listings/${listing.id}/request-activation`, { method: 'PATCH', headers: auth(host) });
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      await fetch(`${baseUrl}/listings/${listing.id}/approve`, { method: 'PATCH', headers: auth(admin) });
+
+      guest = await registerAndLogin('huesped.hu043@stayhub.com', 'HUESPED');
+      booking = await (
+        await fetch(`${baseUrl}/bookings/instant`, {
+          method: 'POST',
+          headers: auth(guest),
+          body: JSON.stringify({
+            listingId: listing.id,
+            checkIn: day(30),
+            checkOut: day(32),
+            guests: 2,
+            idempotencyKey: '43000000-0000-4000-8000-0000000000e1',
+            card: { cardNumber: '4242424242424242', cardHolder: 'Huésped', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' },
+          }),
+        })
+      ).json();
+    });
+
+    it('23.1 (CA1) huésped y anfitrión reciben la confirmación con el código de la reserva', async () => {
+      const toGuest = await notificationsOf(guest);
+      const toHost = await notificationsOf(host);
+
+      expect(toGuest.data[0]).toMatchObject({ type: 'RESERVA_CONFIRMADA', bookingCode: booking.code, entityId: booking.id, read: false });
+      expect(toHost.data[0]).toMatchObject({ type: 'RESERVA_CONFIRMADA', bookingCode: booking.code });
+      expect(toGuest.data[0].message).toContain(booking.code);
+    });
+
+    it('23.2 (CA2) el anfitrión recibió la aprobación de su publicación', async () => {
+      const toHost = await notificationsOf(host);
+      expect(toHost.data.map((n: { type: string }) => n.type)).toContain('PUBLICACION_APROBADA');
+      expect(toHost.unread).toBe(2);
+    });
+
+    it('23.3 (CA3) marcar como leída cambia el estado; otro usuario no la ve ni la marca', async () => {
+      const [notification] = (await notificationsOf(guest)).data;
+      const other = await registerAndLogin('otro.hu043@stayhub.com', 'HUESPED');
+
+      expect((await notificationsOf(other)).data).toEqual([]);
+      expect((await fetch(`${baseUrl}/notifications/${notification.id}/read`, { method: 'PATCH', headers: auth(other) })).status).toBe(404);
+
+      const res = await fetch(`${baseUrl}/notifications/${notification.id}/read`, { method: 'PATCH', headers: auth(guest) });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ read: true, readAt: expect.any(String) });
+      expect((await notificationsOf(guest)).unread).toBe(0);
+      expect((await fetch(`${baseUrl}/notifications`)).status).toBe(401);
+    });
+  });
 });
