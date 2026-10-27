@@ -1,6 +1,107 @@
 {
   "openapi": "3.0.0",
   "paths": {
+    "/api/notifications": {
+      "get": {
+        "operationId": "NotificationsController_findMine",
+        "summary": "Mis notificaciones · HU-043 (CA1, CA2, CA3)",
+        "description": "Notificaciones dentro de la plataforma del usuario de la sesión, de la más reciente a la más antigua, con el total sin leer.",
+        "parameters": [
+          {
+            "name": "unread",
+            "required": false,
+            "in": "query",
+            "description": "true para ver solo las no leídas",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsSummaryDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          }
+        },
+        "tags": [
+          "Notificaciones (HU-043)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/notifications/read-all": {
+      "patch": {
+        "operationId": "NotificationsController_markAllAsRead",
+        "summary": "Marcar todas mis notificaciones como leídas · HU-043 (CA3)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Cantidad marcada como leída"
+          }
+        },
+        "tags": [
+          "Notificaciones (HU-043)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/notifications/{id}/read": {
+      "patch": {
+        "operationId": "NotificationsController_markAsRead",
+        "summary": "Marcar una notificación como leída · HU-043 (CA3)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la notificación",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No existe o es de otro usuario"
+          }
+        },
+        "tags": [
+          "Notificaciones (HU-043)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/auth/login": {
       "post": {
         "operationId": "AuthController_login",
@@ -2209,6 +2310,106 @@
       }
     },
     "schemas": {
+      "NotificationDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "notif-6f1c2a9e"
+          },
+          "recipientId": {
+            "type": "string",
+            "example": "user-uuid-123",
+            "description": "Destinatario: ID del usuario"
+          },
+          "recipientEmail": {
+            "type": "string",
+            "example": "huesped@stayhub.com",
+            "description": "Destinatario: correo del usuario"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "RESERVA_CONFIRMADA",
+              "RESERVA_CANCELADA",
+              "RESERVA_EN_REVISION",
+              "PUBLICACION_APROBADA",
+              "PUBLICACION_DEVUELTA",
+              "PUBLICACION_BLOQUEADA",
+              "CUENTA_RESTRINGIDA"
+            ],
+            "example": "RESERVA_CONFIRMADA"
+          },
+          "message": {
+            "type": "string",
+            "example": "Tu reserva RES-8D17F0D7 en \"Cabaña del Bosque\" del 2026-11-16 al 2026-11-19 está confirmada."
+          },
+          "entity": {
+            "type": "string",
+            "enum": [
+              "Booking",
+              "Listing",
+              "UserAccount"
+            ],
+            "example": "Booking",
+            "description": "Tipo de entidad relacionada"
+          },
+          "entityId": {
+            "type": "string",
+            "example": "booking-uuid-789",
+            "description": "ID de la entidad relacionada"
+          },
+          "bookingCode": {
+            "type": "string",
+            "example": "RES-8D17F0D7",
+            "description": "Código de la reserva, en las notificaciones de reservas (CA1)"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-27T15:00:00.000Z"
+          },
+          "read": {
+            "type": "boolean",
+            "example": false,
+            "description": "Estado de lectura"
+          },
+          "readAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-27T16:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "message",
+          "entity",
+          "entityId",
+          "createdAt",
+          "read"
+        ]
+      },
+      "NotificationsSummaryDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationDto"
+            }
+          },
+          "unread": {
+            "type": "number",
+            "example": 3,
+            "description": "Notificaciones sin leer"
+          }
+        },
+        "required": [
+          "data",
+          "unread"
+        ]
+      },
       "LoginDto": {
         "type": "object",
         "properties": {
