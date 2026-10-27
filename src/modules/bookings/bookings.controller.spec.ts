@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
 import { AuditService } from '../audit/audit.service';
@@ -45,10 +46,10 @@ describe('BookingsController', () => {
     expect(result.status).toBe(BookingStatus.PENDIENTE);
   });
 
-  it('should find one booking', async () => {
-    const result = await controller.findOne('test-booking');
-    expect(result).toBeDefined();
-    expect(result.id).toBe('test-booking');
+  it('should find one booking and answer 404 for an unknown one (HU-033)', async () => {
+    const result = await controller.findOne('mock-booking-uuid-1');
+    expect(result.id).toBe('mock-booking-uuid-1');
+    await expect(controller.findOne('test-booking')).rejects.toThrow(NotFoundException);
   });
 
   it('should list my bookings (HU-003 CA1)', async () => {
