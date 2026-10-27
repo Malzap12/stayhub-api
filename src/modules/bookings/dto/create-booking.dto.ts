@@ -1,6 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsDateString, IsNumber, Min, IsOptional, IsUUID } from 'class-validator';
 
+import { IsArray, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { PaymentCardDto } from '../../payments/dto/payment.dto';
+
 export class CreateBookingDto {
   @ApiProperty({ example: 'uuid-1234-listing', description: 'ID del alojamiento' })
   @IsString()
@@ -26,6 +30,18 @@ export class CreateBookingDto {
   @IsOptional()
   @IsString()
   specialRequests?: string;
+
+  @ApiPropertyOptional({ example: ['Desayuno'], description: 'Servicios adicionales seleccionados' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  additionalServices?: string[];
+
+  @ApiPropertyOptional({ type: () => PaymentCardDto, description: 'Tarjeta de prueba para pagar de inmediato (HU-037)' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PaymentCardDto)
+  card?: PaymentCardDto;
 
   @ApiProperty({ example: '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d', description: 'Clave de idempotencia única para prevenir cobros/reservas duplicadas' })
   @IsUUID()

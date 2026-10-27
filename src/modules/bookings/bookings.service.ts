@@ -17,7 +17,8 @@ import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { ListingsService } from '../listings/listings.service';
 import { PlatformConfigService } from '../platform/platform-config.service';
 import { DEFAULT_SERVICE_FEE_PERCENT } from '../platform/dto/service-fee.dto';
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { PaymentsService } from '../payments/payments.service';
 import { PaymentCardDto } from '../payments/dto/payment.dto';
 import { PaymentStatus } from '../../common/enums/payment-status.enum';
@@ -159,17 +160,64 @@ export class BookingsService implements OnModuleInit {
     };
   }
 
+  /**
+   * HU-030 · Reservar de forma inmediata (CA1, CA2, CA3, CA4 · RF-041, RF-045, RF-046, RN-006, RN-015, RNF-008).
+   * Reserva inmediata para publicaciones activas. Si la publicación no está activa, rechaza la reserva (CA3).
+   * Conserva el desglose de precios y tarifas vigente al confirmar (CA2). Si se incluye tarjeta de prueba,
+   * procesa el pago y si se aprueba confirma la reserva con su código y desglose (CA1).
+   */
   async createInstant(bookingDto: CreateBookingDto, actor?: string): Promise<BookingResponseDto> {
+    const existing = this.bookingsStore.find((item) => item.idempotencyKey === bookingDto.idempotencyKey);
+    if (existing) {
+      return existing;
+    }
+
+    const listing = this.listingsService?.getListing(bookingDto.listingId);
+    if (listing && listing.status !== ListingStatus.ACTIVA) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        reason: 'PUBLICACION_NO_ACTIVA',
+        message: 'Solo se pueden reservar publicaciones activas',
+      });
+    }
+
+    let quoteData: QuoteResponseDto | undefined;
+    try {
+      quoteData = await this.quote({
+        listingId: bookingDto.listingId,
+        checkIn: bookingDto.checkIn,
+        checkOut: bookingDto.checkOut,
+        guests: bookingDto.guests,
+        additionalServices: bookingDto.additionalServices,
+      });
+    } catch (error) {
+      if (listing && error instanceof BadRequestException) { throw error; }
+    }
+
+    const bookingCode = `RES-${randomBytes(4).toString('hex').toUpperCase()}`;
     const booking: BookingResponseDto = {
       id: `booking-${randomUUID()}`,
+      code: bookingCode,
       listingId: bookingDto.listingId,
-      guestId: 'mock-guest-uuid',
+      guestId: actor ?? 'mock-guest-uuid',
       checkIn: bookingDto.checkIn,
       checkOut: bookingDto.checkOut,
       guests: bookingDto.guests,
-      serviceFee: 55.50,
-      totalAmount: 518.00,
-      currency: 'USD',
+      nights: quoteData?.nights,
+      nightlyRate: quoteData?.nightlyRate,
+      baseAmount: quoteData?.baseAmount,
+      discountPercentage: quoteData?.discountPercentage,
+      discount: quoteData?.discount,
+      cleaningFee: quoteData?.cleaningFee,
+      additionalServices: quoteData?.additionalServices,
+      additionalServicesTotal: quoteData?.additionalServicesTotal,
+      subtotal: quoteData?.subtotal,
+      serviceFeePercentage: quoteData?.serviceFeePercentage,
+      serviceFee: quoteData?.serviceFee ?? 55.50,
+      totalAmount: quoteData?.totalAmount ?? 518.00,
+      currency: quoteData?.currency ?? 'COP',
+      breakdown: quoteData,
       status: BookingStatus.PENDIENTE,
       idempotencyKey: bookingDto.idempotencyKey,
       specialRequests: bookingDto.specialRequests,
@@ -186,6 +234,11 @@ export class BookingsService implements OnModuleInit {
       result: AuditResult.EXITOSO,
       detail: `Reserva creada en estado ${booking.status}`,
     });
+
+    if (bookingDto.card) {
+      const payResult = await this.payBooking(booking.id, bookingDto.card, actor);
+      return payResult.booking;
+    }
 
     return booking;
   }
@@ -211,6 +264,7 @@ export class BookingsService implements OnModuleInit {
     );
 
     booking.status = BookingStatus.CONFIRMADA;
+    booking.code ||= `RES-${randomBytes(4).toString('hex').toUpperCase()}`;
     this.auditService.record({
       actor,
       action: AuditAction.BOOKING_STATUS_CHANGE,

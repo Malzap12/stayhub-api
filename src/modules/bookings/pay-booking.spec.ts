@@ -11,6 +11,7 @@ import { PaymentCardDto } from '../payments/dto/payment.dto';
 import { ActiveSession } from '../auth/auth.service';
 import { Role } from '../../common/enums/role.enum';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
+import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { PaymentStatus } from '../../common/enums/payment-status.enum';
 import { AuditResult } from '../../common/enums/audit.enum';
 
@@ -60,6 +61,7 @@ describe('HU-037 · Pagar la reserva en modo de pruebas (CA1, CA2, CA3, RF-051, 
   const pendingBooking = async () => {
     const listing = listings.create({ title: 'Cabaña HU-037', city: 'Medellín', pricePerNight: 200000, maxGuests: 4 }, host);
     await listings.registerAvailabilityPeriod(listing.id, { startDate: '2027-02-01', endDate: '2027-04-30' }, host);
+    listing.status = ListingStatus.ACTIVA;
     const booking = await bookings.createInstant(
       {
         listingId: listing.id,

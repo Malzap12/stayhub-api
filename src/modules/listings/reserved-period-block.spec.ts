@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { ActiveSession } from '../auth/auth.service';
 import { Role } from '../../common/enums/role.enum';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
+import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 
 describe('HU-023 · Bloquear automáticamente el periodo reservado (CA1, CA2, CA3, RF-029, RF-030, RN-011, RN-028, AMB-09)', () => {
@@ -42,7 +43,9 @@ describe('HU-023 · Bloquear automáticamente el periodo reservado (CA1, CA2, CA
     bookingsController = module.get(BookingsController);
     auditService = module.get(AuditService);
 
-    listingId = listingsController.create({ title: 'Villa del Lago', city: 'Guatapé' }, host).id;
+    const created = listingsController.create({ title: 'Villa del Lago', city: 'Guatapé' }, host);
+    created.status = ListingStatus.ACTIVA;
+    listingId = created.id;
     await listingsController.registerAvailabilityPeriod(
       listingId,
       { startDate: '2027-03-01', endDate: '2027-03-31' },

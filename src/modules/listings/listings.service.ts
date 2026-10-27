@@ -629,6 +629,10 @@ export class ListingsService implements OnModuleInit {
    * HU-015, HU-027 y HU-028: datos de la publicación que usa la cotización (precio, limpieza, descuento,
    * servicios adicionales y capacidad). Retorna undefined si la publicación no está registrada.
    */
+  getListing(id: string): ListingResponseDto | undefined {
+    return this.listingsStore.find((item) => item.id === id);
+  }
+
   getQuotePricing(
     listingId: string,
   ): {
