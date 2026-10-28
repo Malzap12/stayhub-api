@@ -2539,6 +2539,40 @@
           "Reviews"
         ]
       }
+    },
+    "/api/reports/dashboard": {
+      "get": {
+        "operationId": "ReportsController_getDashboard",
+        "summary": "Ver los indicadores del negocio · HU-056 (CA1, CA2, CA3)",
+        "description": "Usuarios por rol, publicaciones ACTIVAS, reservas por estado, ingresos estimados (valor y tarifa de servicio de las reservas CONFIRMADAS y COMPLETADAS, en COP) y las 5 ciudades con más reservas CONFIRMADAS y COMPLETADAS (CA1). Los valores coinciden con una consulta directa a la base de datos (CA2). Exclusivo para ADMINISTRADOR (CA3). RF-074, RN-026.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Indicadores del marketplace (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado: requiere rol ADMINISTRADOR (CA3)"
+          }
+        },
+        "tags": [
+          "Reportes (Reports)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
@@ -5432,6 +5466,166 @@
           "comment",
           "createdAt",
           "visible"
+        ]
+      },
+      "UsersByRoleDto": {
+        "type": "object",
+        "properties": {
+          "HUESPED": {
+            "type": "number",
+            "example": 31
+          },
+          "ANFITRION": {
+            "type": "number",
+            "example": 22
+          },
+          "ADMINISTRADOR": {
+            "type": "number",
+            "example": 1
+          },
+          "total": {
+            "type": "number",
+            "example": 54,
+            "description": "Total de cuentas registradas"
+          }
+        },
+        "required": [
+          "HUESPED",
+          "ANFITRION",
+          "ADMINISTRADOR",
+          "total"
+        ]
+      },
+      "BookingsByStatusDto": {
+        "type": "object",
+        "properties": {
+          "PENDIENTE": {
+            "type": "number",
+            "example": 5
+          },
+          "CONFIRMADA": {
+            "type": "number",
+            "example": 13
+          },
+          "CANCELADA": {
+            "type": "number",
+            "example": 7
+          },
+          "COMPLETADA": {
+            "type": "number",
+            "example": 3
+          },
+          "EN_REVISION": {
+            "type": "number",
+            "example": 1
+          },
+          "total": {
+            "type": "number",
+            "example": 29,
+            "description": "Total de reservas"
+          }
+        },
+        "required": [
+          "PENDIENTE",
+          "CONFIRMADA",
+          "CANCELADA",
+          "COMPLETADA",
+          "EN_REVISION",
+          "total"
+        ]
+      },
+      "EstimatedRevenueDto": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "example": "COP"
+          },
+          "grossBookingValue": {
+            "type": "number",
+            "example": 13552000,
+            "description": "Valor total pagado por los huéspedes en reservas CONFIRMADAS y COMPLETADAS"
+          },
+          "platformFees": {
+            "type": "number",
+            "example": 1452000,
+            "description": "Tarifa de servicio de esas reservas: lo que recibe la plataforma"
+          },
+          "bookings": {
+            "type": "number",
+            "example": 16,
+            "description": "Reservas que suman en los ingresos"
+          }
+        },
+        "required": [
+          "currency",
+          "grossBookingValue",
+          "platformFees",
+          "bookings"
+        ]
+      },
+      "TopCityDto": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "example": "Medellín"
+          },
+          "bookings": {
+            "type": "number",
+            "example": 6,
+            "description": "Reservas CONFIRMADAS y COMPLETADAS en alojamientos de la ciudad"
+          },
+          "grossBookingValue": {
+            "type": "number",
+            "example": 5040000,
+            "description": "Valor de esas reservas en COP"
+          }
+        },
+        "required": [
+          "city",
+          "bookings",
+          "grossBookingValue"
+        ]
+      },
+      "DashboardDto": {
+        "type": "object",
+        "properties": {
+          "generatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-28T15:00:00.000Z",
+            "description": "Momento en que se calcularon los indicadores"
+          },
+          "usersByRole": {
+            "$ref": "#/components/schemas/UsersByRoleDto"
+          },
+          "activeListings": {
+            "type": "number",
+            "example": 29,
+            "description": "Publicaciones en estado ACTIVA"
+          },
+          "bookingsByStatus": {
+            "$ref": "#/components/schemas/BookingsByStatusDto"
+          },
+          "estimatedRevenue": {
+            "$ref": "#/components/schemas/EstimatedRevenueDto"
+          },
+          "topCities": {
+            "description": "Las 5 ciudades con más reservas CONFIRMADAS y COMPLETADAS (AMB-25)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopCityDto"
+            }
+          }
+        },
+        "required": [
+          "generatedAt",
+          "usersByRole",
+          "activeListings",
+          "bookingsByStatus",
+          "estimatedRevenue",
+          "topCities"
         ]
       }
     }
