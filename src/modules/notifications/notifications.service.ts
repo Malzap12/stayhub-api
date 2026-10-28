@@ -1,7 +1,10 @@
 import { Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { StatePersistenceService } from '../persistence/state-persistence.service';
-import { NotificationDto, NotificationType } from './dto/notification.dto';
+import { NotificationDto, NotificationsSummaryDto, NotificationType } from './dto/notification.dto';
+
+export const DEFAULT_NOTIFICATIONS_LIMIT = 10;
+export const MAX_NOTIFICATIONS_LIMIT = 50;
 
 /** Destinatario de una notificación: el ID del usuario, su correo o ambos (las reservas guardan el correo del huésped). */
 export interface NotificationRecipient {
@@ -31,6 +34,7 @@ export interface BookingNotice {
 
 /**
  * HU-043 · Recibir notificaciones de los eventos (CA1, CA2, CA3 · RF-059, RN-021).
+ * HU-044 · Consultar mis notificaciones (CA1, CA2 · RF-060, RNF-022).
  * Solo notificaciones dentro de la plataforma (AMB-32, SUP-11), guardadas en PostgreSQL.
  */
 @Injectable()
@@ -169,6 +173,32 @@ export class NotificationsService implements OnModuleInit {
     return this.notifications
       .filter((item) => this.belongsTo(item, user) && (!onlyUnread || !item.read))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  /** HU-044 CA1 (RF-060, RNF-022): notificaciones ordenadas de la más reciente a la más antigua y paginadas. */
+  findMinePaginated(
+    user: NotificationRecipient,
+    options: { onlyUnread?: boolean; page?: number; limit?: number } = {},
+  ): NotificationsSummaryDto {
+    const allMatching = this.findMine(user, options.onlyUnread ?? false);
+    const unread = this.findMine(user, true).length;
+    const rawPage = Number(options.page);
+    const rawLimit = Number(options.limit);
+    const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.trunc(rawPage) : 1;
+    const limit = Number.isFinite(rawLimit) && rawLimit >= 1 ? Math.min(MAX_NOTIFICATIONS_LIMIT, Math.trunc(rawLimit)) : DEFAULT_NOTIFICATIONS_LIMIT;
+    const total = allMatching.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const safePage = Math.min(page, totalPages);
+    const start = (safePage - 1) * limit;
+
+    return {
+      data: allMatching.slice(start, start + limit),
+      unread,
+      page: safePage,
+      limit,
+      total,
+      totalPages,
+    };
   }
 
   /** Marca como leída una notificación propia; la de otro usuario responde 404 para no revelar que existe. */

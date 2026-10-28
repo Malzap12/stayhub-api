@@ -17,7 +17,7 @@ import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { NotificationDto } from './dto/notification.dto';
 import { BookingResponseDto } from '../bookings/dto/booking-response.dto';
 
-describe('HU-043 · Recibir notificaciones de los eventos (CA1, CA2, CA3, RF-059, RN-021)', () => {
+describe('HU-043 & HU-044 · Notificaciones (RF-059, RF-060, RN-021, RNF-022)', () => {
   let bookings: BookingsController;
   let listings: ListingsController;
   let listingsService: ListingsService;
@@ -290,6 +290,61 @@ describe('HU-043 · Recibir notificaciones de los eventos (CA1, CA2, CA3, RF-059
       expect(service.findMine({ userId: 'u1' })).toEqual([]);
       source!.restore(saved);
       expect(service.findMine({ userId: 'u1' })).toHaveLength(1);
+    });
+  });
+
+  describe('HU-044 · Consultar mis notificaciones paginadas y con entidad relacionada (CA1, CA2 · RF-060, RNF-022)', () => {
+    it('CA1: devuelve las notificaciones de la más reciente a la más antigua y paginadas', () => {
+      jest.useFakeTimers({ now: new Date('2027-02-01T00:00:00Z'), doNotFake: ['nextTick', 'setImmediate'] });
+      for (let idx = 1; idx <= 5; idx++) {
+        jest.setSystemTime(new Date(`2027-02-0${idx}T00:00:00Z`));
+        notifications.notify({
+          recipient: { userId: host.userId },
+          type: 'PUBLICACION_APROBADA',
+          message: `notif-${idx}`,
+          entity: 'Listing',
+          entityId: `listing-${idx}`,
+        });
+      }
+      jest.useRealTimers();
+
+      const page1 = controller.findMine(host, undefined, '1', '2');
+      expect(page1).toMatchObject({
+        unread: 5,
+        page: 1,
+        limit: 2,
+        total: 5,
+        totalPages: 3,
+      });
+      expect(page1.data.map((n) => n.message)).toEqual(['notif-5', 'notif-4']);
+
+      const page2 = controller.findMine(host, undefined, '2', '2');
+      expect(page2).toMatchObject({ page: 2, limit: 2, total: 5, totalPages: 3 });
+      expect(page2.data.map((n) => n.message)).toEqual(['notif-3', 'notif-2']);
+
+      const pageOut = controller.findMine(host, undefined, '99', '2');
+      expect(pageOut.page).toBe(3);
+      expect(pageOut.data.map((n) => n.message)).toEqual(['notif-1']);
+    });
+
+    it('CA1: usa valores por defecto (page=1, limit=10) ante parámetros no válidos o ausentes', () => {
+      notifications.notify({
+        recipient: { userId: host.userId },
+        type: 'PUBLICACION_APROBADA',
+        message: 'unica',
+        entity: 'Listing',
+        entityId: 'listing-1',
+      });
+
+      const summary = controller.findMine(host, undefined, 'abc', '-5');
+      expect(summary).toMatchObject({
+        page: 1,
+        limit: 10,
+        total: 1,
+        totalPages: 1,
+        unread: 1,
+      });
+      expect(summary.data).toHaveLength(1);
     });
   });
 });

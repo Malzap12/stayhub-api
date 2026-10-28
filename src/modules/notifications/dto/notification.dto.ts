@@ -64,4 +64,16 @@ export class NotificationsSummaryDto {
 
   @ApiProperty({ example: 3, description: 'Notificaciones sin leer' })
   unread: number;
+
+  @ApiProperty({ example: 1, description: 'Página actual (HU-044 CA1)' })
+  page: number;
+
+  @ApiProperty({ example: 10, description: 'Tamaño de página (HU-044 CA1)' })
+  limit: number;
+
+  @ApiProperty({ example: 15, description: 'Total de notificaciones (HU-044 CA1)' })
+  total: number;
+
+  @ApiProperty({ example: 2, description: 'Total de páginas (HU-044 CA1)' })
+  totalPages: number;
 }
