@@ -1956,4 +1956,34 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await search('minPrice=300000&maxPrice=150000')).status).toBe(400);
     });
   });
+
+  describe('HU-058 · Exportar reportes a Excel (CA1, RF-076, RF-077)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+
+    it('31.1 (CA1) el administrador descarga cada reporte como .xlsx', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      for (const report of ['usuarios', 'publicaciones', 'reservas', 'ingresos', 'demanda']) {
+        const res = await fetch(`${baseUrl}/reports/export/${report}?from=2026-01-01&city=Guatap%C3%A9`, { headers: auth(admin) });
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toContain('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        expect(res.headers.get('content-disposition')).toMatch(new RegExp(`attachment; filename="stayhub-${report}-.*\.xlsx"`));
+        const bytes = Buffer.from(await res.arrayBuffer());
+        expect(bytes.subarray(0, 2).toString()).toBe('PK');
+      }
+    });
+
+    it('31.2 solo el administrador exporta; reporte desconocido 404 y filtros inválidos 400', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      const guest = await login('huesped.hu043@stayhub.com', 'Password123');
+      expect((await fetch(`${baseUrl}/reports/export/reservas`, { headers: auth(guest) })).status).toBe(403);
+      expect((await fetch(`${baseUrl}/reports/export/reservas`)).status).toBe(401);
+      expect((await fetch(`${baseUrl}/reports/export/secretos`, { headers: auth(admin) })).status).toBe(404);
+      expect((await fetch(`${baseUrl}/reports/export/reservas?from=ayer`, { headers: auth(admin) })).status).toBe(400);
+      expect((await fetch(`${baseUrl}/reports/export/reservas?from=2026-10-31&to=2026-10-01`, { headers: auth(admin) })).status).toBe(400);
+    });
+  });
 });

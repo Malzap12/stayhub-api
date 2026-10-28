@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
+import { ReportExportService } from './report-export.service';
 import { BookingsService } from '../bookings/bookings.service';
 import { ListingsService } from '../listings/listings.service';
 import { PlatformConfigService } from '../platform/platform-config.service';
@@ -54,7 +55,7 @@ describe('HU-056 · Ver los indicadores del negocio (CA1, CA2, CA3, RF-074, RN-0
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [ReportsController],
-      providers: [ReportsService, BookingsService, ListingsService, PlatformConfigService, AuditService, PaymentsService, NotificationsService, AuthService],
+      providers: [ReportsService, ReportExportService, BookingsService, ListingsService, PlatformConfigService, AuditService, PaymentsService, NotificationsService, AuthService],
     }).compile();
 
     controller = module.get(ReportsController);

@@ -2868,6 +2868,95 @@
           }
         ]
       }
+    },
+    "/api/reports/export/{report}": {
+      "get": {
+        "operationId": "ReportsController_exportReport",
+        "summary": "Exportar un reporte de gestión a Excel · HU-058 (CA1, CA2)",
+        "description": "Descarga un archivo .xlsx del reporte indicado (usuarios, publicaciones, reservas, ingresos o demanda por ciudad y tipo) con título, fecha de generación, filtros aplicados, encabezados con autofiltro y una fila de totales que coincide con los datos del sistema. Filtros opcionales: from y to (fecha de creación), city y status. Exclusivo para ADMINISTRADOR; la exportación queda en la auditoría. RF-076, RF-077, RN-026.",
+        "parameters": [
+          {
+            "name": "report",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "enum": [
+                "usuarios",
+                "publicaciones",
+                "reservas",
+                "ingresos",
+                "demanda"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "Desde esta fecha de creación (AAAA-MM-DD, hora de Colombia), incluida",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "Hasta esta fecha de creación (AAAA-MM-DD, hora de Colombia), incluida",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "city",
+            "required": false,
+            "in": "query",
+            "description": "Ciudad del alojamiento (publicaciones, reservas, ingresos y demanda)",
+            "schema": {
+              "example": "Medellín",
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Estado: de la cuenta (usuarios), de la publicación (publicaciones) o de la reserva (reservas)",
+            "schema": {
+              "example": "CONFIRMADA",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archivo .xlsx del reporte (CA1)"
+          },
+          "400": {
+            "description": "Filtros inválidos (fechas mal formadas o la inicial posterior a la final)"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado: requiere rol ADMINISTRADOR"
+          },
+          "404": {
+            "description": "El reporte no existe"
+          }
+        },
+        "tags": [
+          "Reportes (Reports)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
