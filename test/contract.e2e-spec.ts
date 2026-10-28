@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
@@ -14,6 +15,8 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
   let app: INestApplication;
   let baseUrl: string;
   let authToken: string;
+  /** RF-041: las reservas las crea una cuenta de huésped (authToken es de un anfitrión). */
+  let guestBookingToken: string;
   let listingId: string;
   let bookingId: string;
 
@@ -29,6 +32,13 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     await app.listen(0);
     const url = await app.getUrl();
     baseUrl = `${url.replace('[::1]', '127.0.0.1')}/api`;
+
+    const guest = { name: 'Huésped Contrato', email: 'huesped.contrato@stayhub.com', password: 'Password123', role: 'HUESPED' };
+    const json = { 'Content-Type': 'application/json' };
+    await fetch(`${baseUrl}/auth/register`, { method: 'POST', headers: json, body: JSON.stringify(guest) });
+    guestBookingToken = (
+      await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email: guest.email, password: guest.password }) })).json()
+    ).token;
   });
 
   afterAll(async () => {
@@ -249,7 +259,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${guestBookingToken}`,
         },
         body: JSON.stringify({
           listingId: activeListingId,
@@ -278,7 +288,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
 
     it('3.3 GET /api/bookings/:id responde 200 según BookingResponseDto', async () => {
       const res = await fetch(`${baseUrl}/bookings/${bookingId}`, {
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: { Authorization: `Bearer ${guestBookingToken}` },
       });
       const body = await res.json();
 
@@ -1341,7 +1351,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
   });
   describe('HU-031 · Verificar la disponibilidad al confirmar (CA1, CA2, RF-042, RF-043, RNF-010)', () => {
     const card = { cardNumber: '4242424242424242', cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' };
-    const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` });
+    const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${guestBookingToken}` });
     const reserve = async (checkIn: string, checkOut: string, idempotencyKey: string) => {
       const res = await fetch(`${baseUrl}/bookings/instant`, {
         method: 'POST',
@@ -1387,7 +1397,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     const reserve = (idempotencyKey: string, checkIn = '2026-12-10', checkOut = '2026-12-12') =>
       fetch(`${baseUrl}/bookings/instant`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${guestBookingToken}` },
         body: JSON.stringify({ listingId: 'demo-bogota-chapinero', checkIn, checkOut, guests: 2, idempotencyKey, card }),
       });
 
@@ -1533,7 +1543,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     const detail = (token: string, id = bookingId) => fetch(`${baseUrl}/bookings/${id}`, { headers: { Authorization: `Bearer ${token}` } });
 
     it('22.1 (CA1) el huésped ve alojamiento, fechas, huéspedes, desglose, política y estado de su reserva', async () => {
-      const res = await detail(authToken);
+      const res = await detail(guestBookingToken);
       const body = await res.json();
 
       expect(res.status).toBe(200);
@@ -1568,7 +1578,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const other = (await login.json()).token;
 
       expect((await detail(other)).status).toBe(403);
-      expect((await detail(authToken, 'no-existe')).status).toBe(404);
+      expect((await detail(guestBookingToken, 'no-existe')).status).toBe(404);
     });
   });
   describe('HU-043 · Recibir notificaciones de los eventos (CA1, CA2, CA3, RF-059)', () => {
@@ -1990,13 +2000,13 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     const json = { 'Content-Type': 'application/json' };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
     const login = async (email: string, password: string) =>
-      (await (await fetch(`/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
         .token as string;
 
     it('32.1 (CA1, CA2) el administrador descarga cada reporte como .pdf con encabezado %PDF-', async () => {
       const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
       for (const report of ['usuarios', 'publicaciones', 'reservas', 'ingresos', 'demanda']) {
-        const res = await fetch(`/reports/export/${report}/pdf?from=2026-01-01&city=Guatap%C3%A9`, { headers: auth(admin) });
+        const res = await fetch(`${baseUrl}/reports/export/${report}/pdf?from=2026-01-01&city=Guatap%C3%A9`, { headers: auth(admin) });
         expect(res.status).toBe(200);
         expect(res.headers.get('content-type')).toContain('application/pdf');
         expect(res.headers.get('content-disposition')).toMatch(new RegExp(`attachment; filename="stayhub-${report}-.*\.pdf"`));
@@ -2008,11 +2018,44 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     it('32.2 solo el administrador exporta a PDF; reporte desconocido 404 y filtros inválidos 400', async () => {
       const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
       const guest = await login('huesped.hu043@stayhub.com', 'Password123');
-      expect((await fetch(`/reports/export/reservas/pdf`, { headers: auth(guest) })).status).toBe(403);
-      expect((await fetch(`/reports/export/reservas/pdf`)).status).toBe(401);
-      expect((await fetch(`/reports/export/secretos/pdf`, { headers: auth(admin) })).status).toBe(404);
-      expect((await fetch(`/reports/export/reservas/pdf?from=ayer`, { headers: auth(admin) })).status).toBe(400);
-      expect((await fetch(`/reports/export/reservas/pdf?from=2026-10-31&to=2026-10-01`, { headers: auth(admin) })).status).toBe(400);
+      expect((await fetch(`${baseUrl}/reports/export/reservas/pdf`, { headers: auth(guest) })).status).toBe(403);
+      expect((await fetch(`${baseUrl}/reports/export/reservas/pdf`)).status).toBe(401);
+      expect((await fetch(`${baseUrl}/reports/export/secretos/pdf`, { headers: auth(admin) })).status).toBe(404);
+      expect((await fetch(`${baseUrl}/reports/export/reservas/pdf?from=ayer`, { headers: auth(admin) })).status).toBe(400);
+      expect((await fetch(`${baseUrl}/reports/export/reservas/pdf?from=2026-10-31&to=2026-10-01`, { headers: auth(admin) })).status).toBe(400);
+    });
+  });
+
+  describe('RF-041 · Solo una cuenta de huésped reserva (RN-002)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const reserve = (token: string) =>
+      fetch(`${baseUrl}/bookings/instant`, {
+        method: 'POST',
+        headers: { ...json, Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ listingId: 'demo-bogota-chapinero', checkIn: '2026-11-24', checkOut: '2026-11-26', guests: 1, idempotencyKey: randomUUID() }),
+      });
+
+    it('33.1 el anfitrión y el administrador reciben 403 al reservar, pagar o confirmar; la cotización sigue abierta', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      for (const token of [authToken, admin]) {
+        expect((await reserve(token)).status).toBe(403);
+        const auth = { ...json, Authorization: `Bearer ${token}` };
+        expect((await fetch(`${baseUrl}/bookings/${bookingId}/pay`, { method: 'POST', headers: auth, body: '{}' })).status).toBe(403);
+        expect((await fetch(`${baseUrl}/bookings/${bookingId}/confirm`, { method: 'PATCH', headers: auth })).status).toBe(403);
+      }
+      const quote = await fetch(`${baseUrl}/bookings/quote`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ listingId: 'demo-bogota-chapinero', checkIn: '2026-11-24', checkOut: '2026-11-26', guests: 1 }),
+      });
+      expect(quote.status).toBe(200);
+    });
+
+    it('33.2 el huésped sí puede reservar', async () => {
+      expect((await reserve(guestBookingToken)).status).toBe(201);
     });
   });
 });

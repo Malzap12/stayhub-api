@@ -2179,6 +2179,9 @@
           "401": {
             "description": "No autenticado (CA1)"
           },
+          "403": {
+            "description": "Solo una cuenta de huésped puede reservar (RF-041); anfitriones y administradores reciben 403"
+          },
           "409": {
             "description": "HU-032: la clave ya la usó otro usuario (CLAVE_IDEMPOTENCIA_EN_USO) o se usó para otra estancia (CLAVE_IDEMPOTENCIA_REUTILIZADA)"
           }
