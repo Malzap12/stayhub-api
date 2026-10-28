@@ -1,6 +1,6 @@
-import { Body, Controller, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Roles, Public } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Role } from '../../common/enums/role.enum';
 import { ActiveSession } from '../auth/auth.service';
@@ -32,5 +32,18 @@ export class ReviewsController {
   @ApiResponse({ status: 409, description: 'La reserva ya tiene reseña (RESENA_DUPLICADA)' })
   create(@Body() dto: CreateReviewDto, @CurrentUser() user?: ActiveSession): ReviewResponseDto {
     return this.reviewsService.create(dto, user?.email);
+  }
+
+  @Get('listing/:listingId')
+  @Public()
+  @ApiOperation({
+    summary: 'Consultar reseñas de un alojamiento · HU-048 (CA1, CA2)',
+    description:
+      'Permite consultar las reseñas visibles de un alojamiento de la más reciente a la más antigua y su calificación promedio (RF-065, RN-025).',
+  })
+  @ApiParam({ name: 'listingId', description: 'ID del alojamiento' })
+  @ApiResponse({ status: 200, description: 'Reseñas visibles y promedio del alojamiento' })
+  findByListing(@Param('listingId') listingId: string) {
+    return this.reviewsService.getListingSummary(listingId);
   }
 }
