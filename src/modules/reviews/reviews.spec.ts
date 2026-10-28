@@ -216,3 +216,107 @@ describe('HU-047 · Guardar las reseñas en PostgreSQL', () => {
     expect(rowsToSource('reviews', rows)).toEqual(reviews);
   });
 });
+
+describe('HU-048 · Consultar reseñas y calificación (RF-065, RN-025)', () => {
+  let service: ReviewsService;
+  let controller: ReviewsController;
+  let listings: ListingsService;
+  let store: BookingResponseDto[];
+
+  const listingId = 'demo-bogota-chico';
+  const guestEmail = 'huesped48@stayhub.com';
+
+  const mockBooking = (id: string, status: BookingStatus): BookingResponseDto => ({
+    id,
+    code: `RES-${id.toUpperCase()}`,
+    listingId,
+    guestId: guestEmail,
+    checkIn: '2026-10-20',
+    checkOut: '2026-10-25',
+    guests: 2,
+    totalAmount: 500000,
+    serviceFee: 50000,
+    currency: 'COP',
+    status,
+    idempotencyKey: `key-${id}`,
+    createdAt: new Date('2026-10-01T12:00:00Z'),
+  });
+
+  beforeEach(async () => {
+    store = [];
+    const module = await Test.createTestingModule({
+      controllers: [ReviewsController],
+      providers: [
+        ReviewsService,
+        {
+          provide: BookingsService,
+          useValue: {
+            getBookingRecord: (id: string) => {
+              const b = store.find((item) => item.id === id);
+              if (!b) throw new NotFoundException('Reserva no encontrada');
+              return b;
+            },
+          },
+        },
+        { provide: AuditService, useValue: { record: jest.fn() } },
+        {
+          provide: AuthService,
+          useValue: {
+            findByEmail: (email: string) => ({ email, name: email === guestEmail ? 'Huésped Cuarenta y Ocho' : 'Otro Huésped' }),
+          },
+        },
+        ListingsService,
+      ],
+    }).compile();
+
+    service = module.get(ReviewsService);
+    controller = module.get(ReviewsController);
+    listings = module.get(ListingsService);
+    service.onModuleInit();
+  });
+
+  it('CA1: muestra la calificación promedio con un decimal, total de reseñas y orden de más reciente a más antigua', async () => {
+    store.push(
+      mockBooking('b1', BookingStatus.COMPLETADA),
+      mockBooking('b2', BookingStatus.COMPLETADA),
+    );
+
+    service.create({ bookingId: 'b1', rating: 4, comment: 'Muy bueno' }, guestEmail, new Date('2026-11-01T10:00:00Z'));
+    service.create({ bookingId: 'b2', rating: 5, comment: 'Excelente' }, guestEmail, new Date('2026-11-03T15:00:00Z'));
+
+    const summary = controller.findByListing(listingId);
+    expect(summary.totalReviews).toBe(2);
+    expect(summary.averageRating).toBe(4.5);
+    expect(summary.reviews).toHaveLength(2);
+    // Más reciente primero (Nov 03 antes de Nov 01)
+    expect(summary.reviews[0].bookingId).toBe('b2');
+    expect(summary.reviews[1].bookingId).toBe('b1');
+
+    const listingReviews = await listings.getReviews(listingId);
+    expect(listingReviews.totalReviews).toBe(2);
+    expect(listingReviews.reviews[0].id).toBe(summary.reviews[0].id);
+  });
+
+  it('CA1 (RN-025): solo incluye reseñas visibles', () => {
+    store.push(mockBooking('b1', BookingStatus.COMPLETADA));
+    const created = service.create({ bookingId: 'b1', rating: 5, comment: 'Visible check' }, guestEmail, new Date('2026-11-01T10:00:00Z'));
+    expect(controller.findByListing(listingId).totalReviews).toBe(1);
+
+    created.visible = false;
+    expect(controller.findByListing(listingId).totalReviews).toBe(0);
+    expect(controller.findByListing(listingId).reviews).toHaveLength(0);
+  });
+
+  it('CA2: publicación sin reseñas responde «Sin reseñas todavía» (lista vacía y calificación en 0)', async () => {
+    const summary = controller.findByListing('listing-vacio');
+    expect(summary.totalReviews).toBe(0);
+    expect(summary.averageRating).toBe(0);
+    expect(summary.reviews).toEqual([]);
+
+    // En ListingsService para una publicación existente con reviewCount 0
+    const emptyListingReviews = await listings.getReviews('demo-bogota-chico');
+    expect(emptyListingReviews.totalReviews).toBe(0);
+    expect(emptyListingReviews.averageRating).toBe(0);
+    expect(emptyListingReviews.reviews).toEqual([]);
+  });
+});

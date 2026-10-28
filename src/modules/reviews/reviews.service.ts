@@ -22,6 +22,7 @@ export const reviewDeadlineOf = (checkOut: string): string => {
 
 /**
  * HU-047 · Calificar y reseñar mi estancia (CA1, CA2, CA3, CA4 · RF-063, RF-064, RN-023, RN-024).
+ * HU-048 · Consultar reseñas y calificación (CA1, CA2 · RF-065, RN-025).
  * Solo el huésped de una reserva COMPLETADA la reseña, una sola vez y hasta 30 días después de la salida.
  */
 @Injectable()
@@ -106,11 +107,24 @@ export class ReviewsService implements OnModuleInit {
     return review;
   }
 
-  /** Reseñas visibles de un alojamiento, de la más reciente a la más antigua. */
+  /** HU-048 CA1 (RF-065, RN-025) · Reseñas visibles de un alojamiento, de la más reciente a la más antigua. */
   findByListing(listingId: string): ReviewResponseDto[] {
     return this.reviews
       .filter((review) => review.listingId === listingId && review.visible)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  /** HU-048 CA1, CA2 (RF-065, RN-025) · Resumen de reseñas de un alojamiento ordenadas de más reciente a más antigua. */
+  getListingSummary(listingId: string): { listingId: string; averageRating: number; totalReviews: number; reviews: ReviewResponseDto[] } {
+    const list = this.findByListing(listingId);
+    const total = list.length;
+    const avg = total > 0 ? Math.round((list.reduce((sum, r) => sum + r.rating, 0) / total) * 10) / 10 : 0;
+    return {
+      listingId,
+      averageRating: avg,
+      totalReviews: total,
+      reviews: list,
+    };
   }
 
   private reject(actor: string | undefined, bookingId: string, why: string): void {

@@ -1311,7 +1311,7 @@ export class ListingsService implements OnModuleInit {
   }
 
   async getReviews(listingId: string) {
-    // HU-047 CA1: las reseñas que publican los huéspedes se muestran en el detalle del alojamiento.
+    // HU-047 CA1 / HU-048 CA1: las reseñas que publican los huéspedes se muestran en el detalle del alojamiento.
     const published = this.reviewsProvider?.(listingId) ?? [];
     if (published.length > 0) {
       const listing = this.getListing(listingId);
@@ -1322,24 +1322,34 @@ export class ListingsService implements OnModuleInit {
         reviews: published.map(({ id, authorName, rating, comment, createdAt }) => ({ id, authorName, rating, comment, createdAt })),
       };
     }
+    // HU-048 CA2: Si la publicación no tiene reseñas ni calificaciones registradas, responde vacío (Sin reseñas todavía).
+    const listing = this.getListing(listingId);
+    if (listing && (listing.reviewCount ?? 0) === 0) {
+      return {
+        listingId,
+        averageRating: 0,
+        totalReviews: 0,
+        reviews: [],
+      };
+    }
     return {
       listingId,
       averageRating: 4.9,
       totalReviews: 2,
       reviews: [
         {
-          id: 'review-1',
-          authorName: 'Camila Gómez',
-          rating: 5,
-          comment: 'Excelente ubicación, impecable y atención inmediata del anfitrión.',
-          createdAt: '2026-10-01T14:30:00.000Z',
-        },
-        {
           id: 'review-2',
           authorName: 'Andrés Mejía',
           rating: 4.8,
           comment: 'Muy cómodo, tranquilo y fiel a las fotografías publicadas.',
           createdAt: '2026-10-10T09:15:00.000Z',
+        },
+        {
+          id: 'review-1',
+          authorName: 'Camila Gómez',
+          rating: 5,
+          comment: 'Excelente ubicación, impecable y atención inmediata del anfitrión.',
+          createdAt: '2026-10-01T14:30:00.000Z',
         },
       ],
     };

@@ -1732,6 +1732,30 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
   });
 
+  describe('26 HU-048 (RF-065, RN-025): Consultar reseñas y calificación', () => {
+    it('26.1 (CA1) consulta reseñas ordenadas de la más reciente a la más antigua y promedio', async () => {
+      const res = await fetch(`${baseUrl}/listings/demo-bogota-chapinero/reviews`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.listingId).toBe('demo-bogota-chapinero');
+      expect(body.totalReviews).toBeGreaterThanOrEqual(1);
+      expect(body.reviews.length).toBeGreaterThanOrEqual(1);
+      for (let i = 1; i < body.reviews.length; i++) {
+        const prev = new Date(body.reviews[i - 1].createdAt).getTime();
+        const curr = new Date(body.reviews[i].createdAt).getTime();
+        expect(prev).toBeGreaterThanOrEqual(curr);
+      }
+    });
+
+    it('26.2 (CA2) publicación sin reseñas responde con total 0 y reseñas vacías', async () => {
+      const res = await fetch(`${baseUrl}/listings/demo-bogota-chico/reviews`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.totalReviews).toBe(0);
+      expect(body.reviews).toEqual([]);
+    });
+  });
+
   describe('HU-051 · Bloquear una publicación engañosa (CA1, CA2, CA3, CA4, RF-067, RF-068)', () => {
     const json = { 'Content-Type': 'application/json' };
     const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
@@ -1754,7 +1778,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       booking = (Array.isArray(mine) ? mine : mine.data)[0];
     });
 
-    it('26.1 solo el administrador bloquea, con motivo, y sin sesión responde 401', async () => {
+    it('27.1 solo el administrador bloquea, con motivo, y sin sesión responde 401', async () => {
       expect((await block(guest, booking.listingId, { reason })).status).toBe(403);
       expect((await block(host, booking.listingId, { reason })).status).toBe(403);
       expect((await block(null, booking.listingId, { reason })).status).toBe(401);
@@ -1762,7 +1786,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await block(admin, 'no-existe', { reason })).status).toBe(404);
     });
 
-    it('26.2 (CA1, CA2, CA3) la publicación pasa a BLOQUEADA, sale de las búsquedas y su reserva futura pasa a EN_REVISION', async () => {
+    it('27.2 (CA1, CA2, CA3) la publicación pasa a BLOQUEADA, sale de las búsquedas y su reserva futura pasa a EN_REVISION', async () => {
       const res = await block(admin, booking.listingId, { reason });
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ status: 'BLOQUEADA', previousStatus: 'ACTIVA', blockReason: reason, bookingsUnderReview: [booking.code] });
@@ -1785,7 +1809,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await block(admin, booking.listingId, { reason })).status).toBe(400);
     });
 
-    it('26.3 (CA4) el anfitrión solicita una nueva revisión y la publicación vuelve a PENDIENTE_REVISION', async () => {
+    it('27.3 (CA4) el anfitrión solicita una nueva revisión y la publicación vuelve a PENDIENTE_REVISION', async () => {
       const res = await fetch(`${baseUrl}/listings/${booking.listingId}/request-activation`, { method: 'PATCH', headers: auth(host) });
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ status: 'PENDIENTE_REVISION' });

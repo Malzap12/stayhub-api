@@ -385,8 +385,9 @@ export class ListingsController {
   @Get(':id/reviews')
   @Public()
   @ApiOperation({
-    summary: 'Consultar reseñas públicas de un alojamiento · HU-003 (CA3)',
-    description: 'Permite a cualquier visitante ver las reseñas y calificación promedio de una publicación sin iniciar sesión.',
+    summary: 'Consultar reseñas públicas de un alojamiento · HU-003 (CA3) / HU-048 (CA1, CA2)',
+    description:
+      'Permite a cualquier visitante o huésped ver las reseñas de la más reciente a la más antigua y la calificación promedio con un decimal de una publicación sin iniciar sesión (RF-065, RN-025).',
   })
   @ApiParam({ name: 'id', description: 'ID del alojamiento' })
   @ApiResponse({ status: 200, description: 'Listado público de reseñas del alojamiento' })
