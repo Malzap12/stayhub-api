@@ -126,6 +126,19 @@ export class NotificationsService implements OnModuleInit {
     });
   }
 
+  /** HU-046 CA3: la estancia terminó y la reserva pasó a COMPLETADA; se invita al huésped a reseñar. */
+  bookingCompleted(booking: BookingNotice): void {
+    const title = booking.listingTitle ? ` en "${booking.listingTitle}"` : '';
+    this.notify({
+      recipient: { email: booking.guestEmail },
+      type: 'RESERVA_COMPLETADA',
+      message: `Tu estancia${title} del ${booking.checkIn.slice(0, 10)} al ${booking.checkOut.slice(0, 10)} terminó (reserva ${booking.code ?? booking.id}). ¡Cuéntanos cómo te fue y reseña el alojamiento!`,
+      entity: 'Booking',
+      entityId: booking.id,
+      bookingCode: booking.code,
+    });
+  }
+
   /** CA2: publicación aprobada, devuelta o bloqueada; se notifica a su anfitrión. */
   listingModerated(
     listing: { id: string; title: string; hostId: string },
