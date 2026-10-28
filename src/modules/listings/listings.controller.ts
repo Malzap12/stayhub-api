@@ -146,6 +146,26 @@ export class ListingsController {
     return this.listingsService.requestActivation(id, user);
   }
 
+  @Patch(':id/reactivate')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Reactivar publicación pausada · HU-053 (CA3)',
+    description: 'Permite al anfitrión reactivar una publicación que estaba en PAUSADA para que vuelva a estar ACTIVA.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación' })
+  @ApiResponse({ status: 200, description: 'Publicación reactivada a ACTIVA', type: MyListingDto })
+  @ApiResponse({ status: 400, description: 'La publicación no está PAUSADA' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ANFITRION)' })
+  @ApiResponse({ status: 404, description: 'Publicación no encontrada o de otro anfitrión' })
+  reactivateListing(
+    @Param('id') id: string,
+    @CurrentUser() user?: ActiveSession,
+  ): MyListingDto {
+    return this.listingsService.reactivateListing(id, user);
+  }
+
   @Patch(':id/approve')
   @Roles(Role.ADMINISTRADOR)
   @ApiBearerAuth()

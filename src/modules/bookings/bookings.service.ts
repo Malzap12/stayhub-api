@@ -199,6 +199,34 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
    * un minuto después (cuando ya se cargaron las reservas de PostgreSQL), para cerrar las estancias que terminaron
    * mientras el servidor estaba apagado. No se programa en las pruebas ni con BOOKING_DAILY_CLOSURE=false.
    */
+  /** HU-053 CA2: al restringir a un anfitrión, todas las reservas futuras de sus publicaciones pasan a EN_REVISION. */
+  putHostFutureBookingsUnderReview(hostListingIds: string[], reason: string, actor?: string, now: Date = new Date()): string[] {
+    const listingIdSet = new Set(hostListingIds);
+    const today = bogotaDate(now);
+    const future = this.bookingsStore.filter(
+      (booking) =>
+        listingIdSet.has(booking.listingId) &&
+        (booking.status === BookingStatus.CONFIRMADA || booking.status === BookingStatus.PENDIENTE) &&
+        String(booking.checkOut).slice(0, 10) > today,
+    );
+    for (const booking of future) {
+      const previous = booking.status;
+      booking.status = BookingStatus.EN_REVISION;
+      booking.reviewReason = reason;
+      booking.underReviewAt = now;
+      this.auditService.record({
+        actor,
+        action: AuditAction.BOOKING_STATUS_CHANGE,
+        entity: 'Booking',
+        entityId: booking.id,
+        result: AuditResult.EXITOSO,
+        detail: `Reserva ${booking.code ?? booking.id} pasó de ${previous} a EN_REVISION: ${reason}`,
+      });
+      this.notificationsService?.bookingUnderReview(this.noticeOf(booking), 'el anfitrión fue restringido por el administrador');
+    }
+    return future.map((booking) => booking.code ?? booking.id);
+  }
+
   onApplicationBootstrap(): void {
     if (process.env.NODE_ENV === 'test' || process.env.BOOKING_DAILY_CLOSURE === 'false') {
       return;

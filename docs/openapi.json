@@ -412,6 +412,43 @@
         ]
       }
     },
+    "/api/users": {
+      "get": {
+        "operationId": "UsersController_getAllUsers",
+        "summary": "Listar todos los usuarios · HU-053 (CA1, CA2, CA3)",
+        "description": "Permite al administrador consultar todos los usuarios registrados para moderación y restricción.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Lista de usuarios registrados",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserProfileDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ADMINISTRADOR)"
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/users/me": {
       "get": {
         "operationId": "UsersController_getMyProfile",
@@ -517,6 +554,180 @@
           },
           "401": {
             "description": "No autenticado"
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/users/{id}/restrict": {
+      "patch": {
+        "operationId": "UsersController_restrictUser",
+        "summary": "Restringir a un usuario · HU-053 (CA1, CA2)",
+        "description": "Invalida las sesiones vigentes del usuario y bloquea su inicio de sesión (CA1). Si es anfitrión, sus publicaciones ACTIVAS pasan a PAUSADA y sus reservas futuras a EN_REVISION (CA2).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID o correo del usuario a restringir",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestrictUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Usuario restringido con éxito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestrictUserResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Motivo inválido o usuario ya restringido"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado o intento de restringir a un administrador"
+          },
+          "404": {
+            "description": "Usuario no encontrado"
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "UsersController_restrictUserPost",
+        "summary": "Restringir a un usuario (alias POST) · HU-053 (CA1, CA2)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestrictUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/users/{id}/unrestrict": {
+      "patch": {
+        "operationId": "UsersController_unrestrictUser",
+        "summary": "Levantar restricción a un usuario · HU-053 (CA3)",
+        "description": "Permite al usuario volver a iniciar sesión. Sus publicaciones continúan PAUSADAS hasta que el anfitrión las reactive (RF-071, RN-021).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID o correo del usuario",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Restricción levantada con éxito",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnrestrictUserResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "El usuario no está restringido"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado"
+          },
+          "404": {
+            "description": "Usuario no encontrado"
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "UsersController_unrestrictUserPost",
+        "summary": "Levantar restricción a un usuario (alias POST) · HU-053 (CA3)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
           }
         },
         "tags": [
@@ -940,6 +1151,56 @@
           },
           "404": {
             "description": "La publicación no existe o pertenece a otro anfitrión (RN-005)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/{id}/reactivate": {
+      "patch": {
+        "operationId": "ListingsController_reactivateListing",
+        "summary": "Reactivar publicación pausada · HU-053 (CA3)",
+        "description": "Permite al anfitrión reactivar una publicación que estaba en PAUSADA para que vuelva a estar ACTIVA.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publicación reactivada a ACTIVA",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyListingDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "La publicación no está PAUSADA"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ANFITRION)"
+          },
+          "404": {
+            "description": "Publicación no encontrada o de otro anfitrión"
           }
         },
         "tags": [
@@ -3121,6 +3382,96 @@
           }
         },
         "required": [
+          "message"
+        ]
+      },
+      "RestrictUserDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "Incumplimiento de políticas de la plataforma",
+            "description": "Motivo obligatorio de la restricción del usuario"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "RestrictUserResponseDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "ID del usuario restringido"
+          },
+          "email": {
+            "type": "string",
+            "description": "Correo del usuario"
+          },
+          "status": {
+            "type": "string",
+            "description": "Estado resultante de la cuenta",
+            "example": "RESTRINGIDA"
+          },
+          "restrictionReason": {
+            "type": "string",
+            "description": "Motivo de la restricción"
+          },
+          "pausedListings": {
+            "description": "IDs de publicaciones activas que pasaron a PAUSADA",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bookingsUnderReview": {
+            "description": "Códigos de reservas futuras que pasaron a EN_REVISION",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string",
+            "description": "Mensaje descriptivo del resultado"
+          }
+        },
+        "required": [
+          "userId",
+          "email",
+          "status",
+          "restrictionReason",
+          "pausedListings",
+          "bookingsUnderReview",
+          "message"
+        ]
+      },
+      "UnrestrictUserResponseDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "description": "ID del usuario habilitado"
+          },
+          "email": {
+            "type": "string",
+            "description": "Correo del usuario"
+          },
+          "status": {
+            "type": "string",
+            "description": "Estado resultante de la cuenta",
+            "example": "ACTIVA"
+          },
+          "message": {
+            "type": "string",
+            "description": "Mensaje descriptivo del resultado"
+          }
+        },
+        "required": [
+          "userId",
+          "email",
+          "status",
           "message"
         ]
       },
