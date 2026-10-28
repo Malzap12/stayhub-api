@@ -1659,4 +1659,33 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await fetch(`${baseUrl}/notifications`)).status).toBe(401);
     });
   });
+
+  describe('HU-046 · Completar estancias automáticamente (CA1, CA2, RF-062)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+
+    it('24.1 el administrador ejecuta el cierre diario; solo completa salidas pasadas y no toca reservas futuras', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      const res = await fetch(`${baseUrl}/bookings/daily-closure`, { method: 'POST', headers: auth(admin) });
+
+      expect(res.status).toBe(201);
+      const body = await res.json();
+      expect(body).toMatchObject({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), completed: expect.any(Number) });
+      expect(body.bookingIds).toHaveLength(body.completed);
+
+      const guest = await login('huesped.hu043@stayhub.com', 'Password123');
+      const mine = await (await fetch(`${baseUrl}/bookings/my`, { headers: auth(guest) })).json();
+      const items = Array.isArray(mine) ? mine : mine.data;
+      expect(items.every((item: { status: string }) => item.status === 'CONFIRMADA')).toBe(true);
+    });
+
+    it('24.2 un huésped no puede ejecutar el cierre y sin sesión responde 401', async () => {
+      const guest = await login('huesped.hu043@stayhub.com', 'Password123');
+      expect((await fetch(`${baseUrl}/bookings/daily-closure`, { method: 'POST', headers: auth(guest) })).status).toBe(403);
+      expect((await fetch(`${baseUrl}/bookings/daily-closure`, { method: 'POST' })).status).toBe(401);
+    });
+  });
 });
