@@ -1686,7 +1686,8 @@
                 "PENDIENTE",
                 "CONFIRMADA",
                 "CANCELADA",
-                "COMPLETADA"
+                "COMPLETADA",
+                "EN_REVISION"
               ],
               "type": "string"
             }
@@ -1880,6 +1881,33 @@
           },
           "404": {
             "description": "Reserva no encontrada"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/bookings/daily-closure": {
+      "post": {
+        "operationId": "BookingsController_runDailyClosure",
+        "summary": "Ejecutar ahora el proceso diario de cierre de estancias · HU-046 (CA1, CA2, CA3)",
+        "description": "El proceso corre solo todos los días a las 00:05 (hora de Colombia) y al arrancar el servidor. Pasa a COMPLETADA cada reserva CONFIRMADA cuya fecha de salida ya pasó, registra el cambio en la auditoría (RN-021) y notifica al huésped invitándolo a reseñar (RF-062). Las reservas CANCELADAS o EN_REVISION no cambian. Este endpoint permite al administrador ejecutarlo sin esperar.",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "Fecha usada, cantidad e IDs de las reservas completadas"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Solo un administrador puede ejecutarlo"
           }
         },
         "tags": [
@@ -2367,6 +2395,7 @@
               "RESERVA_CONFIRMADA",
               "RESERVA_CANCELADA",
               "RESERVA_EN_REVISION",
+              "RESERVA_COMPLETADA",
               "PUBLICACION_APROBADA",
               "PUBLICACION_DEVUELTA",
               "PUBLICACION_BLOQUEADA",
@@ -4541,7 +4570,8 @@
               "PENDIENTE",
               "CONFIRMADA",
               "CANCELADA",
-              "COMPLETADA"
+              "COMPLETADA",
+              "EN_REVISION"
             ],
             "example": "PENDIENTE",
             "description": "Estado actual de la reserva"
@@ -4559,6 +4589,12 @@
             "format": "date-time",
             "type": "string",
             "example": "2026-10-05T09:50:00.000Z"
+          },
+          "completedAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-28T05:05:00.000Z",
+            "description": "Fecha y hora en que el cierre diario la pasó a COMPLETADA (HU-046)"
           },
           "cancellation": {
             "description": "Registro de la cancelación, presente cuando la reserva está CANCELADA (HU-040)",
