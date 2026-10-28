@@ -183,7 +183,7 @@ describe('HU-013 · Solicitar la activación de mi publicación (CA1, CA2, CA3, 
       controller.requestActivation(listing.id, host);
 
       expect(() => controller.requestActivation(listing.id, host)).toThrow(
-        'Solo puedes solicitar la activación de una publicación en BORRADOR (estado actual: En revisión)',
+        'Solo puedes solicitar la activación de una publicación en BORRADOR o BLOQUEADA (estado actual: En revisión)',
       );
     });
   });

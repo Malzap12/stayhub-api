@@ -103,6 +103,15 @@ export class BookingResponseDto {
   @ApiPropertyOptional({ example: '2026-10-28T05:05:00.000Z', description: 'Fecha y hora en que el cierre diario la pasó a COMPLETADA (HU-046)' })
   completedAt?: Date;
 
+  @ApiPropertyOptional({
+    example: 'La publicación fue bloqueada por el administrador: fotografías engañosas',
+    description: 'Motivo por el que la reserva quedó EN_REVISION (HU-051 CA2)',
+  })
+  reviewReason?: string;
+
+  @ApiPropertyOptional({ example: '2026-10-28T15:00:00.000Z', description: 'Fecha en que la reserva pasó a EN_REVISION (HU-051 CA2)' })
+  underReviewAt?: Date;
+
   @ApiPropertyOptional({ type: BookingReviewDto, description: 'Reseña del huésped, presente cuando ya reseñó la estancia (HU-047)' })
   review?: BookingReviewDto;
 

@@ -13,7 +13,7 @@ import {
   BlockReservedPeriodDto,
   BlockedPeriodResponseDto,
 } from './dto/availability.dto';
-import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
+import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
 import { CancellationPolicyDto, ListingDetailDto, UpdateCancellationPolicyDto } from './dto/listing-detail.dto';
 import { ListingCalendarDto } from './dto/calendar.dto';
@@ -90,13 +90,48 @@ export class ListingsController {
     return this.listingsService.findPendingReviewQueue();
   }
 
+  @Get('admin/all')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Consultar todas las publicaciones · HU-051',
+    description: 'Retorna las publicaciones en cualquier estado, de la más reciente a la más antigua, para que el administrador pueda bloquearlas. Exclusivo para ADMINISTRADOR.',
+  })
+  @ApiResponse({ status: 200, description: 'Todas las publicaciones', type: [ListingResponseDto] })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ADMINISTRADOR)' })
+  findAllForAdmin(): ListingResponseDto[] {
+    return this.listingsService.findAllForAdmin();
+  }
+
+  @Patch(':id/block')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Bloquear una publicación engañosa · HU-051 (CA1, CA2, CA3)',
+    description:
+      'Desde cualquier estado pasa la publicación a BLOQUEADA con el motivo indicado y deja de aparecer en las búsquedas (CA1). Sus reservas futuras pasan a EN_REVISION y se conservan (CA2). Se notifica al anfitrión y a los huéspedes afectados, y la acción queda en la auditoría (CA3). RF-067, RF-068, RN-019, RN-020, RN-021.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación' })
+  @ApiResponse({ status: 200, description: 'Publicación BLOQUEADA; incluye las reservas que pasaron a EN_REVISION', type: ListingModerationResponseDto })
+  @ApiResponse({ status: 400, description: 'Falta el motivo o la publicación ya está BLOQUEADA' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ADMINISTRADOR)' })
+  @ApiResponse({ status: 404, description: 'Publicación no encontrada' })
+  blockListing(
+    @Param('id') id: string,
+    @Body() dto: BlockListingDto,
+    @CurrentUser() user?: ActiveSession,
+  ): ListingModerationResponseDto {
+    return this.listingsService.blockListing(id, dto, user?.email);
+  }
+
   @Patch(':id/request-activation')
   @Roles(Role.ANFITRION, Role.ADMINISTRADOR)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Solicitar la activación de mi publicación · HU-013 (CA1, CA2, CA3)',
+    summary: 'Solicitar la activación de mi publicación · HU-013 (CA1, CA2, CA3), HU-051 (CA4)',
     description:
-      'Envía a revisión una publicación propia en BORRADOR. Si tiene los 9 campos mínimos (descripción, ciudad, departamento, dirección, tipo, capacidad, precio por noche, servicios y reglas) y al menos una imagen, pasa a PENDIENTE_REVISION (CA1); si no, se rechaza con la lista de campos faltantes (CA2). El cambio queda en la auditoría (CA3). RF-017, RN-005, RN-007, RN-021.',
+      'Envía a revisión una publicación propia en BORRADOR, o en BLOQUEADA ya corregida (HU-051 CA4). Si tiene los 9 campos mínimos (descripción, ciudad, departamento, dirección, tipo, capacidad, precio por noche, servicios y reglas) y al menos una imagen, pasa a PENDIENTE_REVISION (CA1); si no, se rechaza con la lista de campos faltantes (CA2). El cambio queda en la auditoría (CA3). RF-017, RN-005, RN-007, RN-021.',
   })
   @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
   @ApiResponse({ status: 200, description: 'Publicación enviada a revisión: estado PENDIENTE_REVISION (CA1, CA3)', type: MyListingDto })
