@@ -1731,4 +1731,29 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await sendReview(guest, { bookingId: 'no-existe', rating: 4, comment: 'Muy bien' })).status).toBe(404);
     });
   });
+
+  describe('26 HU-048 (RF-065, RN-025): Consultar reseñas y calificación', () => {
+    it('26.1 (CA1) consulta reseñas ordenadas de la más reciente a la más antigua y promedio', async () => {
+      const res = await fetch(`${baseUrl}/listings/demo-bogota-chapinero/reviews`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.listingId).toBe('demo-bogota-chapinero');
+      expect(body.totalReviews).toBeGreaterThanOrEqual(1);
+      expect(body.reviews.length).toBeGreaterThanOrEqual(1);
+      for (let i = 1; i < body.reviews.length; i++) {
+        const prev = new Date(body.reviews[i - 1].createdAt).getTime();
+        const curr = new Date(body.reviews[i].createdAt).getTime();
+        expect(prev).toBeGreaterThanOrEqual(curr);
+      }
+    });
+
+    it('26.2 (CA2) publicación sin reseñas responde con total 0 y reseñas vacías', async () => {
+      const res = await fetch(`${baseUrl}/listings/demo-bogota-chico/reviews`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.totalReviews).toBe(0);
+      expect(body.reviews).toEqual([]);
+    });
+  });
+
 });
