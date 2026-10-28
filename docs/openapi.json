@@ -2962,7 +2962,7 @@
       "get": {
         "operationId": "ReportsController_exportReportPdf",
         "summary": "Exportar un reporte de gestión a PDF · HU-059 (CA1, CA2)",
-        "description": "Descarga un documento .pdf del reporte indicado (usuarios, publicaciones, reservas, ingresos o demanda por ciudad y tipo) con título, filtros aplicados, fecha de generación, tabla de datos y fila de totales que coincide exactamente con el reporte en Excel (CA2). Exclusivo para ADMINISTRADOR; la exportación queda en la auditoría. RF-076, RF-077, RN-026.",
+        "description": "Descarga un documento .pdf del reporte indicado con título, filtros aplicados, fecha de generación, tabla de datos y fila de totales que coincide con el reporte en Excel (CA2). RF-076, RF-077, RN-026.",
         "parameters": [
           {
             "name": "report",
@@ -3023,18 +3023,6 @@
         "responses": {
           "200": {
             "description": "Documento .pdf del reporte (CA1)"
-          },
-          "400": {
-            "description": "Filtros inválidos (fechas mal formadas o la inicial posterior a la final)"
-          },
-          "401": {
-            "description": "No autenticado"
-          },
-          "403": {
-            "description": "Acceso denegado: requiere rol ADMINISTRADOR"
-          },
-          "404": {
-            "description": "El reporte no existe"
           }
         },
         "tags": [

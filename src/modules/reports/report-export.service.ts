@@ -253,33 +253,29 @@ export class ReportExportService {
   }
 
   /** HU-058 CA1: genera el .xlsx y deja la exportación en la auditoría. */
-  async export(report: string, filters: ExportReportQueryDto, actor?: string, now: Date = new Date()): Promise<ExportedReport> {
-    if (!EXPORTABLE_REPORTS.includes(report as ExportableReport)) {
-      throw new NotFoundException(`El reporte "${report}" no existe. Reportes disponibles: ${EXPORTABLE_REPORTS.join(', ')}`);
-    }
-    const table = this.buildTable(report as ExportableReport, filters);
-    const buffer = await this.toWorkbook(table, filters, now);
-    const stamp = now.toISOString().replace(/[-:]/g, '').slice(0, 13);
-
-    this.auditService.record({
-      actor,
-      action: AuditAction.EXPORT,
-      entity: 'Report',
-      entityId: report,
-      result: AuditResult.EXITOSO,
-      detail: `Exportó ${table.title.toLowerCase()} a Excel (${table.rows.length} filas). Filtros: ${describeFilters(filters)}`,
-    });
-    return { fileName: `stayhub-${report}-${stamp}.xlsx`, buffer, rows: table.rows.length };
+  export(report: string, filters: ExportReportQueryDto, actor?: string, now: Date = new Date()): Promise<ExportedReport> {
+    return this.buildExportFile(report, filters, 'xlsx', actor, now);
   }
 
   /** HU-059 CA1, CA2: genera el .pdf con título, filtros, fecha, tabla y totales idénticos a los de Excel. */
-  async exportPdf(report: string, filters: ExportReportQueryDto, actor?: string, now: Date = new Date()): Promise<ExportedReport> {
+  exportPdf(report: string, filters: ExportReportQueryDto, actor?: string, now: Date = new Date()): Promise<ExportedReport> {
+    return this.buildExportFile(report, filters, 'pdf', actor, now);
+  }
+
+  private async buildExportFile(
+    report: string,
+    filters: ExportReportQueryDto,
+    format: 'xlsx' | 'pdf',
+    actor: string | undefined,
+    now: Date,
+  ): Promise<ExportedReport> {
     if (!EXPORTABLE_REPORTS.includes(report as ExportableReport)) {
       throw new NotFoundException(`El reporte "${report}" no existe. Reportes disponibles: ${EXPORTABLE_REPORTS.join(', ')}`);
     }
     const table = this.buildTable(report as ExportableReport, filters);
-    const buffer = await this.toPdf(table, filters, now);
+    const buffer = format === 'pdf' ? await this.toPdf(table, filters, now) : await this.toWorkbook(table, filters, now);
     const stamp = now.toISOString().replace(/[-:]/g, '').slice(0, 13);
+    const label = format === 'pdf' ? 'PDF' : 'Excel';
 
     this.auditService.record({
       actor,
@@ -287,9 +283,9 @@ export class ReportExportService {
       entity: 'Report',
       entityId: report,
       result: AuditResult.EXITOSO,
-      detail: `Exportó ${table.title.toLowerCase()} a PDF (${table.rows.length} filas). Filtros: ${describeFilters(filters)}`,
+      detail: `Exportó ${table.title.toLowerCase()} a ${label} (${table.rows.length} filas). Filtros: ${describeFilters(filters)}`,
     });
-    return { fileName: `stayhub-${report}-${stamp}.pdf`, buffer, rows: table.rows.length };
+    return { fileName: `stayhub-${report}-${stamp}.${format}`, buffer, rows: table.rows.length };
   }
 
   private async toWorkbook(table: ReportTable, filters: ExportReportQueryDto, now: Date): Promise<Buffer> {
@@ -333,18 +329,7 @@ export class ReportExportService {
 
   private toPdf(table: ReportTable, filters: ExportReportQueryDto, now: Date): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const doc = new PDFDocument({
-        size: 'A4',
-        layout: 'landscape',
-        margin: 32,
-        compress: false,
-        info: {
-          Title: table.title,
-          Author: 'StayHub · Inversiones LR',
-          Subject: `Filtros aplicados: ${describeFilters(filters)}`,
-          CreationDate: now,
-        },
-      });
+      const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 32, compress: false });
       const chunks: Buffer[] = [];
       doc.on('data', (chunk: Buffer) => chunks.push(chunk));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -361,28 +346,22 @@ export class ReportExportService {
 
       let y = 86;
       const rowHeight = 20;
-      const drawRow = (cells: string[], opts: { header?: boolean; total?: boolean; zebra?: boolean } = {}) => {
+      const drawRow = (cells: string[], mode: 'header' | 'data' | 'total', bg?: string) => {
         if (y + rowHeight > doc.page.height - 40) {
           doc.addPage({ size: 'A4', layout: 'landscape', margin: 32 });
           y = 32;
         }
-        if (opts.header) {
-          doc.rect(startX, y, usableWidth, rowHeight).fill('#1d1d1f');
-        } else if (opts.total) {
-          doc.rect(startX, y, usableWidth, rowHeight).fill('#e5e7eb');
-        } else if (opts.zebra) {
-          doc.rect(startX, y, usableWidth, rowHeight).fill('#f9fafb');
-        }
+        if (bg) doc.rect(startX, y, usableWidth, rowHeight).fill(bg);
         doc
-          .font(opts.header || opts.total ? 'Helvetica-Bold' : 'Helvetica')
+          .font(mode === 'data' ? 'Helvetica' : 'Helvetica-Bold')
           .fontSize(8)
-          .fillColor(opts.header ? '#ffffff' : '#1d1d1f');
+          .fillColor(mode === 'header' ? '#ffffff' : '#1d1d1f');
 
         let x = startX;
         cells.forEach((text, index) => {
           const width = colWidths[index];
           if (text) {
-            const cellWidth = opts.total && index === 0 ? Math.max(width, 180) : Math.max(20, width - 8);
+            const cellWidth = mode === 'total' && index === 0 ? Math.max(width, 180) : Math.max(20, width - 8);
             doc.text(text, x + 4, y + 6, { width: cellWidth, height: rowHeight - 6, lineBreak: false });
           }
           x += width;
@@ -390,23 +369,9 @@ export class ReportExportService {
         y += rowHeight;
       };
 
-      drawRow(
-        table.columns.map((col) => col.header),
-        { header: true },
-      );
-
-      table.rows.forEach((row, rowIndex) => {
-        drawRow(
-          row.map((cell) => formatPdfCell(cell)),
-          { zebra: rowIndex % 2 === 1 },
-        );
-      });
-
-      const totals = buildTotalRow(table);
-      drawRow(
-        totals.map((cell) => (cell === null ? '' : String(cell))),
-        { total: true },
-      );
+      drawRow(table.columns.map((col) => col.header), 'header', '#1d1d1f');
+      table.rows.forEach((row, idx) => drawRow(row.map(formatPdfCell), 'data', idx % 2 === 1 ? '#f9fafb' : undefined));
+      drawRow(buildTotalRow(table).map((cell) => (cell === null ? '' : String(cell))), 'total', '#e5e7eb');
 
       doc.end();
     });
