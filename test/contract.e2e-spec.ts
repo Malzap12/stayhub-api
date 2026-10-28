@@ -1986,4 +1986,33 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await fetch(`${baseUrl}/reports/export/reservas?from=2026-10-31&to=2026-10-01`, { headers: auth(admin) })).status).toBe(400);
     });
   });
+  describe('HU-059 · Exportar reportes a PDF (CA1, CA2, RF-076, RF-077, RN-026)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+
+    it('32.1 (CA1, CA2) el administrador descarga cada reporte como .pdf con encabezado %PDF-', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      for (const report of ['usuarios', 'publicaciones', 'reservas', 'ingresos', 'demanda']) {
+        const res = await fetch(`/reports/export/${report}/pdf?from=2026-01-01&city=Guatap%C3%A9`, { headers: auth(admin) });
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toContain('application/pdf');
+        expect(res.headers.get('content-disposition')).toMatch(new RegExp(`attachment; filename="stayhub-${report}-.*\.pdf"`));
+        const bytes = Buffer.from(await res.arrayBuffer());
+        expect(bytes.subarray(0, 5).toString()).toBe('%PDF-');
+      }
+    });
+
+    it('32.2 solo el administrador exporta a PDF; reporte desconocido 404 y filtros inválidos 400', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      const guest = await login('huesped.hu043@stayhub.com', 'Password123');
+      expect((await fetch(`/reports/export/reservas/pdf`, { headers: auth(guest) })).status).toBe(403);
+      expect((await fetch(`/reports/export/reservas/pdf`)).status).toBe(401);
+      expect((await fetch(`/reports/export/secretos/pdf`, { headers: auth(admin) })).status).toBe(404);
+      expect((await fetch(`/reports/export/reservas/pdf?from=ayer`, { headers: auth(admin) })).status).toBe(400);
+      expect((await fetch(`/reports/export/reservas/pdf?from=2026-10-31&to=2026-10-01`, { headers: auth(admin) })).status).toBe(400);
+    });
+  });
 });

@@ -3,15 +3,20 @@ import { ApiBearerAuth, ApiOperation, ApiParam, ApiProduces, ApiResponse, ApiTag
 import type { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { ActiveSession } from '../auth/auth.service';
-import { ReportExportService } from './report-export.service';
+import { ExportedReport, ReportExportService } from './report-export.service';
 import { EXPORTABLE_REPORTS, ExportReportQueryDto } from './dto/export-report.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/role.enum';
 import { ReportsService } from './reports.service';
 import { DashboardDto } from './dto/dashboard.dto';
 
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const PDF_MIME = 'application/pdf';
+
 @ApiTags('Reportes (Reports)')
 @Controller('reports')
+@Roles(Role.ADMINISTRADOR)
+@ApiBearerAuth()
 export class ReportsController {
   constructor(
     private readonly reportsService: ReportsService,
@@ -19,8 +24,6 @@ export class ReportsController {
   ) {}
 
   @Get('dashboard')
-  @Roles(Role.ADMINISTRADOR)
-  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Ver los indicadores del negocio · HU-056 (CA1, CA2, CA3)',
     description:
@@ -34,15 +37,13 @@ export class ReportsController {
   }
 
   @Get('export/:report')
-  @Roles(Role.ADMINISTRADOR)
-  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Exportar un reporte de gestión a Excel · HU-058 (CA1, CA2)',
     description:
       'Descarga un archivo .xlsx del reporte indicado (usuarios, publicaciones, reservas, ingresos o demanda por ciudad y tipo) con título, fecha de generación, filtros aplicados, encabezados con autofiltro y una fila de totales que coincide con los datos del sistema. Filtros opcionales: from y to (fecha de creación), city y status. Exclusivo para ADMINISTRADOR; la exportación queda en la auditoría. RF-076, RF-077, RN-026.',
   })
   @ApiParam({ name: 'report', enum: EXPORTABLE_REPORTS })
-  @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  @ApiProduces(XLSX_MIME)
   @ApiResponse({ status: 200, description: 'Archivo .xlsx del reporte (CA1)' })
   @ApiResponse({ status: 400, description: 'Filtros inválidos (fechas mal formadas o la inicial posterior a la final)' })
   @ApiResponse({ status: 401, description: 'No autenticado' })
@@ -55,8 +56,31 @@ export class ReportsController {
     @CurrentUser() user?: ActiveSession,
   ): Promise<StreamableFile> {
     const file = await this.reportExportService.export(report, filters, user?.email);
+    return this.toStreamable(file, XLSX_MIME, res);
+  }
+
+  @Get('export/:report/pdf')
+  @ApiOperation({
+    summary: 'Exportar un reporte de gestión a PDF · HU-059 (CA1, CA2)',
+    description:
+      'Descarga un documento .pdf del reporte indicado con título, filtros aplicados, fecha de generación, tabla de datos y fila de totales que coincide con el reporte en Excel (CA2). RF-076, RF-077, RN-026.',
+  })
+  @ApiParam({ name: 'report', enum: EXPORTABLE_REPORTS })
+  @ApiProduces(PDF_MIME)
+  @ApiResponse({ status: 200, description: 'Documento .pdf del reporte (CA1)' })
+  async exportReportPdf(
+    @Param('report') report: string,
+    @Query() filters: ExportReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<StreamableFile> {
+    const file = await this.reportExportService.exportPdf(report, filters, user?.email);
+    return this.toStreamable(file, PDF_MIME, res);
+  }
+
+  private toStreamable(file: ExportedReport, contentType: string, res: Response): StreamableFile {
     res.set({
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Type': contentType,
       'Content-Disposition': `attachment; filename="${file.fileName}"`,
       'Access-Control-Expose-Headers': 'Content-Disposition',
     });
