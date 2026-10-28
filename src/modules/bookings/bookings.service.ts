@@ -3,7 +3,10 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
   OnModuleInit,
   Optional,
   ServiceUnavailableException,
@@ -33,6 +36,30 @@ import { BookingNotice, NotificationsService } from '../notifications/notificati
 export const CHECK_IN_TIME_BOGOTA = 'T15:00:00-05:00';
 
 export const arrivalInstant = (checkIn: string): number => Date.parse(`${String(checkIn).slice(0, 10)}${CHECK_IN_TIME_BOGOTA}`);
+
+/** HU-046 · Actor de los cambios automáticos: el reloj del sistema (STK-14). */
+export const SYSTEM_CLOCK_ACTOR = 'SISTEMA';
+
+/** HU-046 · Hora del cierre diario de estancias: 00:05 en hora de Colombia. */
+export const DAILY_CLOSURE_TIME_BOGOTA = 'T00:05:00-05:00';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Fecha (AAAA-MM-DD) de un instante en hora de Colombia (UTC−5). */
+export const bogotaDate = (instant: Date): string => new Date(instant.getTime() - 5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+/** Milisegundos que faltan para el próximo cierre diario. */
+export const msUntilNextClosure = (now: Date): number => {
+  const todayRun = Date.parse(`${bogotaDate(now)}${DAILY_CLOSURE_TIME_BOGOTA}`);
+  return todayRun > now.getTime() ? todayRun - now.getTime() : todayRun + DAY_MS - now.getTime();
+};
+
+export interface StayClosureResult {
+  /** Fecha de Colombia usada para decidir qué salidas ya pasaron. */
+  date: string;
+  completed: number;
+  bookingIds: string[];
+}
 
 export interface RefundCalculationResult {
   policy: string;
@@ -85,7 +112,11 @@ export function calculatePolicyRefund(
 }
 
 @Injectable()
-export class BookingsService implements OnModuleInit {
+export class BookingsService implements OnModuleInit, OnApplicationBootstrap, OnModuleDestroy {
+  private readonly logger = new Logger(BookingsService.name);
+  /** HU-046 · Temporizador del próximo cierre diario. */
+  private closureTimer?: ReturnType<typeof setTimeout>;
+
   private bookingsStore: BookingResponseDto[] = [
     {
       id: 'mock-booking-uuid-1',
@@ -124,6 +155,64 @@ export class BookingsService implements OnModuleInit {
         this.bookingsStore = (data as BookingResponseDto[]) ?? [];
       },
     });
+  }
+
+  /**
+   * HU-046 · Programa el proceso diario de cierre (00:05, hora de Colombia). Al arrancar también se ejecuta una vez,
+   * un minuto después (cuando ya se cargaron las reservas de PostgreSQL), para cerrar las estancias que terminaron
+   * mientras el servidor estaba apagado. No se programa en las pruebas ni con BOOKING_DAILY_CLOSURE=false.
+   */
+  onApplicationBootstrap(): void {
+    if (process.env.NODE_ENV === 'test' || process.env.BOOKING_DAILY_CLOSURE === 'false') {
+      return;
+    }
+    this.scheduleClosure(60_000);
+  }
+
+  onModuleDestroy(): void {
+    if (this.closureTimer) clearTimeout(this.closureTimer);
+  }
+
+  private scheduleClosure(delayMs: number): void {
+    this.closureTimer = setTimeout(() => {
+      try {
+        const result = this.completeFinishedStays();
+        this.logger.log(`Cierre diario de estancias (${result.date}): ${result.completed} reserva(s) COMPLETADA(s)`);
+      } catch (error) {
+        this.logger.error('Error en el cierre diario de estancias', (error as Error).message);
+      }
+      this.scheduleClosure(msUntilNextClosure(new Date()));
+    }, delayMs);
+    this.closureTimer.unref?.();
+  }
+
+  /**
+   * HU-046 · Completar estancias automáticamente (CA1, CA2, CA3 · RF-062, RN-021, RN-023).
+   * Pasa a COMPLETADA cada reserva CONFIRMADA cuya fecha de salida ya pasó (anterior a hoy en Colombia), deja el
+   * cambio en la auditoría y notifica al huésped invitándolo a reseñar. Las reservas en cualquier otro estado
+   * (CANCELADA, EN_REVISION, PENDIENTE o ya COMPLETADA) no cambian, así que ejecutarlo dos veces es seguro.
+   */
+  completeFinishedStays(now: Date = new Date(), actor: string = SYSTEM_CLOCK_ACTOR): StayClosureResult {
+    const today = bogotaDate(now);
+    const finished = this.bookingsStore.filter(
+      (booking) => booking.status === BookingStatus.CONFIRMADA && String(booking.checkOut).slice(0, 10) < today,
+    );
+
+    for (const booking of finished) {
+      booking.status = BookingStatus.COMPLETADA;
+      booking.completedAt = now;
+      this.auditService.record({
+        actor,
+        action: AuditAction.BOOKING_STATUS_CHANGE,
+        entity: 'Booking',
+        entityId: booking.id,
+        result: AuditResult.EXITOSO,
+        detail: `Reserva ${booking.code ?? booking.id} pasó de CONFIRMADA a COMPLETADA en el cierre diario: la salida (${booking.checkOut}) ya pasó`,
+      });
+      this.notificationsService?.bookingCompleted(this.noticeOf(booking));
+    }
+
+    return { date: today, completed: finished.length, bookingIds: finished.map((booking) => booking.id) };
   }
 
   /**

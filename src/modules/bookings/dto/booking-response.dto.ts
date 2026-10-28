@@ -85,6 +85,9 @@ export class BookingResponseDto {
   @ApiProperty({ example: '2026-10-05T09:50:00.000Z' })
   createdAt: Date;
 
+  @ApiPropertyOptional({ example: '2026-10-28T05:05:00.000Z', description: 'Fecha y hora en que el cierre diario la pasó a COMPLETADA (HU-046)' })
+  completedAt?: Date;
+
   @ApiPropertyOptional({ type: BookingCancellationDto, description: 'Registro de la cancelación, presente cuando la reserva está CANCELADA (HU-040)' })
   cancellation?: BookingCancellationDto;
 

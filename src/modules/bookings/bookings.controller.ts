@@ -1,6 +1,6 @@
 import { Controller, Post, Get, Patch, Body, Param, Query, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
-import { BookingsService } from './bookings.service';
+import { BookingsService, StayClosureResult } from './bookings.service';
 import { QuoteBookingDto, QuoteResponseDto, QuoteValidationErrorDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
@@ -134,6 +134,21 @@ export class BookingsController {
     @CurrentUser() user?: ActiveSession,
   ): Promise<BookingResponseDto> {
     return this.bookingsService.confirmBooking(id, user?.email);
+  }
+
+  @Post('daily-closure')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Ejecutar ahora el proceso diario de cierre de estancias · HU-046 (CA1, CA2, CA3)',
+    description:
+      'El proceso corre solo todos los días a las 00:05 (hora de Colombia) y al arrancar el servidor. Pasa a COMPLETADA cada reserva CONFIRMADA cuya fecha de salida ya pasó, registra el cambio en la auditoría (RN-021) y notifica al huésped invitándolo a reseñar (RF-062). Las reservas CANCELADAS o EN_REVISION no cambian. Este endpoint permite al administrador ejecutarlo sin esperar.',
+  })
+  @ApiResponse({ status: 201, description: 'Fecha usada, cantidad e IDs de las reservas completadas' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Solo un administrador puede ejecutarlo' })
+  runDailyClosure(@CurrentUser() user?: ActiveSession): StayClosureResult {
+    return this.bookingsService.completeFinishedStays(new Date(), user?.email);
   }
 
   @Patch(':id/cancel')
