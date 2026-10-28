@@ -1,9 +1,13 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
+import { Role } from '../../common/enums/role.enum';
 import { AuditService } from '../audit/audit.service';
 import { ActiveSession, AuthService, UserAccount } from '../auth/auth.service';
+import { ListingsService } from '../listings/listings.service';
+import { BookingsService } from '../bookings/bookings.service';
 import { UserProfileDto } from './dto/user-profile.dto';
 import { ChangePasswordDto, ChangePasswordResponseDto, UpdateProfileDto } from './dto/update-profile.dto';
+import { RestrictUserDto, RestrictUserResponseDto, UnrestrictUserResponseDto } from './dto/restrict-user.dto';
 
 export function toUserProfile(account: UserAccount): UserProfileDto {
   return {
@@ -22,7 +26,109 @@ export class UsersService {
   constructor(
     private readonly authService: AuthService,
     private readonly auditService: AuditService,
+    @Optional() private readonly listingsService?: ListingsService,
+    @Optional() private readonly bookingsService?: BookingsService,
   ) {}
+
+  /** HU-053: Retorna todos los usuarios registrados para el panel de administración. */
+  getAllUsers(): (UserProfileDto & { restrictionReason?: string })[] {
+    return this.authService.getAllUsers().map((u) => ({
+      ...toUserProfile(u),
+      restrictionReason: u.restrictionReason,
+    }));
+  }
+
+  /**
+   * HU-053 CA1 y CA2 (RF-070, RN-020):
+   * Restringe a un usuario indicando el motivo:
+   * - No puede iniciar sesión y su sesión vigente se invalida (CA1).
+   * - Si es anfitrión, sus publicaciones ACTIVAS pasan a PAUSADA y sus reservas futuras a EN_REVISION (CA2).
+   */
+  restrictUser(
+    idOrEmail: string,
+    dto: RestrictUserDto,
+    actor?: string,
+  ): RestrictUserResponseDto {
+    const reason = dto?.reason?.trim();
+    if (!reason || reason.length < 5) {
+      throw new BadRequestException('Indica el motivo de la restricción (al menos 5 caracteres)');
+    }
+
+    const account = this.authService.findById(idOrEmail) ?? this.authService.findByEmail(idOrEmail);
+    if (!account) {
+      throw new NotFoundException(`Usuario con identificador ${idOrEmail} no encontrado`);
+    }
+    if (account.role === Role.ADMINISTRADOR) {
+      throw new ForbiddenException('No está permitido restringir a un usuario con rol ADMINISTRADOR');
+    }
+    if (account.status === 'RESTRINGIDA') {
+      throw new BadRequestException('El usuario ya se encuentra restringido');
+    }
+
+    // CA1: Restringe e invalida sesiones vigentes
+    this.authService.restrictAccount(account.email, reason, actor);
+
+    // CA2: Si es anfitrión (o tiene publicaciones), publicaciones ACTIVAS a PAUSADA y reservas futuras a EN_REVISION
+    const pausedListings: string[] = [];
+    const bookingsUnderReview: string[] = [];
+
+    if (this.listingsService) {
+      const activePaused = this.listingsService.pauseHostActiveListings(account.id, actor);
+      const activePausedByEmail = this.listingsService.pauseHostActiveListings(account.email, actor);
+      const allPaused = [...activePaused, ...activePausedByEmail];
+      const uniquePausedIds = Array.from(new Set(allPaused.map((l) => l.id)));
+      pausedListings.push(...uniquePausedIds);
+
+      const allListings = this.listingsService.findAllForAdmin();
+      const hostListingIds = allListings
+        .filter((l) => l.hostId === account.id || l.hostId === account.email)
+        .map((l) => l.id);
+
+      if (this.bookingsService && hostListingIds.length > 0) {
+        const affectedBookings = this.bookingsService.putHostFutureBookingsUnderReview(
+          hostListingIds,
+          `Anfitrión restringido: ${reason}`,
+          actor,
+        );
+        bookingsUnderReview.push(...affectedBookings);
+      }
+    }
+
+    return {
+      userId: account.id,
+      email: account.email,
+      status: 'RESTRINGIDA',
+      restrictionReason: reason,
+      pausedListings,
+      bookingsUnderReview,
+      message: `Usuario ${account.name} restringido exitosamente.`,
+    };
+  }
+
+  /**
+   * HU-053 CA3 (RF-071, RN-021):
+   * Levanta la restricción a un usuario:
+   * - Puede iniciar sesión de nuevo.
+   * - Sus publicaciones siguen PAUSADAS hasta que las reactive.
+   */
+  unrestrictUser(idOrEmail: string, actor?: string): UnrestrictUserResponseDto {
+    const account = this.authService.findById(idOrEmail) ?? this.authService.findByEmail(idOrEmail);
+    if (!account) {
+      throw new NotFoundException(`Usuario con identificador ${idOrEmail} no encontrado`);
+    }
+    if (account.status !== 'RESTRINGIDA') {
+      throw new BadRequestException('El usuario no se encuentra restringido');
+    }
+
+    this.authService.unrestrictAccount(account.id, actor);
+
+    return {
+      userId: account.id,
+      email: account.email,
+      status: 'ACTIVA',
+      message: `Restricción levantada exitosamente para ${account.name}. Sus publicaciones continúan PAUSADAS hasta que las reactive.`,
+    };
+  }
 
   /** HU-006 CA1: datos básicos de la cuenta con sesión activa. */
   getMyProfile(session: ActiveSession): UserProfileDto {

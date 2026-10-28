@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -7,11 +7,26 @@ import type { ActiveSession } from '../auth/auth.service';
 import { UsersService } from './users.service';
 import { UserProfileDto } from './dto/user-profile.dto';
 import { ChangePasswordDto, ChangePasswordResponseDto, UpdateProfileDto } from './dto/update-profile.dto';
+import { RestrictUserDto, RestrictUserResponseDto, UnrestrictUserResponseDto } from './dto/restrict-user.dto';
 
 @ApiTags('Usuarios (Users)')
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
+
+  @Get()
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Listar todos los usuarios · HU-053 (CA1, CA2, CA3)',
+    description: 'Permite al administrador consultar todos los usuarios registrados para moderación y restricción.',
+  })
+  @ApiResponse({ status: 200, description: 'Lista de usuarios registrados', type: [UserProfileDto] })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ADMINISTRADOR)' })
+  getAllUsers(): (UserProfileDto & { restrictionReason?: string })[] {
+    return this.usersService.getAllUsers();
+  }
 
   @Get('me')
   @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
@@ -54,6 +69,72 @@ export class UsersController {
   @ApiResponse({ status: 401, description: 'No autenticado' })
   changeMyPassword(@Body() dto: ChangePasswordDto, @CurrentUser() user: ActiveSession): ChangePasswordResponseDto {
     return this.usersService.changeMyPassword(dto, user);
+  }
+
+  @Patch(':id/restrict')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Restringir a un usuario · HU-053 (CA1, CA2)',
+    description:
+      'Invalida las sesiones vigentes del usuario y bloquea su inicio de sesión (CA1). Si es anfitrión, sus publicaciones ACTIVAS pasan a PAUSADA y sus reservas futuras a EN_REVISION (CA2).',
+  })
+  @ApiParam({ name: 'id', description: 'ID o correo del usuario a restringir' })
+  @ApiResponse({ status: 200, description: 'Usuario restringido con éxito', type: RestrictUserResponseDto })
+  @ApiResponse({ status: 400, description: 'Motivo inválido o usuario ya restringido' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado o intento de restringir a un administrador' })
+  @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
+  restrictUser(
+    @Param('id') id: string,
+    @Body() dto: RestrictUserDto,
+    @CurrentUser() admin?: ActiveSession,
+  ): RestrictUserResponseDto {
+    return this.usersService.restrictUser(id, dto, admin?.email);
+  }
+
+  @Post(':id/restrict')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Restringir a un usuario (alias POST) · HU-053 (CA1, CA2)' })
+  restrictUserPost(
+    @Param('id') id: string,
+    @Body() dto: RestrictUserDto,
+    @CurrentUser() admin?: ActiveSession,
+  ): RestrictUserResponseDto {
+    return this.usersService.restrictUser(id, dto, admin?.email);
+  }
+
+  @Patch(':id/unrestrict')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Levantar restricción a un usuario · HU-053 (CA3)',
+    description:
+      'Permite al usuario volver a iniciar sesión. Sus publicaciones continúan PAUSADAS hasta que el anfitrión las reactive (RF-071, RN-021).',
+  })
+  @ApiParam({ name: 'id', description: 'ID o correo del usuario' })
+  @ApiResponse({ status: 200, description: 'Restricción levantada con éxito', type: UnrestrictUserResponseDto })
+  @ApiResponse({ status: 400, description: 'El usuario no está restringido' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado' })
+  @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
+  unrestrictUser(
+    @Param('id') id: string,
+    @CurrentUser() admin?: ActiveSession,
+  ): UnrestrictUserResponseDto {
+    return this.usersService.unrestrictUser(id, admin?.email);
+  }
+
+  @Post(':id/unrestrict')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Levantar restricción a un usuario (alias POST) · HU-053 (CA3)' })
+  unrestrictUserPost(
+    @Param('id') id: string,
+    @CurrentUser() admin?: ActiveSession,
+  ): UnrestrictUserResponseDto {
+    return this.usersService.unrestrictUser(id, admin?.email);
   }
 
   @Get(':id')

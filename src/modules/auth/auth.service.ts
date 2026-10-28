@@ -6,6 +6,7 @@ import {
   OnModuleInit,
   Optional,
   UnauthorizedException,
+  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
@@ -195,6 +196,13 @@ export class AuthService implements OnModuleInit {
     if (account) {
       account.status = 'RESTRINGIDA';
       account.restrictionReason = reason;
+
+      // HU-053 CA1: la sesión vigente se invalida inmediatamente
+      for (const [token, session] of this.activeSessions.entries()) {
+        if (session.userId === account.id || session.email.toLowerCase() === account.email.toLowerCase()) {
+          this.activeSessions.delete(token);
+        }
+      }
       this.auditService.record({
         actor,
         action: AuditAction.ADMIN_ACTION,
@@ -205,6 +213,33 @@ export class AuthService implements OnModuleInit {
       });
       this.notificationsService?.accountRestricted(account, reason);
     }
+  }
+
+  /** HU-053 CA3: levanta la restricción de una cuenta para que pueda volver a iniciar sesión. */
+  unrestrictAccount(emailOrId: string, actor?: string): UserAccount {
+    const account = this.findByEmail(emailOrId) ?? this.findById(emailOrId);
+    if (!account) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+    if (account.status !== 'RESTRINGIDA') {
+      throw new BadRequestException('El usuario no está restringido');
+    }
+    account.status = 'ACTIVA';
+    account.restrictionReason = undefined;
+    this.auditService.record({
+      actor,
+      action: AuditAction.ADMIN_ACTION,
+      entity: 'UserAccount',
+      entityId: account.id,
+      result: AuditResult.EXITOSO,
+      detail: 'Restricción de cuenta levantada',
+    });
+    return account;
+  }
+
+  /** HU-053: retorna todas las cuentas de usuario para la moderación del administrador. */
+  getAllUsers(): UserAccount[] {
+    return Array.from(this.users.values());
   }
 
   private toPublicUser(account: UserAccount): RegisteredUserDto {
@@ -297,6 +332,12 @@ export class AuthService implements OnModuleInit {
       return undefined;
     }
     if (Date.now() > session.expiresAt) {
+      this.activeSessions.delete(cleanToken);
+      return undefined;
+    }
+    // HU-053 CA1: sesión inválida si el usuario fue restringido
+    const account = this.findByEmail(session.email);
+    if (account && account.status === 'RESTRINGIDA') {
       this.activeSessions.delete(cleanToken);
       return undefined;
     }

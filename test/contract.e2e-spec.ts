@@ -1861,13 +1861,72 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
   });
 
+  describe('29 HU-053 (RF-070, RF-071, RN-020, RN-021): Restringir a un usuario', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+
+    it('29.1 (CA1, CA2) administrador restringe a un usuario, invalida sus sesiones y pasa publicaciones activas a PAUSADA', async () => {
+      const adminToken = await login('admin@inversioneslr.com', 'AdminLr2026!');
+      const userEmail = 'test.restringir@stayhub.com';
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: 'Usuario Restringible', email: userEmail, password: 'Password123!', role: 'ANFITRION' }),
+      });
+      const userToken = await login(userEmail, 'Password123!');
+      expect(userToken).toBeDefined();
+
+      const res = await fetch(`${baseUrl}/users/${userEmail}/restrict`, {
+        method: 'PATCH',
+        headers: auth(adminToken),
+        body: JSON.stringify({ reason: 'Comportamiento sospechoso de anfitrión' }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.status).toBe('RESTRINGIDA');
+
+      // Sesión invalidada
+      const meRes = await fetch(`${baseUrl}/users/me`, { headers: auth(userToken) });
+      expect(meRes.status).toBe(401);
+
+      // Login denegado
+      const loginDenied = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email: userEmail, password: 'Password123!' }),
+      });
+      expect(loginDenied.status).toBe(403);
+    });
+
+    it('29.2 (CA3) levantar restricción permite iniciar sesión nuevamente', async () => {
+      const adminToken = await login('admin@inversioneslr.com', 'AdminLr2026!');
+      const userEmail = 'test.restringir@stayhub.com';
+      const unrestrictRes = await fetch(`${baseUrl}/users/${userEmail}/unrestrict`, {
+        method: 'PATCH',
+        headers: auth(adminToken),
+      });
+      expect(unrestrictRes.status).toBe(200);
+      expect((await unrestrictRes.json()).status).toBe('ACTIVA');
+
+      const loginOk = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email: userEmail, password: 'Password123!' }),
+      });
+      expect(loginOk.status).toBe(200);
+    });
+  });
+
   describe('HU-025 · Filtrar por tipo, precio y servicios (CA1, CA2, CA3, RF-032)', () => {
     const search = async (query: string) => {
       const res = await fetch(`${baseUrl}/listings/search?limit=100&${query}`);
       return { status: res.status, body: await res.json() };
     };
 
-    it('29.1 (CA1) tipo APARTAMENTO entre 150.000 y 300.000 COP: solo apartamentos en ese rango', async () => {
+    it('30.1 (CA1) tipo APARTAMENTO entre 150.000 y 300.000 COP: solo apartamentos en ese rango', async () => {
       const { status, body } = await search('propertyType=APARTAMENTO&minPrice=150000&maxPrice=300000');
       expect(status).toBe(200);
       for (const item of body.data) {
@@ -1877,7 +1936,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       }
     });
 
-    it('29.2 (CA2) WIFI y PARQUEADERO, separados por coma o repetidos: todas las publicaciones tienen ambos', async () => {
+    it('30.2 (CA2) WIFI y PARQUEADERO, separados por coma o repetidos: todas las publicaciones tienen ambos', async () => {
       const synonyms: Record<string, string> = { PARKING: 'PARQUEADERO' };
       const byComma = await search('amenities=WIFI,PARQUEADERO');
       const repeated = await search('amenities=WIFI&amenities=PARQUEADERO');
@@ -1890,7 +1949,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       }
     });
 
-    it('29.3 (CA3) sin resultados responde 200 vacío; parámetros inválidos responden 400', async () => {
+    it('30.3 (CA3) sin resultados responde 200 vacío; parámetros inválidos responden 400', async () => {
       const empty = await search('propertyType=FINCA&minPrice=99000000');
       expect(empty).toMatchObject({ status: 200, body: { data: [], total: 0 } });
       expect((await search('propertyType=CASTILLO')).status).toBe(400);
