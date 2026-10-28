@@ -550,6 +550,46 @@ export class ListingsService implements OnModuleInit {
     return { listingId: listing.id, status: listing.status, previousStatus, blockReason: reason, bookingsUnderReview, notification };
   }
 
+  /** HU-053 CA2: al restringir a un anfitrión, sus publicaciones ACTIVAS pasan a PAUSADA. */
+  pauseHostActiveListings(hostIdOrEmail: string, actor?: string): ListingResponseDto[] {
+    const active = this.listingsStore.filter(
+      (item) => (item.hostId === hostIdOrEmail || item.hostName === hostIdOrEmail) && item.status === ListingStatus.ACTIVA,
+    );
+    for (const listing of active) {
+      listing.status = ListingStatus.PAUSADA;
+      this.recordStatusChange(
+        actor,
+        listing.id,
+        AuditResult.EXITOSO,
+        `${ListingStatus.ACTIVA} -> ${ListingStatus.PAUSADA} (anfitrión restringido)`,
+      );
+    }
+    return active;
+  }
+
+  /** HU-053 CA3: el anfitrión puede reactivar una publicación que quedó PAUSADA. */
+  reactivateListing(id: string, host?: ActiveSession): MyListingDto {
+    const listing = this.listingsStore.find((item) => item.id === id);
+    const ownerId = host?.userId;
+    if (!ownerId || listing?.hostId !== ownerId) {
+      throw new NotFoundException(`Publicación con id ${id} no encontrada`);
+    }
+    const currentStatus = listing.status ?? ListingStatus.BORRADOR;
+    if (currentStatus !== ListingStatus.PAUSADA) {
+      throw new BadRequestException(
+        `Solo puedes reactivar una publicación en PAUSADA (estado actual: ${LISTING_STATUS_LABELS[currentStatus]})`,
+      );
+    }
+    listing.status = ListingStatus.ACTIVA;
+    this.recordStatusChange(
+      host?.email,
+      id,
+      AuditResult.EXITOSO,
+      `${ListingStatus.PAUSADA} -> ${ListingStatus.ACTIVA} (reactivación por el anfitrión)`,
+    );
+    return toMyListing(listing);
+  }
+
   requestActivation(id: string, host?: ActiveSession): MyListingDto {
     const listing = this.listingsStore.find((item) => item.id === id);
     const fail = (detail: string) =>
