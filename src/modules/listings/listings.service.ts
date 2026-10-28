@@ -234,6 +234,15 @@ export function validateListingPricing(dto?: Partial<UpdateListingPricingDto>): 
 }
 import { NotificationsService } from '../notifications/notifications.service';
 
+/** HU-047 · Reseña publicada tal como se muestra en el detalle del alojamiento. */
+export interface PublishedReview {
+  id: string;
+  authorName: string;
+  rating: number;
+  comment: string;
+  createdAt: Date | string;
+}
+
 @Injectable()
 export class ListingsService implements OnModuleInit {
   private listingsStore: ListingResponseDto[] = ([
@@ -649,6 +658,25 @@ export class ListingsService implements OnModuleInit {
    * HU-015, HU-027 y HU-028: datos de la publicación que usa la cotización (precio, limpieza, descuento,
    * servicios adicionales y capacidad). Retorna undefined si la publicación no está registrada.
    */
+  /** HU-047 · Fuente de las reseñas publicadas (la registra el servicio de reseñas al iniciar). */
+  private reviewsProvider?: (listingId: string) => PublishedReview[];
+
+  setReviewsProvider(provider: (listingId: string) => PublishedReview[]): void {
+    this.reviewsProvider = provider;
+  }
+
+  /** HU-047 CA1 (RF-064) · Suma una calificación al promedio y al total de reseñas de la publicación. */
+  addRating(listingId: string, rating: number): void {
+    const listing = this.getListing(listingId);
+    if (!listing) {
+      return;
+    }
+    const count = Number(listing.reviewCount ?? 0);
+    const average = Number(listing.rating ?? 0);
+    listing.reviewCount = count + 1;
+    listing.rating = Math.round(((average * count + rating) / (count + 1)) * 100) / 100;
+  }
+
   getListing(id: string): ListingResponseDto | undefined {
     return this.listingsStore.find((item) => item.id === id);
   }
@@ -1209,6 +1237,17 @@ export class ListingsService implements OnModuleInit {
   }
 
   async getReviews(listingId: string) {
+    // HU-047 CA1: las reseñas que publican los huéspedes se muestran en el detalle del alojamiento.
+    const published = this.reviewsProvider?.(listingId) ?? [];
+    if (published.length > 0) {
+      const listing = this.getListing(listingId);
+      return {
+        listingId,
+        averageRating: listing?.rating ?? published.reduce((sum, review) => sum + review.rating, 0) / published.length,
+        totalReviews: listing?.reviewCount ?? published.length,
+        reviews: published.map(({ id, authorName, rating, comment, createdAt }) => ({ id, authorName, rating, comment, createdAt })),
+      };
+    }
     return {
       listingId,
       averageRating: 4.9,

@@ -4,6 +4,21 @@ import { PaymentResponseDto } from '../../payments/dto/payment.dto';
 import { QuoteResponseDto } from './quote-booking.dto';
 
 /** HU-040 y HU-041 · Registro de la cancelación y cálculo de devolución según la política (CA3 · RF-054, RF-056, RN-016, RN-017, RN-030). */
+/** HU-047 · Reseña que el huésped dejó para esta reserva. */
+export class BookingReviewDto {
+  @ApiProperty({ example: 'review-6f1c2a9e' })
+  id: string;
+
+  @ApiProperty({ example: 5, minimum: 1, maximum: 5 })
+  rating: number;
+
+  @ApiProperty({ example: 'Excelente ubicación y el anfitrión muy atento.' })
+  comment: string;
+
+  @ApiProperty({ example: '2026-11-02T14:30:00.000Z' })
+  createdAt: Date;
+}
+
 export class BookingCancellationDto {
   @ApiProperty({ example: 'huesped@stayhub.com', description: 'Usuario que canceló' })
   cancelledBy: string;
@@ -87,6 +102,9 @@ export class BookingResponseDto {
 
   @ApiPropertyOptional({ example: '2026-10-28T05:05:00.000Z', description: 'Fecha y hora en que el cierre diario la pasó a COMPLETADA (HU-046)' })
   completedAt?: Date;
+
+  @ApiPropertyOptional({ type: BookingReviewDto, description: 'Reseña del huésped, presente cuando ya reseñó la estancia (HU-047)' })
+  review?: BookingReviewDto;
 
   @ApiPropertyOptional({ type: BookingCancellationDto, description: 'Registro de la cancelación, presente cuando la reserva está CANCELADA (HU-040)' })
   cancellation?: BookingCancellationDto;

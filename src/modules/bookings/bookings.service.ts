@@ -574,6 +574,11 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     });
   }
 
+  /** HU-047 · Reserva guardada (no una copia) para que el servicio de reseñas registre su reseña. */
+  getBookingRecord(id: string): BookingResponseDto {
+    return this.findBookingOrFail(id);
+  }
+
   private findBookingOrFail(id: string): BookingResponseDto {
     const booking = this.bookingsStore.find((item) => item.id === id);
     if (!booking) {
