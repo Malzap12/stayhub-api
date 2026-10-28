@@ -106,6 +106,15 @@ export const TABLE_DEFINITIONS: Record<string, TableDefinition> = {
     ],
     jsonbColumns: ['extra'],
   },
+  resenas: {
+    tableName: 'resenas',
+    primaryKey: ['id'],
+    columns: [
+      'id', 'orden', 'reserva_id', 'publicacion_id', 'huesped_id', 'autor', 'calificacion', 'comentario',
+      'creado_en', 'visible', 'extra',
+    ],
+    jsonbColumns: ['extra'],
+  },
   configuracion_plataforma: {
     tableName: 'configuracion_plataforma',
     primaryKey: ['clave'],
@@ -122,6 +131,7 @@ export const REGISTERED_SOURCE_TABLES: Record<string, string[]> = {
   listings: ['publicaciones', 'notificaciones_anfitrion', 'periodos_disponibles', 'periodos_reservados', 'huespedes_con_reserva'],
   'platform-config': ['configuracion_plataforma'],
   notifications: ['notificaciones'],
+  reviews: ['resenas'],
 };
 
 export function toIso(date: unknown): string | null {
@@ -437,6 +447,28 @@ export function sourceToRows(sourceKey: string, dump: unknown): Record<string, R
       break;
     }
 
+    case 'reviews': {
+      // HU-047 CA1: reseña asociada al huésped, a la reserva, al alojamiento y a la fecha.
+      const reviews = (dump as Record<string, unknown>[]) ?? [];
+      result.resenas = reviews.map((r: any, index) => {
+        const { id, bookingId, listingId, guestId, authorName, rating, comment, createdAt, visible, ...rest } = r;
+        return {
+          id: String(id),
+          orden: index,
+          reserva_id: String(bookingId),
+          publicacion_id: String(listingId),
+          huesped_id: String(guestId),
+          autor: authorName ?? null,
+          calificacion: Number(rating),
+          comentario: String(comment),
+          creado_en: toIso(createdAt) ?? new Date().toISOString(),
+          visible: visible !== false,
+          extra: rest,
+        };
+      });
+      break;
+    }
+
     case 'notifications': {
       // HU-043 CA3: destinatario, tipo, mensaje, entidad relacionada, fecha y estado de lectura.
       const notifications = (dump as Record<string, unknown>[]) ?? [];
@@ -696,6 +728,22 @@ export function rowsToSource(sourceKey: string, tablesData: Record<string, Recor
         reservedPeriods,
         guestsWithReservations,
       };
+    }
+
+    case 'reviews': {
+      const rows = [...(tablesData.resenas ?? [])].sort((a: any, b: any) => (a.orden ?? 0) - (b.orden ?? 0));
+      return rows.map((row: any) => ({
+        id: row.id,
+        bookingId: row.reserva_id,
+        listingId: row.publicacion_id,
+        guestId: row.huesped_id,
+        authorName: row.autor ?? '',
+        rating: Number(row.calificacion),
+        comment: row.comentario,
+        createdAt: new Date(row.creado_en),
+        visible: row.visible !== false,
+        ...(row.extra ?? {}),
+      }));
     }
 
     case 'notifications': {

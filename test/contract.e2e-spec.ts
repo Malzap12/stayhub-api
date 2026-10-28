@@ -1688,4 +1688,47 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await fetch(`${baseUrl}/bookings/daily-closure`, { method: 'POST' })).status).toBe(401);
     });
   });
+
+  describe('HU-047 · Calificar y reseñar mi estancia (CA2, RF-063)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const sendReview = (token: string | null, body: unknown) =>
+      fetch(`${baseUrl}/reviews`, { method: 'POST', headers: token ? auth(token) : json, body: JSON.stringify(body) });
+    let guest: string;
+    let bookingId: string;
+
+    beforeAll(async () => {
+      guest = await login('huesped.hu043@stayhub.com', 'Password123');
+      const mine = await (await fetch(`${baseUrl}/bookings/my`, { headers: auth(guest) })).json();
+      bookingId = (Array.isArray(mine) ? mine : mine.data)[0].id;
+    });
+
+    it('25.1 (CA2) una reserva CONFIRMADA todavía no se puede reseñar', async () => {
+      const res = await sendReview(guest, { bookingId, rating: 5, comment: 'Excelente estancia' });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ reason: 'RESERVA_NO_COMPLETADA' });
+    });
+
+    it('25.2 (CA2) otro huésped no puede reseñar la reserva y sin sesión responde 401', async () => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: 'Otro', email: 'otro.hu047@stayhub.com', password: 'Password123', role: 'HUESPED' }),
+      });
+      const other = await login('otro.hu047@stayhub.com', 'Password123');
+      const res = await sendReview(other, { bookingId, rating: 5, comment: 'No es mía' });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ reason: 'RESERVA_AJENA' });
+      expect((await sendReview(null, { bookingId, rating: 5, comment: 'Sin sesión' })).status).toBe(401);
+    });
+
+    it('25.3 la calificación debe ser de 1 a 5 y el comentario es obligatorio', async () => {
+      expect((await sendReview(guest, { bookingId, rating: 6, comment: 'Muy bien' })).status).toBe(400);
+      expect((await sendReview(guest, { bookingId, rating: 4, comment: '' })).status).toBe(400);
+      expect((await sendReview(guest, { bookingId: 'no-existe', rating: 4, comment: 'Muy bien' })).status).toBe(404);
+    });
+  });
 });
