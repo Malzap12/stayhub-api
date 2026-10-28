@@ -64,7 +64,8 @@ export class BookingsController {
   }
 
   @Post('instant')
-  @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
+  // RF-041: solo el huésped reserva; el anfitrión gestiona sus fechas con bloqueos (RF-029), no con reservas.
+  @Roles(Role.HUESPED)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Crear reserva inmediata · HU-030 · HU-032 (CA1, CA2)',
@@ -74,6 +75,7 @@ export class BookingsController {
   @ApiResponse({ status: 201, description: 'Reserva creada exitosamente', type: BookingResponseDto })
   @ApiResponse({ status: 400, description: 'Alojamiento no disponible o datos inválidos' })
   @ApiResponse({ status: 401, description: 'No autenticado (CA1)' })
+  @ApiResponse({ status: 403, description: 'Solo una cuenta de huésped puede reservar (RF-041); anfitriones y administradores reciben 403' })
   @ApiResponse({
     status: 409,
     description:
@@ -87,7 +89,8 @@ export class BookingsController {
   }
 
   @Post(':id/pay')
-  @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
+  // RF-041: solo el huésped reserva; el anfitrión gestiona sus fechas con bloqueos (RF-029), no con reservas.
+  @Roles(Role.HUESPED)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -115,7 +118,8 @@ export class BookingsController {
   }
 
   @Patch(':id/confirm')
-  @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
+  // RF-041: solo el huésped reserva; el anfitrión gestiona sus fechas con bloqueos (RF-029), no con reservas.
+  @Roles(Role.HUESPED)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Confirmar reserva y bloquear automáticamente el periodo reservado · HU-023 (CA1, CA2, CA3) · HU-031 (CA1, CA2)',
