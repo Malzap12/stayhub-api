@@ -4,14 +4,32 @@
     "/api/notifications": {
       "get": {
         "operationId": "NotificationsController_findMine",
-        "summary": "Mis notificaciones · HU-043 (CA1, CA2, CA3)",
-        "description": "Notificaciones dentro de la plataforma del usuario de la sesión, de la más reciente a la más antigua, con el total sin leer.",
+        "summary": "Mis notificaciones · HU-043 (CA1, CA2, CA3) · HU-044 (CA1, CA2)",
+        "description": "Notificaciones dentro de la plataforma del usuario de la sesión, de la más reciente a la más antigua y paginadas, con el total sin leer (RF-059, RF-060, RNF-022).",
         "parameters": [
           {
             "name": "unread",
             "required": false,
             "in": "query",
             "description": "true para ver solo las no leídas",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Número de página (por defecto 1 · HU-044 CA1)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Cantidad por página (por defecto 10, máx. 50 · HU-044 CA1)",
             "schema": {
               "type": "string"
             }
@@ -33,7 +51,7 @@
           }
         },
         "tags": [
-          "Notificaciones (HU-043)"
+          "Notificaciones (HU-043, HU-044)"
         ],
         "security": [
           {
@@ -53,7 +71,7 @@
           }
         },
         "tags": [
-          "Notificaciones (HU-043)"
+          "Notificaciones (HU-043, HU-044)"
         ],
         "security": [
           {
@@ -65,7 +83,7 @@
     "/api/notifications/{id}/read": {
       "patch": {
         "operationId": "NotificationsController_markAsRead",
-        "summary": "Marcar una notificación como leída · HU-043 (CA3)",
+        "summary": "Marcar una notificación como leída · HU-043 (CA3) · HU-044 (CA2)",
         "parameters": [
           {
             "name": "id",
@@ -93,7 +111,7 @@
           }
         },
         "tags": [
-          "Notificaciones (HU-043)"
+          "Notificaciones (HU-043, HU-044)"
         ],
         "security": [
           {
@@ -2348,6 +2366,59 @@
           }
         ]
       }
+    },
+    "/api/reviews": {
+      "post": {
+        "operationId": "ReviewsController_create",
+        "summary": "Calificar y reseñar mi estancia · HU-047 (CA1, CA2, CA3, CA4)",
+        "description": "El huésped califica de 1 a 5 y comenta una reserva propia COMPLETADA (RF-063). La reseña se publica asociada al huésped, a la reserva, al alojamiento y a la fecha, y actualiza la calificación promedio del alojamiento (RF-064). Una sola reseña por reserva (RN-024), hasta 30 días después de la salida (AMB-21).",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReviewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reseña publicada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "La reserva no está COMPLETADA (RESERVA_NO_COMPLETADA), el plazo venció (PLAZO_RESENA_VENCIDO) o los datos no son válidos"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "La reserva es de otro huésped (RESERVA_AJENA)"
+          },
+          "404": {
+            "description": "Reserva no encontrada"
+          },
+          "409": {
+            "description": "La reserva ya tiene reseña (RESENA_DUPLICADA)"
+          }
+        },
+        "tags": [
+          "Reviews"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
@@ -2466,11 +2537,35 @@
             "type": "number",
             "example": 3,
             "description": "Notificaciones sin leer"
+          },
+          "page": {
+            "type": "number",
+            "example": 1,
+            "description": "Página actual (HU-044 CA1)"
+          },
+          "limit": {
+            "type": "number",
+            "example": 10,
+            "description": "Tamaño de página (HU-044 CA1)"
+          },
+          "total": {
+            "type": "number",
+            "example": 15,
+            "description": "Total de notificaciones (HU-044 CA1)"
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 2,
+            "description": "Total de páginas (HU-044 CA1)"
           }
         },
         "required": [
           "data",
-          "unread"
+          "unread",
+          "page",
+          "limit",
+          "total",
+          "totalPages"
         ]
       },
       "LoginDto": {
@@ -4353,6 +4448,36 @@
           "message"
         ]
       },
+      "BookingReviewDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "review-6f1c2a9e"
+          },
+          "rating": {
+            "type": "number",
+            "example": 5,
+            "minimum": 1,
+            "maximum": 5
+          },
+          "comment": {
+            "type": "string",
+            "example": "Excelente ubicación y el anfitrión muy atento."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-02T14:30:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "rating",
+          "comment",
+          "createdAt"
+        ]
+      },
       "BookingCancellationDto": {
         "type": "object",
         "properties": {
@@ -4595,6 +4720,14 @@
             "type": "string",
             "example": "2026-10-28T05:05:00.000Z",
             "description": "Fecha y hora en que el cierre diario la pasó a COMPLETADA (HU-046)"
+          },
+          "review": {
+            "description": "Reseña del huésped, presente cuando ya reseñó la estancia (HU-047)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BookingReviewDto"
+              }
+            ]
           },
           "cancellation": {
             "description": "Registro de la cancelación, presente cuando la reserva está CANCELADA (HU-040)",
@@ -5040,6 +5173,93 @@
           "testMode",
           "liveKeysConfigured",
           "configuredKeys"
+        ]
+      },
+      "CreateReviewDto": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "example": "booking-1a45f83e-c29e-4831-85b7-948450e066fc",
+            "description": "Reserva COMPLETADA que se reseña"
+          },
+          "rating": {
+            "type": "number",
+            "example": 5,
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Calificación en estrellas, entera de 1 a 5"
+          },
+          "comment": {
+            "type": "string",
+            "example": "Excelente ubicación y el anfitrión muy atento.",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "bookingId",
+          "rating",
+          "comment"
+        ]
+      },
+      "ReviewResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "review-6f1c2a9e"
+          },
+          "bookingId": {
+            "type": "string",
+            "example": "booking-1a45f83e-c29e-4831-85b7-948450e066fc"
+          },
+          "listingId": {
+            "type": "string",
+            "example": "demo-bogota-chapinero"
+          },
+          "guestId": {
+            "type": "string",
+            "example": "huesped@stayhub.com",
+            "description": "Huésped que escribió la reseña"
+          },
+          "authorName": {
+            "type": "string",
+            "example": "Camila Gómez",
+            "description": "Nombre público del autor"
+          },
+          "rating": {
+            "type": "number",
+            "example": 5,
+            "minimum": 1,
+            "maximum": 5
+          },
+          "comment": {
+            "type": "string",
+            "example": "Excelente ubicación y el anfitrión muy atento."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-02T14:30:00.000Z",
+            "description": "Fecha de publicación"
+          },
+          "visible": {
+            "type": "boolean",
+            "example": true,
+            "description": "Visible en el detalle del alojamiento"
+          }
+        },
+        "required": [
+          "id",
+          "bookingId",
+          "listingId",
+          "guestId",
+          "authorName",
+          "rating",
+          "comment",
+          "createdAt",
+          "visible"
         ]
       }
     }
