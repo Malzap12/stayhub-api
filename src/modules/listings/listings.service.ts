@@ -10,7 +10,7 @@ import {
   BlockReservedPeriodDto,
   BlockedPeriodResponseDto,
 } from './dto/availability.dto';
-import { HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
+import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
 import {
   ListingPricingResponseDto,
@@ -233,6 +233,17 @@ export function validateListingPricing(dto?: Partial<UpdateListingPricingDto>): 
   return errors;
 }
 import { NotificationsService } from '../notifications/notifications.service';
+
+/**
+ * HU-051 CA2 · Recibe la publicación bloqueada y su motivo, pone en revisión sus reservas futuras y devuelve sus
+ * códigos.
+ */
+export type BlockedListingHandler = (
+  listing: { id: string; title: string; hostId: string },
+  reason: string,
+  actor: string | undefined,
+  now: Date,
+) => string[];
 
 /** HU-047 · Reseña publicada tal como se muestra en el detalle del alojamiento. */
 export interface PublishedReview {
@@ -485,6 +496,60 @@ export class ListingsService implements OnModuleInit {
    * Si tiene los 9 campos mínimos y al menos una imagen pasa a PENDIENTE_REVISION;
    * cada intento, exitoso o fallido, queda en la auditoría (RN-021).
    */
+  /** HU-051 · Todas las publicaciones, en cualquier estado, para que el administrador pueda bloquearlas. */
+  findAllForAdmin(): ListingResponseDto[] {
+    return [...this.listingsStore].sort(
+      (a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
+    );
+  }
+
+  /**
+   * HU-051 · Bloquear una publicación engañosa (CA1, CA2, CA3 · RF-067, RF-068, RN-019, RN-020, RN-021).
+   * Desde cualquier estado (salvo si ya está BLOQUEADA) pasa a BLOQUEADA con el motivo y deja de aparecer en las
+   * búsquedas (CA1). Sus reservas futuras pasan a EN_REVISION y se conservan (CA2). Se notifica al anfitrión y a
+   * los huéspedes afectados y la acción queda en la auditoría (CA3).
+   */
+  blockListing(id: string, dto: BlockListingDto, actor?: string, now: Date = new Date()): ListingModerationResponseDto {
+    const reason = dto?.reason?.trim();
+    if (!reason) {
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, 'Bloqueo rechazado: motivo obligatorio');
+      throw new BadRequestException('El motivo del bloqueo es obligatorio');
+    }
+
+    const listing = this.listingsStore.find((item) => item.id === id);
+    if (!listing) {
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, 'Bloqueo rechazado: publicación no encontrada');
+      throw new NotFoundException(`Publicación con id ${id} no encontrada`);
+    }
+    const previousStatus = listing.status ?? ListingStatus.BORRADOR;
+    if (previousStatus === ListingStatus.BLOQUEADA) {
+      const message = 'La publicación ya está BLOQUEADA';
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, `Bloqueo rechazado: ${message}`);
+      throw new BadRequestException(message);
+    }
+
+    listing.status = ListingStatus.BLOQUEADA;
+    listing.blockReason = reason;
+    (listing as ListingResponseDto & { blockedAt?: Date }).blockedAt = now;
+    this.recordStatusChange(actor, id, AuditResult.EXITOSO, `${previousStatus} -> ${ListingStatus.BLOQUEADA}. Motivo: ${reason}`);
+
+    const bookingsUnderReview = this.blockedListingHandler?.(listing, reason, actor, now) ?? [];
+
+    const notification: HostNotificationDto = {
+      id: `notif-${Date.now()}`,
+      hostId: listing.hostId,
+      listingId: listing.id,
+      type: 'BLOQUEADA',
+      message: `Tu publicación "${listing.title}" fue bloqueada. Motivo: ${reason}`,
+      reason,
+      createdAt: now,
+    };
+    this.hostNotifications.push(notification);
+    this.notificationsService?.listingModerated(listing, 'PUBLICACION_BLOQUEADA', reason);
+
+    return { listingId: listing.id, status: listing.status, previousStatus, blockReason: reason, bookingsUnderReview, notification };
+  }
+
   requestActivation(id: string, host?: ActiveSession): MyListingDto {
     const listing = this.listingsStore.find((item) => item.id === id);
     const fail = (detail: string) =>
@@ -497,8 +562,9 @@ export class ListingsService implements OnModuleInit {
     }
 
     const currentStatus = listing.status ?? ListingStatus.BORRADOR;
-    if (currentStatus !== ListingStatus.BORRADOR) {
-      const message = `Solo puedes solicitar la activación de una publicación en BORRADOR (estado actual: ${LISTING_STATUS_LABELS[currentStatus]})`;
+    // HU-051 CA4: una publicación BLOQUEADA que el anfitrión corrigió también puede volver a revisión.
+    if (currentStatus !== ListingStatus.BORRADOR && currentStatus !== ListingStatus.BLOQUEADA) {
+      const message = `Solo puedes solicitar la activación de una publicación en BORRADOR o BLOQUEADA (estado actual: ${LISTING_STATUS_LABELS[currentStatus]})`;
       fail(message);
       throw new BadRequestException(message);
     }
@@ -525,7 +591,9 @@ export class ListingsService implements OnModuleInit {
       host?.email,
       id,
       AuditResult.EXITOSO,
-      `${ListingStatus.BORRADOR} -> ${ListingStatus.PENDIENTE_REVISION} (solicitud de activación)`,
+      currentStatus === ListingStatus.BLOQUEADA
+        ? `${ListingStatus.BLOQUEADA} -> ${ListingStatus.PENDIENTE_REVISION} (nueva revisión tras corregir la publicación bloqueada)`
+        : `${ListingStatus.BORRADOR} -> ${ListingStatus.PENDIENTE_REVISION} (solicitud de activación)`,
     );
     return toMyListing(listing);
   }
@@ -660,6 +728,12 @@ export class ListingsService implements OnModuleInit {
    */
   /** HU-047 · Fuente de las reseñas publicadas (la registra el servicio de reseñas al iniciar). */
   private reviewsProvider?: (listingId: string) => PublishedReview[];
+  /** HU-051 CA2 · Pone en revisión las reservas futuras de una publicación bloqueada (lo registra el servicio de reservas). */
+  private blockedListingHandler?: BlockedListingHandler;
+
+  setBlockedListingHandler(handler: BlockedListingHandler): void {
+    this.blockedListingHandler = handler;
+  }
 
   setReviewsProvider(provider: (listingId: string) => PublishedReview[]): void {
     this.reviewsProvider = provider;

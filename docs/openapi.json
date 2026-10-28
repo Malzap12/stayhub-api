@@ -801,11 +801,105 @@
         ]
       }
     },
+    "/api/listings/admin/all": {
+      "get": {
+        "operationId": "ListingsController_findAllForAdmin",
+        "summary": "Consultar todas las publicaciones · HU-051",
+        "description": "Retorna las publicaciones en cualquier estado, de la más reciente a la más antigua, para que el administrador pueda bloquearlas. Exclusivo para ADMINISTRADOR.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Todas las publicaciones",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ListingResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ADMINISTRADOR)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/{id}/block": {
+      "patch": {
+        "operationId": "ListingsController_blockListing",
+        "summary": "Bloquear una publicación engañosa · HU-051 (CA1, CA2, CA3)",
+        "description": "Desde cualquier estado pasa la publicación a BLOQUEADA con el motivo indicado y deja de aparecer en las búsquedas (CA1). Sus reservas futuras pasan a EN_REVISION y se conservan (CA2). Se notifica al anfitrión y a los huéspedes afectados, y la acción queda en la auditoría (CA3). RF-067, RF-068, RN-019, RN-020, RN-021.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockListingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Publicación BLOQUEADA; incluye las reservas que pasaron a EN_REVISION",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingModerationResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Falta el motivo o la publicación ya está BLOQUEADA"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ADMINISTRADOR)"
+          },
+          "404": {
+            "description": "Publicación no encontrada"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings/{id}/request-activation": {
       "patch": {
         "operationId": "ListingsController_requestActivation",
-        "summary": "Solicitar la activación de mi publicación · HU-013 (CA1, CA2, CA3)",
-        "description": "Envía a revisión una publicación propia en BORRADOR. Si tiene los 9 campos mínimos (descripción, ciudad, departamento, dirección, tipo, capacidad, precio por noche, servicios y reglas) y al menos una imagen, pasa a PENDIENTE_REVISION (CA1); si no, se rechaza con la lista de campos faltantes (CA2). El cambio queda en la auditoría (CA3). RF-017, RN-005, RN-007, RN-021.",
+        "summary": "Solicitar la activación de mi publicación · HU-013 (CA1, CA2, CA3), HU-051 (CA4)",
+        "description": "Envía a revisión una publicación propia en BORRADOR, o en BLOQUEADA ya corregida (HU-051 CA4). Si tiene los 9 campos mínimos (descripción, ciudad, departamento, dirección, tipo, capacidad, precio por noche, servicios y reglas) y al menos una imagen, pasa a PENDIENTE_REVISION (CA1); si no, se rechaza con la lista de campos faltantes (CA2). El cambio queda en la auditoría (CA3). RF-017, RN-005, RN-007, RN-021.",
         "parameters": [
           {
             "name": "id",
@@ -3472,50 +3566,17 @@
           "createdAt"
         ]
       },
-      "ActivationMissingFieldsErrorDto": {
+      "BlockListingDto": {
         "type": "object",
         "properties": {
-          "statusCode": {
-            "type": "number",
-            "example": 400
-          },
-          "error": {
+          "reason": {
             "type": "string",
-            "example": "Bad Request"
-          },
-          "message": {
-            "type": "string",
-            "example": "No puedes solicitar la activación: completa los campos faltantes. Falta: ciudad, precio por noche."
-          },
-          "missingFields": {
-            "example": [
-              "city",
-              "pricePerNight"
-            ],
-            "description": "Campos mínimos que faltan (CA2)",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "missingFieldLabels": {
-            "example": [
-              "ciudad",
-              "precio por noche"
-            ],
-            "description": "Nombre de cada campo faltante para mostrar al anfitrión",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+            "example": "Las fotografías no corresponden al inmueble y la dirección publicada es falsa.",
+            "description": "Motivo del bloqueo que verán el anfitrión y la auditoría (HU-051 CA1)"
           }
         },
         "required": [
-          "statusCode",
-          "error",
-          "message",
-          "missingFields",
-          "missingFieldLabels"
+          "reason"
         ]
       },
       "HostNotificationDto": {
@@ -3538,7 +3599,8 @@
             "example": "APROBADA",
             "enum": [
               "APROBADA",
-              "DEVUELTA"
+              "DEVUELTA",
+              "BLOQUEADA"
             ]
           },
           "message": {
@@ -3586,6 +3648,33 @@
             "type": "string",
             "example": "Las fotos no cumplen la resolución mínima."
           },
+          "blockReason": {
+            "type": "string",
+            "example": "Las fotografías no corresponden al inmueble.",
+            "description": "Motivo del bloqueo (HU-051)"
+          },
+          "previousStatus": {
+            "type": "string",
+            "enum": [
+              "BORRADOR",
+              "PENDIENTE_REVISION",
+              "ACTIVA",
+              "PAUSADA",
+              "BLOQUEADA"
+            ],
+            "example": "ACTIVA",
+            "description": "Estado anterior al bloqueo (HU-051)"
+          },
+          "bookingsUnderReview": {
+            "example": [
+              "RES-8D17F0D7"
+            ],
+            "description": "Códigos de las reservas futuras que pasaron a EN_REVISION al bloquear la publicación (HU-051 CA2)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "notification": {
             "$ref": "#/components/schemas/HostNotificationDto"
           }
@@ -3594,6 +3683,52 @@
           "listingId",
           "status",
           "notification"
+        ]
+      },
+      "ActivationMissingFieldsErrorDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 400
+          },
+          "error": {
+            "type": "string",
+            "example": "Bad Request"
+          },
+          "message": {
+            "type": "string",
+            "example": "No puedes solicitar la activación: completa los campos faltantes. Falta: ciudad, precio por noche."
+          },
+          "missingFields": {
+            "example": [
+              "city",
+              "pricePerNight"
+            ],
+            "description": "Campos mínimos que faltan (CA2)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missingFieldLabels": {
+            "example": [
+              "ciudad",
+              "precio por noche"
+            ],
+            "description": "Nombre de cada campo faltante para mostrar al anfitrión",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "statusCode",
+          "error",
+          "message",
+          "missingFields",
+          "missingFieldLabels"
         ]
       },
       "ReturnListingDto": {
@@ -4720,6 +4855,17 @@
             "type": "string",
             "example": "2026-10-28T05:05:00.000Z",
             "description": "Fecha y hora en que el cierre diario la pasó a COMPLETADA (HU-046)"
+          },
+          "reviewReason": {
+            "type": "string",
+            "example": "La publicación fue bloqueada por el administrador: fotografías engañosas",
+            "description": "Motivo por el que la reserva quedó EN_REVISION (HU-051 CA2)"
+          },
+          "underReviewAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-28T15:00:00.000Z",
+            "description": "Fecha en que la reserva pasó a EN_REVISION (HU-051 CA2)"
           },
           "review": {
             "description": "Reseña del huésped, presente cuando ya reseñó la estancia (HU-047)",

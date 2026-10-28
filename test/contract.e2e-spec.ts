@@ -1731,4 +1731,69 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await sendReview(guest, { bookingId: 'no-existe', rating: 4, comment: 'Muy bien' })).status).toBe(404);
     });
   });
+
+  describe('HU-051 · Bloquear una publicación engañosa (CA1, CA2, CA3, CA4, RF-067, RF-068)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const block = (token: string | null, id: string, body: unknown) =>
+      fetch(`${baseUrl}/listings/${id}/block`, { method: 'PATCH', headers: token ? auth(token) : json, body: JSON.stringify(body) });
+    const reason = 'Las fotografías no corresponden al inmueble';
+    let admin: string;
+    let guest: string;
+    let host: string;
+    let booking: { id: string; code: string; listingId: string };
+
+    beforeAll(async () => {
+      admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      guest = await login('huesped.hu043@stayhub.com', 'Password123');
+      host = await login('anfitrion.hu043@stayhub.com', 'Password123');
+      const mine = await (await fetch(`${baseUrl}/bookings/my`, { headers: auth(guest) })).json();
+      booking = (Array.isArray(mine) ? mine : mine.data)[0];
+    });
+
+    it('26.1 solo el administrador bloquea, con motivo, y sin sesión responde 401', async () => {
+      expect((await block(guest, booking.listingId, { reason })).status).toBe(403);
+      expect((await block(host, booking.listingId, { reason })).status).toBe(403);
+      expect((await block(null, booking.listingId, { reason })).status).toBe(401);
+      expect((await block(admin, booking.listingId, { reason: '' })).status).toBe(400);
+      expect((await block(admin, 'no-existe', { reason })).status).toBe(404);
+    });
+
+    it('26.2 (CA1, CA2, CA3) la publicación pasa a BLOQUEADA, sale de las búsquedas y su reserva futura pasa a EN_REVISION', async () => {
+      const res = await block(admin, booking.listingId, { reason });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ status: 'BLOQUEADA', previousStatus: 'ACTIVA', blockReason: reason, bookingsUnderReview: [booking.code] });
+
+      const search = await (await fetch(`${baseUrl}/listings/search?city=Guatap%C3%A9`)).json();
+      expect(search.data.map((item: { id: string }) => item.id)).not.toContain(booking.listingId);
+
+      const stored = await (await fetch(`${baseUrl}/bookings/${booking.id}`, { headers: auth(guest) })).json();
+      expect(stored).toMatchObject({ status: 'EN_REVISION', reviewReason: expect.stringContaining(reason) });
+
+      const toGuest = (await (await fetch(`${baseUrl}/notifications`, { headers: auth(guest) })).json()).data;
+      expect(toGuest[0]).toMatchObject({ type: 'RESERVA_EN_REVISION', bookingCode: booking.code });
+      const toHost = (await (await fetch(`${baseUrl}/notifications`, { headers: auth(host) })).json()).data;
+      expect(toHost[0]).toMatchObject({ type: 'PUBLICACION_BLOQUEADA' });
+
+      const events = await (await fetch(`${baseUrl}/audit/events?action=LISTING_STATUS_CHANGE`, { headers: auth(admin) })).json();
+      const items = Array.isArray(events) ? events : events.data;
+      expect(items.some((event: { entityId: string; detail: string }) => event.entityId === booking.listingId && event.detail.includes('ACTIVA -> BLOQUEADA'))).toBe(true);
+
+      expect((await block(admin, booking.listingId, { reason })).status).toBe(400);
+    });
+
+    it('26.3 (CA4) el anfitrión solicita una nueva revisión y la publicación vuelve a PENDIENTE_REVISION', async () => {
+      const res = await fetch(`${baseUrl}/listings/${booking.listingId}/request-activation`, { method: 'PATCH', headers: auth(host) });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ status: 'PENDIENTE_REVISION' });
+
+      const pending = await (await fetch(`${baseUrl}/listings/pending`, { headers: auth(admin) })).json();
+      expect(pending.map((item: { id: string }) => item.id)).toContain(booking.listingId);
+      const all = await (await fetch(`${baseUrl}/listings/admin/all`, { headers: auth(admin) })).json();
+      expect(all.find((item: { id: string }) => item.id === booking.listingId)).toMatchObject({ status: 'PENDIENTE_REVISION' });
+    });
+  });
 });

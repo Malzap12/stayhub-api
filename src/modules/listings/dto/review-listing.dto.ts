@@ -13,6 +13,18 @@ export class ReturnListingDto {
   reason: string;
 }
 
+/** HU-051 · Motivo del bloqueo de una publicación engañosa. */
+export class BlockListingDto {
+  @ApiProperty({
+    example: 'Las fotografías no corresponden al inmueble y la dirección publicada es falsa.',
+    description: 'Motivo del bloqueo que verán el anfitrión y la auditoría (HU-051 CA1)',
+  })
+  @IsString()
+  @IsNotEmpty({ message: 'El motivo del bloqueo es obligatorio' })
+  @MinLength(5, { message: 'El motivo debe tener al menos 5 caracteres' })
+  reason: string;
+}
+
 export class HostNotificationDto {
   @ApiProperty({ example: 'notif-uuid-1' })
   id: string;
@@ -23,8 +35,8 @@ export class HostNotificationDto {
   @ApiProperty({ example: 'uuid-1234-listing' })
   listingId: string;
 
-  @ApiProperty({ example: 'APROBADA', enum: ['APROBADA', 'DEVUELTA'] })
-  type: 'APROBADA' | 'DEVUELTA';
+  @ApiProperty({ example: 'APROBADA', enum: ['APROBADA', 'DEVUELTA', 'BLOQUEADA'] })
+  type: 'APROBADA' | 'DEVUELTA' | 'BLOQUEADA';
 
   @ApiProperty({ example: 'Tu publicación "Villa en Barú" fue aprobada y ya está ACTIVA en las búsquedas.' })
   message: string;
@@ -45,6 +57,19 @@ export class ListingModerationResponseDto {
 
   @ApiPropertyOptional({ example: 'Las fotos no cumplen la resolución mínima.' })
   returnReason?: string;
+
+  @ApiPropertyOptional({ example: 'Las fotografías no corresponden al inmueble.', description: 'Motivo del bloqueo (HU-051)' })
+  blockReason?: string;
+
+  @ApiPropertyOptional({ enum: ListingStatus, example: ListingStatus.ACTIVA, description: 'Estado anterior al bloqueo (HU-051)' })
+  previousStatus?: ListingStatus;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['RES-8D17F0D7'],
+    description: 'Códigos de las reservas futuras que pasaron a EN_REVISION al bloquear la publicación (HU-051 CA2)',
+  })
+  bookingsUnderReview?: string[];
 
   @ApiProperty({ type: HostNotificationDto })
   notification: HostNotificationDto;

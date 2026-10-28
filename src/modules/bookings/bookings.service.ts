@@ -155,6 +155,43 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
         this.bookingsStore = (data as BookingResponseDto[]) ?? [];
       },
     });
+    this.listingsService?.setBlockedListingHandler((listing, reason, actor, now) =>
+      this.putFutureBookingsUnderReview(listing.id, reason, actor, now),
+    );
+  }
+
+  /**
+   * HU-051 CA2 y CA3 · Al bloquear una publicación, sus reservas futuras (CONFIRMADA o PENDIENTE cuya salida aún no
+   * llega, en hora de Colombia) pasan a EN_REVISION. Se conservan con sus noches reservadas para la auditoría
+   * (RN-020); cada cambio queda en la auditoría y se notifica al huésped. Devuelve los códigos de las reservas.
+   */
+  putFutureBookingsUnderReview(listingId: string, reason: string, actor?: string, now: Date = new Date()): string[] {
+    const today = bogotaDate(now);
+    const future = this.bookingsStore.filter(
+      (booking) =>
+        booking.listingId === listingId &&
+        (booking.status === BookingStatus.CONFIRMADA || booking.status === BookingStatus.PENDIENTE) &&
+        String(booking.checkOut).slice(0, 10) > today,
+    );
+    const reviewReason = `La publicación fue bloqueada por el administrador: ${reason}`;
+
+    for (const booking of future) {
+      const previous = booking.status;
+      booking.status = BookingStatus.EN_REVISION;
+      booking.reviewReason = reviewReason;
+      booking.underReviewAt = now;
+      this.auditService.record({
+        actor,
+        action: AuditAction.BOOKING_STATUS_CHANGE,
+        entity: 'Booking',
+        entityId: booking.id,
+        result: AuditResult.EXITOSO,
+        detail: `Reserva ${booking.code ?? booking.id} pasó de ${previous} a EN_REVISION: ${reviewReason}`,
+      });
+      this.notificationsService?.bookingUnderReview(this.noticeOf(booking), 'el alojamiento fue bloqueado por el administrador');
+    }
+
+    return future.map((booking) => booking.code ?? booking.id);
   }
 
   /**
