@@ -1,6 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, IsNumber, IsInt, Min, IsDateString } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsString, IsNumber, IsInt, Min, IsDateString, IsEnum, IsArray, ArrayMaxSize } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { PropertyType } from '../../../common/enums/property-type.enum';
+
+/** HU-025 · `amenities` llega como `WIFI,PARQUEADERO` o repetido (`amenities=WIFI&amenities=PARQUEADERO`). */
+const toAmenityList = ({ value }: { value: unknown }): string[] | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const items = (Array.isArray(value) ? value : [value]).flatMap((item) => String(item).split(','));
+  const codes = items.map((item) => item.trim().toUpperCase()).filter(Boolean);
+  return codes.length > 0 ? [...new Set(codes)] : undefined;
+};
 
 export class SearchListingsDto {
   @ApiPropertyOptional({ example: 'Medellín', description: 'Ciudad de destino' })
@@ -31,19 +40,36 @@ export class SearchListingsDto {
   @Min(1, { message: 'El número de huéspedes debe ser al menos 1' })
   guests?: number;
 
-  @ApiPropertyOptional({ example: 30, description: 'Precio mínimo por noche' })
+  @ApiPropertyOptional({ enum: PropertyType, example: PropertyType.APARTAMENTO, description: 'Tipo de alojamiento (HU-025 CA1)' })
+  @IsOptional()
+  @IsEnum(PropertyType, { message: 'El tipo de alojamiento no es válido' })
+  propertyType?: PropertyType;
+
+  @ApiPropertyOptional({ example: 150000, description: 'Precio mínimo por noche en COP, incluido (HU-025 CA1)' })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
-  @Min(0)
+  @IsNumber({}, { message: 'El precio mínimo debe ser un número' })
+  @Min(0, { message: 'El precio mínimo no puede ser negativo' })
   minPrice?: number;
 
-  @ApiPropertyOptional({ example: 300, description: 'Precio máximo por noche' })
+  @ApiPropertyOptional({ example: 300000, description: 'Precio máximo por noche en COP, incluido (HU-025 CA1)' })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
-  @Min(0)
+  @IsNumber({}, { message: 'El precio máximo debe ser un número' })
+  @Min(0, { message: 'El precio máximo no puede ser negativo' })
   maxPrice?: number;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['WIFI', 'PARQUEADERO'],
+    description: 'Servicios que debe tener la publicación, todos a la vez (HU-025 CA2). Separados por coma o repetidos.',
+  })
+  @IsOptional()
+  @Transform(toAmenityList)
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  amenities?: string[];
 
   @ApiPropertyOptional({ example: 1, default: 1, description: 'Número de página' })
   @IsOptional()

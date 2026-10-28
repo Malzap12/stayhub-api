@@ -1860,4 +1860,41 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await fetch(`${baseUrl}/reports/dashboard`)).status).toBe(401);
     });
   });
+
+  describe('HU-025 · Filtrar por tipo, precio y servicios (CA1, CA2, CA3, RF-032)', () => {
+    const search = async (query: string) => {
+      const res = await fetch(`${baseUrl}/listings/search?limit=100&${query}`);
+      return { status: res.status, body: await res.json() };
+    };
+
+    it('29.1 (CA1) tipo APARTAMENTO entre 150.000 y 300.000 COP: solo apartamentos en ese rango', async () => {
+      const { status, body } = await search('propertyType=APARTAMENTO&minPrice=150000&maxPrice=300000');
+      expect(status).toBe(200);
+      for (const item of body.data) {
+        expect(item.propertyType).toBe('APARTAMENTO');
+        expect(item.pricePerNight).toBeGreaterThanOrEqual(150000);
+        expect(item.pricePerNight).toBeLessThanOrEqual(300000);
+      }
+    });
+
+    it('29.2 (CA2) WIFI y PARQUEADERO, separados por coma o repetidos: todas las publicaciones tienen ambos', async () => {
+      const synonyms: Record<string, string> = { PARKING: 'PARQUEADERO' };
+      const byComma = await search('amenities=WIFI,PARQUEADERO');
+      const repeated = await search('amenities=WIFI&amenities=PARQUEADERO');
+      expect(byComma.status).toBe(200);
+      expect(byComma.body.data.length).toBeGreaterThan(0);
+      expect(repeated.body.total).toBe(byComma.body.total);
+      for (const item of byComma.body.data) {
+        const codes = item.amenities.map((code: string) => synonyms[code] ?? code);
+        expect(codes).toEqual(expect.arrayContaining(['WIFI', 'PARQUEADERO']));
+      }
+    });
+
+    it('29.3 (CA3) sin resultados responde 200 vacío; parámetros inválidos responden 400', async () => {
+      const empty = await search('propertyType=FINCA&minPrice=99000000');
+      expect(empty).toMatchObject({ status: 200, body: { data: [], total: 0 } });
+      expect((await search('propertyType=CASTILLO')).status).toBe(400);
+      expect((await search('minPrice=300000&maxPrice=150000')).status).toBe(400);
+    });
+  });
 });
