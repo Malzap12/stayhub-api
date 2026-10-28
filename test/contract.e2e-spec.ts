@@ -1820,4 +1820,44 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(all.find((item: { id: string }) => item.id === booking.listingId)).toMatchObject({ status: 'PENDIENTE_REVISION' });
     });
   });
+
+  describe('HU-056 · Ver los indicadores del negocio (CA1, CA3, RF-074)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+
+    it('28.1 (CA1) el administrador ve usuarios por rol, publicaciones ACTIVAS, reservas por estado, ingresos y ciudades', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      const res = await fetch(`${baseUrl}/reports/dashboard`, { headers: auth(admin) });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+
+      expect(body.usersByRole).toEqual({
+        HUESPED: expect.any(Number),
+        ANFITRION: expect.any(Number),
+        ADMINISTRADOR: expect.any(Number),
+        total: body.usersByRole.HUESPED + body.usersByRole.ANFITRION + body.usersByRole.ADMINISTRADOR,
+      });
+      expect(body.usersByRole.ADMINISTRADOR).toBeGreaterThanOrEqual(1);
+      expect(body.activeListings).toBeGreaterThan(0);
+      const { total, ...byStatus } = body.bookingsByStatus;
+      expect(Object.keys(byStatus).sort()).toEqual(['CANCELADA', 'COMPLETADA', 'CONFIRMADA', 'EN_REVISION', 'PENDIENTE']);
+      expect(total).toBe(Object.values(byStatus).reduce((sum: number, n) => sum + Number(n), 0));
+      expect(body.estimatedRevenue).toMatchObject({ currency: 'COP', grossBookingValue: expect.any(Number), platformFees: expect.any(Number) });
+      expect(body.topCities.length).toBeLessThanOrEqual(5);
+      for (let i = 1; i < body.topCities.length; i++) {
+        expect(body.topCities[i - 1].bookings).toBeGreaterThanOrEqual(body.topCities[i].bookings);
+      }
+    });
+
+    it('28.2 (CA3) el huésped y el anfitrión reciben 403 y sin sesión 401', async () => {
+      const guest = await login('huesped.hu043@stayhub.com', 'Password123');
+      const host = await login('anfitrion.hu043@stayhub.com', 'Password123');
+      expect((await fetch(`${baseUrl}/reports/dashboard`, { headers: auth(guest) })).status).toBe(403);
+      expect((await fetch(`${baseUrl}/reports/dashboard`, { headers: auth(host) })).status).toBe(403);
+      expect((await fetch(`${baseUrl}/reports/dashboard`)).status).toBe(401);
+    });
+  });
 });
