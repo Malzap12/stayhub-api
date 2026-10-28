@@ -87,6 +87,24 @@ const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MS_PER_DAY = 86_400_000;
 
 /** HU-024: compara ciudades sin distinguir mayúsculas, tildes ni espacios sobrantes (Bogota = Bogotá). */
+/**
+ * HU-025 · Códigos equivalentes de un mismo servicio: las publicaciones demo usan códigos en inglés y el formulario
+ * del anfitrión en español. Se comparan por su código del formulario.
+ */
+export const AMENITY_ALIASES: Record<string, string> = {
+  PARKING: 'PARQUEADERO',
+  KITCHEN: 'COCINA',
+  POOL: 'PISCINA',
+  AC: 'AIRE_ACONDICIONADO',
+  WI_FI: 'WIFI',
+  'WI-FI': 'WIFI',
+};
+
+export function canonicalAmenity(code: string): string {
+  const upper = code.trim().toUpperCase();
+  return AMENITY_ALIASES[upper] ?? upper;
+}
+
 export function normalizeCity(city: string): string {
   return city.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
@@ -1266,12 +1284,22 @@ export class ListingsService implements OnModuleInit {
   async search(searchDto: SearchListingsDto): Promise<PaginatedListingsResponseDto> {
     const stay = this.parseStayDates(searchDto.checkIn, searchDto.checkOut);
     const city = searchDto.city?.trim() ? normalizeCity(searchDto.city) : undefined;
+    const { minPrice, maxPrice, propertyType } = searchDto;
+    if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
+      throw new BadRequestException('El precio mínimo no puede ser mayor que el precio máximo');
+    }
+    const amenities = (searchDto.amenities ?? []).map(canonicalAmenity);
 
     const filtered = this.listingsStore.filter(
       (item) =>
         item.status === ListingStatus.ACTIVA &&
         (!city || normalizeCity(item.city ?? '') === city) &&
         (!searchDto.guests || (item.maxGuests ?? 0) >= searchDto.guests) &&
+        // HU-025 CA1: tipo de alojamiento y precio por noche dentro del rango (ambos extremos incluidos).
+        (!propertyType || item.propertyType === propertyType) &&
+        this.isPriceInRange(item.pricePerNight, minPrice, maxPrice) &&
+        // HU-025 CA2: debe tener todos los servicios pedidos.
+        this.hasAllAmenities(item.amenities, amenities) &&
         (!stay || this.isRangeAvailable(item.id, stay.checkIn, stay.checkOut)),
     );
 
@@ -1286,6 +1314,18 @@ export class ListingsService implements OnModuleInit {
       page,
       totalPages,
     };
+  }
+
+  private isPriceInRange(price: number | undefined, minPrice?: number, maxPrice?: number): boolean {
+    if (minPrice == null && maxPrice == null) return true;
+    if (price == null) return false;
+    return (minPrice == null || price >= minPrice) && (maxPrice == null || price <= maxPrice);
+  }
+
+  private hasAllAmenities(listingAmenities: string[] | undefined, required: string[]): boolean {
+    if (required.length === 0) return true;
+    const available = new Set((listingAmenities ?? []).map(canonicalAmenity));
+    return required.every((amenity) => available.has(amenity));
   }
 
   /**
