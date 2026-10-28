@@ -3,7 +3,7 @@ import { BadRequestException, NotFoundException, StreamableFile } from '@nestjs/
 import { Workbook, Worksheet } from 'exceljs';
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
-import { HEADER_ROW, ReportExportService } from './report-export.service';
+import { HEADER_ROW, ReportExportService, buildTotalRow, extractPdfText } from './report-export.service';
 import { BookingsService } from '../bookings/bookings.service';
 import { ListingsService } from '../listings/listings.service';
 import { PlatformConfigService } from '../platform/platform-config.service';
@@ -18,7 +18,7 @@ import { AuditAction } from '../../common/enums/audit.enum';
 import { BookingResponseDto } from '../bookings/dto/booking-response.dto';
 import { ListingResponseDto } from '../listings/dto/listing-response.dto';
 
-describe('HU-058 · Exportar reportes a Excel (CA1, CA2, RF-076, RF-077, RN-026)', () => {
+describe('HU-058 y HU-059 · Exportar reportes a Excel y PDF (CA1, CA2, RF-076, RF-077, RN-026)', () => {
   let controller: ReportsController;
   let exporter: ReportExportService;
   let dashboard: ReportsService;
@@ -180,6 +180,77 @@ describe('HU-058 · Exportar reportes a Excel (CA1, CA2, RF-076, RF-077, RN-026)
       actor: 'admin@prueba.com',
       entityId: 'ingresos',
       detail: 'Exportó reporte de ingresos estimados a Excel (1 filas). Filtros: ciudad Bogotá',
+    });
+  });
+
+  describe('HU-059 · Exportar reportes a PDF (CA1, CA2, RF-076, RF-077, RN-026)', () => {
+    it('CA1: descarga un documento .pdf con título, filtros, fecha de generación, tabla de datos y totales', async () => {
+      const headersSet: Record<string, string> = {};
+      const res = { set: (values: Record<string, string>) => Object.assign(headersSet, values) };
+
+      const file = await controller.exportReportPdf('reservas', { status: 'CONFIRMADA' }, res as never, { email: 'admin@prueba.com' } as never);
+
+      expect(file).toBeInstanceOf(StreamableFile);
+      expect(headersSet['Content-Type']).toBe('application/pdf');
+      expect(headersSet['Content-Disposition']).toMatch(/^attachment; filename="stayhub-reservas-\d{8}T\d{4}\.pdf"$/);
+
+      const { buffer, rows } = await exporter.exportPdf('reservas', { status: 'CONFIRMADA' }, 'admin@prueba.com', now);
+      expect(buffer.subarray(0, 5).toString()).toBe('%PDF-');
+      expect(rows).toBe(3);
+
+      const text = extractPdfText(buffer);
+      expect(text).toContain('Reporte de reservas');
+      expect(text).toContain('Generado el 2026-10-28 10:30 (hora de Colombia)');
+      expect(text).toContain('Filtros aplicados: estado CONFIRMADA');
+      expect(text).toContain('Código');
+      expect(text).toContain('Alojamiento');
+      expect(text).toContain('Total: 3 fila(s)');
+      expect(text).toContain('2100000.5');
+      expect(text).toContain('210000.25');
+    });
+
+    it('CA2: usando el mismo filtro, los totales del PDF coinciden exactamente con los de Excel en los 5 reportes', async () => {
+      const scenarios: Array<{ report: 'usuarios' | 'publicaciones' | 'reservas' | 'ingresos' | 'demanda'; filters: Record<string, string> }> = [
+        { report: 'usuarios', filters: { status: 'ACTIVA' } },
+        { report: 'publicaciones', filters: { city: 'Medellín' } },
+        { report: 'reservas', filters: { from: '2026-10-01', to: '2026-10-31', status: 'CONFIRMADA' } },
+        { report: 'ingresos', filters: { city: 'Medellín' } },
+        { report: 'demanda', filters: {} },
+      ];
+
+      for (const { report, filters } of scenarios) {
+        const xlsxResult = await exporter.export(report, filters, 'admin@prueba.com', now);
+        const pdfResult = await exporter.exportPdf(report, filters, 'admin@prueba.com', now);
+
+        expect(pdfResult.rows).toBe(xlsxResult.rows);
+
+        const sheet = await read(xlsxResult.buffer);
+        const excelTotals = totalRow(sheet).filter((cell) => cell !== null && cell !== undefined);
+        const expectedTotals = buildTotalRow(exporter.buildTable(report, filters)).filter((cell) => cell !== null);
+        expect(excelTotals).toEqual(expectedTotals);
+
+        const pdfText = extractPdfText(pdfResult.buffer);
+        for (const totalValue of expectedTotals) {
+          expect(pdfText).toContain(String(totalValue));
+        }
+      }
+    });
+
+    it('CA1: pagina automáticamente cuando hay muchas filas, registra en auditoría y lanza 404 en reporte inexistente', async () => {
+      for (let i = 0; i < 30; i++) {
+        bookings.push(booking('med-apto', BookingStatus.CONFIRMADA, 100_000, 10_000));
+      }
+      const { buffer, rows } = await exporter.exportPdf('reservas', {}, 'admin@prueba.com', now);
+      expect(rows).toBe(36);
+      expect(extractPdfText(buffer)).toContain('Total: 36 fila(s)');
+
+      expect(audit.findAll({ action: AuditAction.EXPORT }).at(-1)).toMatchObject({
+        actor: 'admin@prueba.com',
+        entityId: 'reservas',
+        detail: 'Exportó reporte de reservas a PDF (36 filas). Filtros: ninguno (todos los registros)',
+      });
+
+      await expect(exporter.exportPdf('inexistente', {}, 'admin@prueba.com', now)).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

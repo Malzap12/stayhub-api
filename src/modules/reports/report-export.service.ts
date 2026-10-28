@@ -8,6 +8,24 @@ import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { REVENUE_CURRENCY, REVENUE_STATUSES } from './reports.service';
 import { EXPORTABLE_REPORTS, ExportableReport, ExportReportQueryDto } from './dto/export-report.dto';
 
+interface PdfDoc {
+  page: { width: number; height: number };
+  on(event: 'data', listener: (chunk: Buffer) => void): this;
+  on(event: 'end', listener: () => void): this;
+  on(event: 'error', listener: (err: Error) => void): this;
+  font(name: string): this;
+  fontSize(size: number): this;
+  fillColor(color: string): this;
+  text(text: string, x: number, y: number, options?: Record<string, unknown>): this;
+  rect(x: number, y: number, w: number, h: number): this;
+  fill(color: string): this;
+  addPage(options?: Record<string, unknown>): this;
+  end(): void;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const PDFDocument = require('pdfkit') as new (options?: Record<string, unknown>) => PdfDoc;
+
 type Cell = string | number | Date | null;
 
 interface ReportColumn {
@@ -57,10 +75,10 @@ const dayOnly = (value: unknown): Date | null => {
 };
 
 /**
- * HU-058 · Exportar reportes a Excel (CA1, CA2 · RF-076, RF-077, RN-026).
+ * HU-058 · Exportar reportes a Excel y HU-059 · Exportar reportes a PDF (CA1, CA2 · RF-076, RF-077, RN-026).
  * Cinco reportes (AMB-23): usuarios, publicaciones, reservas, ingresos estimados y demanda por ciudad y tipo.
- * Cada archivo .xlsx trae título, fecha de generación, filtros aplicados, encabezados con autofiltro y una fila de
- * totales calculada con los mismos datos que el dashboard (HU-056), por lo que coinciden con el sistema (CA2).
+ * Tanto el archivo .xlsx como el documento .pdf se construyen con la misma tabla y fila de totales (`buildTable` y
+ * `buildTotalRow`), por lo que con el mismo filtro los totales de Excel y PDF coinciden exactamente (HU-059 CA2).
  */
 @Injectable()
 export class ReportExportService {
@@ -234,7 +252,7 @@ export class ReportExportService {
     }
   }
 
-  /** CA1: genera el .xlsx y deja la exportación en la auditoría. */
+  /** HU-058 CA1: genera el .xlsx y deja la exportación en la auditoría. */
   async export(report: string, filters: ExportReportQueryDto, actor?: string, now: Date = new Date()): Promise<ExportedReport> {
     if (!EXPORTABLE_REPORTS.includes(report as ExportableReport)) {
       throw new NotFoundException(`El reporte "${report}" no existe. Reportes disponibles: ${EXPORTABLE_REPORTS.join(', ')}`);
@@ -254,6 +272,26 @@ export class ReportExportService {
     return { fileName: `stayhub-${report}-${stamp}.xlsx`, buffer, rows: table.rows.length };
   }
 
+  /** HU-059 CA1, CA2: genera el .pdf con título, filtros, fecha, tabla y totales idénticos a los de Excel. */
+  async exportPdf(report: string, filters: ExportReportQueryDto, actor?: string, now: Date = new Date()): Promise<ExportedReport> {
+    if (!EXPORTABLE_REPORTS.includes(report as ExportableReport)) {
+      throw new NotFoundException(`El reporte "${report}" no existe. Reportes disponibles: ${EXPORTABLE_REPORTS.join(', ')}`);
+    }
+    const table = this.buildTable(report as ExportableReport, filters);
+    const buffer = await this.toPdf(table, filters, now);
+    const stamp = now.toISOString().replace(/[-:]/g, '').slice(0, 13);
+
+    this.auditService.record({
+      actor,
+      action: AuditAction.EXPORT,
+      entity: 'Report',
+      entityId: report,
+      result: AuditResult.EXITOSO,
+      detail: `Exportó ${table.title.toLowerCase()} a PDF (${table.rows.length} filas). Filtros: ${describeFilters(filters)}`,
+    });
+    return { fileName: `stayhub-${report}-${stamp}.pdf`, buffer, rows: table.rows.length };
+  }
+
   private async toWorkbook(table: ReportTable, filters: ExportReportQueryDto, now: Date): Promise<Buffer> {
     const workbook = new Workbook();
     workbook.creator = 'StayHub · Inversiones LR';
@@ -265,7 +303,7 @@ export class ReportExportService {
 
     sheet.getCell(1, 1).value = table.title;
     sheet.getCell(1, 1).font = { bold: true, size: 14 };
-    sheet.getCell(2, 1).value = `Generado el ${bogotaDate(now)} ${new Date(now.getTime() - 5 * 3_600_000).toISOString().slice(11, 16)} (hora de Colombia)`;
+    sheet.getCell(2, 1).value = generatedAtLabel(now);
     sheet.getCell(3, 1).value = `Filtros aplicados: ${describeFilters(filters)}`;
 
     table.columns.forEach((column, index) => {
@@ -282,18 +320,130 @@ export class ReportExportService {
       sheet.getRow(HEADER_ROW + 1 + index).values = row as never;
     });
 
-    // CA2: fila de totales (cantidad de filas y suma de las columnas numéricas).
+    // CA2: fila de totales compartida con PDF (cantidad de filas y suma de las columnas numéricas).
+    const totals = buildTotalRow(table);
     const totalRow = sheet.getRow(HEADER_ROW + table.rows.length + 2);
-    totalRow.getCell(1).value = `Total: ${table.rows.length} fila(s)`;
-    table.columns.forEach((column, index) => {
-      if (!column.total) return;
-      const sum = table.rows.reduce((acc, row) => acc + Number(row[index] ?? 0), 0);
-      totalRow.getCell(index + 1).value = Math.round(sum * 100) / 100;
+    totals.forEach((value, index) => {
+      if (value !== null) totalRow.getCell(index + 1).value = value;
     });
     totalRow.font = { bold: true };
 
     return Buffer.from(await workbook.xlsx.writeBuffer());
   }
+
+  private toPdf(table: ReportTable, filters: ExportReportQueryDto, now: Date): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({
+        size: 'A4',
+        layout: 'landscape',
+        margin: 32,
+        compress: false,
+        info: {
+          Title: table.title,
+          Author: 'StayHub · Inversiones LR',
+          Subject: `Filtros aplicados: ${describeFilters(filters)}`,
+          CreationDate: now,
+        },
+      });
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      const startX = 32;
+      const usableWidth = doc.page.width - startX * 2;
+      const totalWeight = table.columns.reduce((acc, col) => acc + col.width, 0) || 1;
+      const colWidths = table.columns.map((col) => (col.width / totalWeight) * usableWidth);
+
+      doc.font('Helvetica-Bold').fontSize(15).fillColor('#1d1d1f').text(table.title, startX, 32);
+      doc.font('Helvetica').fontSize(9).fillColor('#4b5563').text(generatedAtLabel(now), startX, 52);
+      doc.text(`Filtros aplicados: ${describeFilters(filters)}`, startX, 65);
+
+      let y = 86;
+      const rowHeight = 20;
+      const drawRow = (cells: string[], opts: { header?: boolean; total?: boolean; zebra?: boolean } = {}) => {
+        if (y + rowHeight > doc.page.height - 40) {
+          doc.addPage({ size: 'A4', layout: 'landscape', margin: 32 });
+          y = 32;
+        }
+        if (opts.header) {
+          doc.rect(startX, y, usableWidth, rowHeight).fill('#1d1d1f');
+        } else if (opts.total) {
+          doc.rect(startX, y, usableWidth, rowHeight).fill('#e5e7eb');
+        } else if (opts.zebra) {
+          doc.rect(startX, y, usableWidth, rowHeight).fill('#f9fafb');
+        }
+        doc
+          .font(opts.header || opts.total ? 'Helvetica-Bold' : 'Helvetica')
+          .fontSize(8)
+          .fillColor(opts.header ? '#ffffff' : '#1d1d1f');
+
+        let x = startX;
+        cells.forEach((text, index) => {
+          const width = colWidths[index];
+          if (text) {
+            const cellWidth = opts.total && index === 0 ? Math.max(width, 180) : Math.max(20, width - 8);
+            doc.text(text, x + 4, y + 6, { width: cellWidth, height: rowHeight - 6, lineBreak: false });
+          }
+          x += width;
+        });
+        y += rowHeight;
+      };
+
+      drawRow(
+        table.columns.map((col) => col.header),
+        { header: true },
+      );
+
+      table.rows.forEach((row, rowIndex) => {
+        drawRow(
+          row.map((cell) => formatPdfCell(cell)),
+          { zebra: rowIndex % 2 === 1 },
+        );
+      });
+
+      const totals = buildTotalRow(table);
+      drawRow(
+        totals.map((cell) => (cell === null ? '' : String(cell))),
+        { total: true },
+      );
+
+      doc.end();
+    });
+  }
+}
+
+function generatedAtLabel(now: Date): string {
+  return `Generado el ${bogotaDate(now)} ${new Date(now.getTime() - 5 * 3_600_000).toISOString().slice(11, 16)} (hora de Colombia)`;
+}
+
+function formatPdfCell(cell: Cell): string {
+  if (cell === null || cell === undefined) return '';
+  if (cell instanceof Date) return cell.toISOString().slice(0, 10);
+  return String(cell);
+}
+
+/** Calcula la fila de totales compartida entre Excel y PDF (CA2). */
+export function buildTotalRow(table: ReportTable): Array<string | number | null> {
+  const row: Array<string | number | null> = table.columns.map((column, index) => {
+    if (!column.total) return null;
+    const sum = table.rows.reduce((acc, item) => acc + Number(item[index] ?? 0), 0);
+    return Math.round(sum * 100) / 100;
+  });
+  row[0] = `Total: ${table.rows.length} fila(s)`;
+  return row;
+}
+
+/** Extrae el texto renderizado en un PDF sin compresión generado por PDFKit (para pruebas de verificación). */
+export function extractPdfText(buffer: Buffer): string {
+  const raw = buffer.toString('latin1');
+  const lines: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.endsWith('TJ') && !line.endsWith('Tj')) continue;
+    const parts = [...line.matchAll(/<([0-9a-fA-F]+)>/g)].map((match) => Buffer.from(match[1], 'hex').toString('latin1'));
+    if (parts.length > 0) lines.push(parts.join(''));
+  }
+  return lines.join(' ');
 }
 
 /** Texto de los filtros aplicados que se escribe en el archivo y en la auditoría. */

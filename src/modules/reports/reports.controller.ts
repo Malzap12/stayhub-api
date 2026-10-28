@@ -62,4 +62,34 @@ export class ReportsController {
     });
     return new StreamableFile(file.buffer);
   }
+
+  @Get('export/:report/pdf')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Exportar un reporte de gestión a PDF · HU-059 (CA1, CA2)',
+    description:
+      'Descarga un documento .pdf del reporte indicado (usuarios, publicaciones, reservas, ingresos o demanda por ciudad y tipo) con título, filtros aplicados, fecha de generación, tabla de datos y fila de totales que coincide exactamente con el reporte en Excel (CA2). Exclusivo para ADMINISTRADOR; la exportación queda en la auditoría. RF-076, RF-077, RN-026.',
+  })
+  @ApiParam({ name: 'report', enum: EXPORTABLE_REPORTS })
+  @ApiProduces('application/pdf')
+  @ApiResponse({ status: 200, description: 'Documento .pdf del reporte (CA1)' })
+  @ApiResponse({ status: 400, description: 'Filtros inválidos (fechas mal formadas o la inicial posterior a la final)' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado: requiere rol ADMINISTRADOR' })
+  @ApiResponse({ status: 404, description: 'El reporte no existe' })
+  async exportReportPdf(
+    @Param('report') report: string,
+    @Query() filters: ExportReportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<StreamableFile> {
+    const file = await this.reportExportService.exportPdf(report, filters, user?.email);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${file.fileName}"`,
+      'Access-Control-Expose-Headers': 'Content-Disposition',
+    });
+    return new StreamableFile(file.buffer);
+  }
 }
