@@ -639,6 +639,11 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     });
   }
 
+  /** HU-056 · Todas las reservas, para los indicadores del administrador (solo lectura). */
+  getAllBookings(): readonly BookingResponseDto[] {
+    return this.bookingsStore;
+  }
+
   /** HU-047 · Reserva guardada (no una copia) para que el servicio de reseñas registre su reseña. */
   getBookingRecord(id: string): BookingResponseDto {
     return this.findBookingOrFail(id);

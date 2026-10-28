@@ -146,6 +146,11 @@ export class AuthService implements OnModuleInit {
     return initialAdmin;
   }
 
+  /** HU-056 · Todas las cuentas registradas, para los indicadores del administrador. */
+  listAccounts(): UserAccount[] {
+    return [...this.users.values()];
+  }
+
   getAdmins(): UserAccount[] {
     return Array.from(this.users.values()).filter(
       (user) => user.role === Role.ADMINISTRADOR,

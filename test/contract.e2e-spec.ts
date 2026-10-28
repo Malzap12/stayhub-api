@@ -1821,8 +1821,48 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
   });
 
-  describe('28 HU-053 (RF-070, RF-071, RN-020, RN-021): Restringir a un usuario', () => {
-    it('28.1 (CA1, CA2) administrador restringe a un usuario, invalida sus sesiones y pasa publicaciones activas a PAUSADA', async () => {
+  describe('HU-056 · Ver los indicadores del negocio (CA1, CA3, RF-074)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+
+    it('28.1 (CA1) el administrador ve usuarios por rol, publicaciones ACTIVAS, reservas por estado, ingresos y ciudades', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      const res = await fetch(`${baseUrl}/reports/dashboard`, { headers: auth(admin) });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+
+      expect(body.usersByRole).toEqual({
+        HUESPED: expect.any(Number),
+        ANFITRION: expect.any(Number),
+        ADMINISTRADOR: expect.any(Number),
+        total: body.usersByRole.HUESPED + body.usersByRole.ANFITRION + body.usersByRole.ADMINISTRADOR,
+      });
+      expect(body.usersByRole.ADMINISTRADOR).toBeGreaterThanOrEqual(1);
+      expect(body.activeListings).toBeGreaterThan(0);
+      const { total, ...byStatus } = body.bookingsByStatus;
+      expect(Object.keys(byStatus).sort()).toEqual(['CANCELADA', 'COMPLETADA', 'CONFIRMADA', 'EN_REVISION', 'PENDIENTE']);
+      expect(total).toBe(Object.values(byStatus).reduce((sum: number, n) => sum + Number(n), 0));
+      expect(body.estimatedRevenue).toMatchObject({ currency: 'COP', grossBookingValue: expect.any(Number), platformFees: expect.any(Number) });
+      expect(body.topCities.length).toBeLessThanOrEqual(5);
+      for (let i = 1; i < body.topCities.length; i++) {
+        expect(body.topCities[i - 1].bookings).toBeGreaterThanOrEqual(body.topCities[i].bookings);
+      }
+    });
+
+    it('28.2 (CA3) el huésped y el anfitrión reciben 403 y sin sesión 401', async () => {
+      const guest = await login('huesped.hu043@stayhub.com', 'Password123');
+      const host = await login('anfitrion.hu043@stayhub.com', 'Password123');
+      expect((await fetch(`${baseUrl}/reports/dashboard`, { headers: auth(guest) })).status).toBe(403);
+      expect((await fetch(`${baseUrl}/reports/dashboard`, { headers: auth(host) })).status).toBe(403);
+      expect((await fetch(`${baseUrl}/reports/dashboard`)).status).toBe(401);
+    });
+  });
+
+  describe('29 HU-053 (RF-070, RF-071, RN-020, RN-021): Restringir a un usuario', () => {
+    it('29.1 (CA1, CA2) administrador restringe a un usuario, invalida sus sesiones y pasa publicaciones activas a PAUSADA', async () => {
       const adminToken = await login('admin@inversioneslr.com', 'AdminLr2026!');
       const userEmail = 'test.restringir@stayhub.com';
       await fetch(`${baseUrl}/auth/register`, {
@@ -1855,7 +1895,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(loginDenied.status).toBe(403);
     });
 
-    it('28.2 (CA3) levantar restricción permite iniciar sesión nuevamente', async () => {
+    it('29.2 (CA3) levantar restricción permite iniciar sesión nuevamente', async () => {
       const adminToken = await login('admin@inversioneslr.com', 'AdminLr2026!');
       const userEmail = 'test.restringir@stayhub.com';
       const unrestrictRes = await fetch(`${baseUrl}/users/${userEmail}/unrestrict`, {
