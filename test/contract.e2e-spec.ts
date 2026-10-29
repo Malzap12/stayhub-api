@@ -2182,4 +2182,84 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await fetch(`${baseUrl}/audit/events`, { headers: auth(guestBookingToken) })).status).toBe(403);
     });
   });
+
+  describe('HU-052 · Resolver las reservas en revisión (CA1, CA2, RF-071, RN-017, RN-020)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const card = { cardNumber: '4242424242424242', cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' };
+    const listing = 'demo-bogota-usaquen';
+    const resolve = (token: string, id: string, body: unknown) =>
+      fetch(`${baseUrl}/bookings/${id}/resolve-review`, { method: 'PATCH', headers: auth(token), body: JSON.stringify(body) });
+    const book = async (checkIn: string, checkOut: string) => {
+      const created = await (
+        await fetch(`${baseUrl}/bookings/instant`, {
+          method: 'POST',
+          headers: auth(guestBookingToken),
+          body: JSON.stringify({ listingId: listing, checkIn, checkOut, guests: 1, idempotencyKey: randomUUID() }),
+        })
+      ).json();
+      const paid = await fetch(`${baseUrl}/bookings/${created.id}/pay`, { method: 'POST', headers: auth(guestBookingToken), body: JSON.stringify(card) });
+      expect(paid.status).toBe(200);
+      return created as { id: string; code?: string };
+    };
+    const nights = async () =>
+      (await (await fetch(`${baseUrl}/listings/${listing}/reserved-periods`)).json()) as Array<{ bookingId?: string; blockedNights: string[] }>;
+    let admin: string;
+    let kept: { id: string };
+    let cancelled: { id: string };
+
+    beforeAll(async () => {
+      admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      kept = await book('2026-12-14', '2026-12-16');
+      cancelled = await book('2026-12-18', '2026-12-21');
+      const blocked = await fetch(`${baseUrl}/listings/${listing}/block`, {
+        method: 'PATCH',
+        headers: auth(admin),
+        body: JSON.stringify({ reason: 'La habitación no corresponde a las fotografías' }),
+      });
+      expect(blocked.status).toBe(200);
+    });
+
+    it('35.1 el administrador ve las reservas en revisión; otros roles reciben 403', async () => {
+      const res = await fetch(`${baseUrl}/bookings/under-review`, { headers: auth(admin) });
+      expect(res.status).toBe(200);
+      const ids = (await res.json()).map((item: { id: string }) => item.id);
+      expect(ids).toEqual(expect.arrayContaining([kept.id, cancelled.id]));
+      expect((await fetch(`${baseUrl}/bookings/under-review`, { headers: auth(guestBookingToken) })).status).toBe(403);
+      expect((await resolve(guestBookingToken, kept.id, { decision: 'MANTENER' })).status).toBe(403);
+    });
+
+    it('35.2 (CA1) mantener: vuelve a CONFIRMADA, conserva sus noches y se notifica al huésped', async () => {
+      const res = await resolve(admin, kept.id, { decision: 'MANTENER', note: 'Revisado con el anfitrión' });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ status: 'CONFIRMADA', reviewResolution: { decision: 'MANTENER', finalStatus: 'CONFIRMADA' } });
+      expect((await nights()).find((period) => period.bookingId === kept.id)?.blockedNights).toEqual(['2026-12-14', '2026-12-15']);
+      const inbox = (await (await fetch(`${baseUrl}/notifications`, { headers: auth(guestBookingToken) })).json()).data;
+      expect(inbox.some((item: { type: string; entityId: string }) => item.type === 'RESERVA_MANTENIDA' && item.entityId === kept.id)).toBe(true);
+    });
+
+    it('35.3 (CA2) cancelar: pasa a CANCELADA con devolución simulada del 100 % y libera el periodo', async () => {
+      const res = await resolve(admin, cancelled.id, { decision: 'CANCELAR' });
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body).toMatchObject({ status: 'CANCELADA', cancellation: { refundPercentage: 100, finalStatus: 'CANCELADA' } });
+      expect(body.cancellation.refundAmount).toBe(body.totalAmount);
+      expect(body.cancellation.releasedNights).toEqual(['2026-12-18', '2026-12-19', '2026-12-20']);
+      expect((await nights()).some((period) => period.bookingId === cancelled.id)).toBe(false);
+    });
+
+    it('35.4 una reserva ya resuelta no se resuelve de nuevo y la decisión debe ser válida', async () => {
+      expect((await resolve(admin, cancelled.id, { decision: 'MANTENER' })).status).toBe(400);
+      expect((await resolve(admin, kept.id, { decision: 'APROBAR' })).status).toBe(400);
+      expect((await resolve(admin, 'no-existe', { decision: 'MANTENER' })).status).toBe(404);
+      const ids = (await (await fetch(`${baseUrl}/bookings/under-review`, { headers: auth(admin) })).json()).map((item: { id: string }) => item.id);
+      expect(ids).not.toContain(kept.id);
+      expect(ids).not.toContain(cancelled.id);
+    });
+  });
 });

@@ -4,6 +4,7 @@ import { BookingsService, StayClosureResult } from './bookings.service';
 import { QuoteBookingDto, QuoteResponseDto, QuoteValidationErrorDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
+import { ResolveReviewDto } from './dto/resolve-review.dto';
 import { BookingPaymentResultDto, BookingResponseDto } from './dto/booking-response.dto';
 import { PaymentCardDto } from '../payments/dto/payment.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
@@ -153,6 +154,46 @@ export class BookingsController {
   @ApiResponse({ status: 403, description: 'Solo un administrador puede ejecutarlo' })
   runDailyClosure(@CurrentUser() user?: ActiveSession): StayClosureResult {
     return this.bookingsService.completeFinishedStays(new Date(), user?.email);
+  }
+
+  @Get('under-review')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Listar las reservas en revisión · HU-052',
+    description:
+      'Reservas EN_REVISION (por bloqueo de la publicación o restricción del anfitrión) que esperan la decisión del administrador, ' +
+      'de la más antigua a la más reciente, con el alojamiento, el huésped, las fechas, el total y el motivo de la revisión.',
+  })
+  @ApiResponse({ status: 200, description: 'Reservas en revisión', type: [BookingResponseDto] })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Solo el administrador' })
+  findUnderReview(): BookingResponseDto[] {
+    return this.bookingsService.findUnderReview();
+  }
+
+  @Patch(':id/resolve-review')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Resolver una reserva en revisión · HU-052 (CA1, CA2)',
+    description:
+      'MANTENER: la reserva vuelve a CONFIRMADA y se notifica al huésped y al anfitrión (CA1); si aún no estaba pagada vuelve a PENDIENTE. ' +
+      'CANCELAR: pasa a CANCELADA con devolución simulada del 100 % de lo pagado, se liberan sus noches y se registra la cancelación ' +
+      '(usuario, fecha, motivo, devolución y estado final · RN-017) (CA2). La decisión queda en la auditoría.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la reserva' })
+  @ApiResponse({ status: 200, description: 'Reserva resuelta', type: BookingResponseDto })
+  @ApiResponse({ status: 400, description: 'La reserva no está EN_REVISION (RESERVA_NO_EN_REVISION) o la decisión no es válida' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Solo el administrador' })
+  @ApiResponse({ status: 404, description: 'Reserva no encontrada' })
+  resolveReview(
+    @Param('id') id: string,
+    @Body() dto: ResolveReviewDto,
+    @CurrentUser() user?: ActiveSession,
+  ): Promise<BookingResponseDto> {
+    return this.bookingsService.resolveReview(id, dto, user?.email);
   }
 
   @Patch(':id/cancel')

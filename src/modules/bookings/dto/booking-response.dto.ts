@@ -19,6 +19,24 @@ export class BookingReviewDto {
   createdAt: Date;
 }
 
+/** HU-052 · Cómo resolvió el administrador la revisión de la reserva. */
+export class BookingReviewResolutionDto {
+  @ApiProperty({ example: 'MANTENER', enum: ['MANTENER', 'CANCELAR'], description: 'Decisión del administrador' })
+  decision: string;
+
+  @ApiProperty({ example: 'admin@inversioneslr.com', description: 'Administrador que resolvió la revisión' })
+  resolvedBy: string;
+
+  @ApiProperty({ example: '2026-10-29T14:00:00.000Z' })
+  resolvedAt: string;
+
+  @ApiPropertyOptional({ example: 'El anfitrión corrigió las fotografías' })
+  note?: string;
+
+  @ApiProperty({ example: 'CONFIRMADA', description: 'Estado en que quedó la reserva' })
+  finalStatus: string;
+}
+
 export class BookingCancellationDto {
   @ApiProperty({ example: 'huesped@stayhub.com', description: 'Usuario que canceló' })
   cancelledBy: string;
@@ -111,6 +129,12 @@ export class BookingResponseDto {
 
   @ApiPropertyOptional({ example: '2026-10-28T15:00:00.000Z', description: 'Fecha en que la reserva pasó a EN_REVISION (HU-051 CA2)' })
   underReviewAt?: Date;
+
+  @ApiPropertyOptional({ enum: BookingStatus, example: BookingStatus.CONFIRMADA, description: 'Estado que tenía la reserva antes de pasar a EN_REVISION (HU-052)' })
+  statusBeforeReview?: BookingStatus;
+
+  @ApiPropertyOptional({ type: BookingReviewResolutionDto, description: 'Resolución del administrador sobre la revisión (HU-052)' })
+  reviewResolution?: BookingReviewResolutionDto;
 
   @ApiPropertyOptional({ type: BookingReviewDto, description: 'Reseña del huésped, presente cuando ya reseñó la estancia (HU-047)' })
   review?: BookingReviewDto;

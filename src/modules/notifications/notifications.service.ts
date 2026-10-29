@@ -130,6 +130,53 @@ export class NotificationsService implements OnModuleInit {
     });
   }
 
+  /** HU-052 CA1: el administrador mantuvo la reserva en revisión; se avisa al huésped y al anfitrión. */
+  bookingReviewKept(booking: BookingNotice, finalStatus: string): void {
+    const title = booking.listingTitle ? ` en "${booking.listingTitle}"` : '';
+    const stay = `del ${booking.checkIn.slice(0, 10)} al ${booking.checkOut.slice(0, 10)}`;
+    const state = finalStatus === 'PENDIENTE' ? 'sigue pendiente de pago' : 'sigue confirmada';
+    this.notify({
+      recipient: { email: booking.guestEmail },
+      type: 'RESERVA_MANTENIDA',
+      message: `Revisamos tu reserva ${booking.code ?? booking.id}${title} ${stay} y ${state}. ¡Te esperamos!`,
+      entity: 'Booking',
+      entityId: booking.id,
+      bookingCode: booking.code,
+    });
+    this.notify({
+      recipient: { userId: booking.hostId },
+      type: 'RESERVA_MANTENIDA',
+      message: `El administrador revisó la reserva ${booking.code ?? booking.id}${title} ${stay} y ${state}.`,
+      entity: 'Booking',
+      entityId: booking.id,
+      bookingCode: booking.code,
+    });
+  }
+
+  /** HU-052 CA2: el administrador canceló la reserva en revisión con devolución del 100 %; se avisa a ambos. */
+  bookingReviewCancelled(booking: BookingNotice, refund: { amount: number; percentage: number; currency: string }): void {
+    const title = booking.listingTitle ? ` en "${booking.listingTitle}"` : '';
+    const stay = `del ${booking.checkIn.slice(0, 10)} al ${booking.checkOut.slice(0, 10)}`;
+    this.notify({
+      recipient: { email: booking.guestEmail },
+      type: 'RESERVA_CANCELADA',
+      message:
+        `Tras revisar el alojamiento, cancelamos tu reserva ${booking.code ?? booking.id}${title} ${stay}. ` +
+        `Te devolvemos el ${refund.percentage} % de lo pagado: ${refund.amount} ${refund.currency} (devolución simulada).`,
+      entity: 'Booking',
+      entityId: booking.id,
+      bookingCode: booking.code,
+    });
+    this.notify({
+      recipient: { userId: booking.hostId },
+      type: 'RESERVA_CANCELADA',
+      message: `El administrador canceló la reserva ${booking.code ?? booking.id}${title} ${stay} tras la revisión; esas noches quedaron libres.`,
+      entity: 'Booking',
+      entityId: booking.id,
+      bookingCode: booking.code,
+    });
+  }
+
   /** HU-046 CA3: la estancia terminó y la reserva pasó a COMPLETADA; se invita al huésped a reseñar. */
   bookingCompleted(booking: BookingNotice): void {
     const title = booking.listingTitle ? ` en "${booking.listingTitle}"` : '';
