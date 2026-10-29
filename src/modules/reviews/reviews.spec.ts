@@ -320,3 +320,166 @@ describe('HU-048 · Consultar reseñas y calificación (RF-065, RN-025)', () => 
     expect(emptyListingReviews.reviews).toEqual([]);
   });
 });
+
+describe('HU-049 · Ocultar reseñas que incumplen las reglas (CA1, CA2 · RF-066, RN-021, RN-025)', () => {
+  let controller: ReviewsController;
+  let service: ReviewsService;
+  let listings: ListingsService;
+  let audit: AuditService;
+  let notifications: NotificationsService;
+  let store: BookingResponseDto[];
+
+  const listingId = 'demo-bogota-chapinero';
+  const adminEmail = 'admin.moderacion@stayhub.com';
+  const authorEmail = 'autor.hu049@stayhub.com';
+
+  const mockBooking = (id: string, status: BookingStatus, guestId = authorEmail): BookingResponseDto => ({
+    id,
+    code: `RES-${id.toUpperCase()}`,
+    listingId,
+    guestId,
+    checkIn: '2026-10-20',
+    checkOut: '2026-10-25',
+    guests: 2,
+    totalAmount: 500000,
+    serviceFee: 50000,
+    currency: 'COP',
+    status,
+    idempotencyKey: `key-${id}`,
+    createdAt: new Date('2026-10-15T12:00:00Z'),
+  });
+
+  beforeEach(async () => {
+    store = [
+      mockBooking('b1', BookingStatus.COMPLETADA),
+      mockBooking('b2', BookingStatus.COMPLETADA, 'otro.autor@stayhub.com'),
+    ];
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [ReviewsController],
+      providers: [
+        ReviewsService,
+        ListingsService,
+        PlatformConfigService,
+        AuditService,
+        PaymentsService,
+        NotificationsService,
+        AuthService,
+        {
+          provide: BookingsService,
+          useValue: {
+            getBookingRecord: (id: string) => {
+              const found = store.find((b) => b.id === id);
+              if (!found) throw new NotFoundException('Reserva no encontrada');
+              return found;
+            },
+          },
+        },
+      ],
+    }).compile();
+
+    controller = module.get(ReviewsController);
+    service = module.get(ReviewsService);
+    listings = module.get(ListingsService);
+    audit = module.get(AuditService);
+    notifications = module.get(NotificationsService);
+    service.onModuleInit();
+  });
+
+  describe('CA1 · La reseña oculta deja de mostrarse y de contar en el promedio, pero se conserva', () => {
+    it('oculta la reseña, la excluye de la consulta pública y recalcula el promedio', async () => {
+      // Crear 2 reseñas: una de 5 estrellas y una ofensiva de 1 estrella
+      const r1 = service.create({ bookingId: 'b1', rating: 1, comment: 'Comentario con lenguaje ofensivo' }, authorEmail, new Date('2026-10-26T10:00:00Z'));
+      const r2 = service.create({ bookingId: 'b2', rating: 5, comment: 'Estancia maravillosa' }, 'otro.autor@stayhub.com', new Date('2026-10-27T10:00:00Z'));
+
+      let summary = controller.findByListing(listingId);
+      expect(summary.totalReviews).toBe(2);
+      expect(summary.averageRating).toBe(3); // (1 + 5) / 2
+
+      // El administrador oculta r1 indicando el motivo
+      const hidden = controller.hideReview(r1.id, { reason: 'Incumple normas de lenguaje y respeto' }, { email: adminEmail } as any);
+      expect(hidden.visible).toBe(false);
+
+      // Deja de mostrarse públicamente y de contar en el promedio
+      summary = controller.findByListing(listingId);
+      expect(summary.totalReviews).toBe(1);
+      expect(summary.averageRating).toBe(5);
+      expect(summary.reviews).toHaveLength(1);
+      expect(summary.reviews[0].id).toBe(r2.id);
+
+      // Verificación en ListingsService
+      const listingReviews = await listings.getReviews(listingId);
+      expect(listingReviews.totalReviews).toBe(1);
+      expect(listingReviews.averageRating).toBe(5);
+
+      // Se conserva para auditoría
+      expect(service.findById(r1.id)).toBeDefined();
+      expect(service.findById(r1.id)?.visible).toBe(false);
+      expect(service.findAllForAdmin()).toHaveLength(2);
+    });
+
+    it('al ocultar la única reseña, el total y promedio pasan a 0', () => {
+      const r1 = service.create({ bookingId: 'b1', rating: 4, comment: 'Spam comercial' }, authorEmail);
+      expect(controller.findByListing(listingId).totalReviews).toBe(1);
+
+      controller.hideReview(r1.id, { reason: 'Contenido clasificado como spam' }, { email: adminEmail } as any);
+
+      const summary = controller.findByListing(listingId);
+      expect(summary.totalReviews).toBe(0);
+      expect(summary.averageRating).toBe(0);
+      expect(summary.reviews).toHaveLength(0);
+    });
+
+    it('falla con 409 si se intenta ocultar una reseña que ya estaba oculta', () => {
+      const r1 = service.create({ bookingId: 'b1', rating: 2, comment: 'Infringe normas' }, authorEmail);
+      controller.hideReview(r1.id, { reason: 'Primera advertencia' }, { email: adminEmail } as any);
+
+      expect(() =>
+        controller.hideReview(r1.id, { reason: 'Reintento de ocultar' }, { email: adminEmail } as any),
+      ).toThrow(ConflictException);
+    });
+
+    it('falla con 404 si la reseña no existe', () => {
+      expect(() =>
+        controller.hideReview('review-fantasma', { reason: 'No existe' }, { email: adminEmail } as any),
+      ).toThrow(NotFoundException);
+    });
+
+    it('falla con 400 si el motivo está vacío', () => {
+      const r1 = service.create({ bookingId: 'b1', rating: 2, comment: 'Comentario' }, authorEmail);
+      expect(() =>
+        controller.hideReview(r1.id, { reason: '   ' }, { email: adminEmail } as any),
+      ).toThrow(BadRequestException);
+    });
+  });
+
+  describe('CA2 · Registro en auditoría con administrador, fecha y motivo, y notificación al autor', () => {
+    it('registra en auditoría con todos los datos y emite notificación al autor', () => {
+      const r1 = service.create({ bookingId: 'b1', rating: 1, comment: 'Ataque personal' }, authorEmail);
+      const reason = 'Ataques personales e insultos al personal';
+
+      controller.hideReview(r1.id, { reason }, { email: adminEmail } as any);
+
+      // 1. Auditoría
+      const auditEvents = audit.findAll({ action: AuditAction.REVIEW_MODERATED });
+      expect(auditEvents.length).toBeGreaterThanOrEqual(1);
+      const event = auditEvents.find((e) => e.entityId === r1.id);
+      expect(event).toBeDefined();
+      expect(event?.actor).toBe(adminEmail);
+      expect(event?.action).toBe(AuditAction.REVIEW_MODERATED);
+      expect(event?.entity).toBe('Review');
+      expect(event?.detail).toContain(reason);
+      expect(event?.detail).toContain(r1.id);
+      expect(Number.isNaN(Date.parse(event!.occurredAt))).toBe(false);
+
+      // 2. Notificación al autor
+      const notificationsForAuthor = notifications.findMine({ email: authorEmail });
+      expect(notificationsForAuthor.length).toBeGreaterThanOrEqual(1);
+      const notif = notificationsForAuthor.find((n) => n.entityId === r1.id);
+      expect(notif).toBeDefined();
+      expect(notif?.type).toBe('RESENA_OCULTADA');
+      expect(notif?.message).toContain(reason);
+      expect(notif?.recipientEmail).toBe(authorEmail);
+    });
+  });
+});

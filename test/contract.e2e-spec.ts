@@ -1771,6 +1771,70 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
   });
 
+  describe('HU-049 · Ocultar reseñas que incumplen las reglas (CA1, CA2 · RF-066, RN-021, RN-025)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+
+    it('26.3 (CA1, CA2) el administrador oculta una reseña indicando motivo; deja de mostrarse públicamente y se audita', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      const guest = await login('huesped.hu043@stayhub.com', 'Password123');
+
+      const listRes = await fetch(`${baseUrl}/listings/demo-bogota-chapinero/reviews`);
+      const listData = await listRes.json();
+      const reviewToHide = listData.reviews?.[0];
+      expect(reviewToHide).toBeDefined();
+
+      const forbiddenRes = await fetch(`${baseUrl}/reviews/${reviewToHide.id}/hide`, {
+        method: 'PATCH',
+        headers: auth(guest),
+        body: JSON.stringify({ reason: 'Intento de huésped' }),
+      });
+      expect(forbiddenRes.status).toBe(403);
+
+      const hideRes = await fetch(`${baseUrl}/reviews/${reviewToHide.id}/hide`, {
+        method: 'PATCH',
+        headers: auth(admin),
+        body: JSON.stringify({ reason: 'Contenido inapropiado que infringe normas de moderación' }),
+      });
+      expect(hideRes.status).toBe(200);
+      const hiddenBody = await hideRes.json();
+      expect(hiddenBody.visible).toBe(false);
+
+      const afterRes = await fetch(`${baseUrl}/listings/demo-bogota-chapinero/reviews`);
+      const afterData = await afterRes.json();
+      expect(afterData.reviews.some((r: any) => r.id === reviewToHide.id)).toBe(false);
+
+      const auditRes = await fetch(`${baseUrl}/audit/events?action=REVIEW_MODERATED`, { headers: auth(admin) });
+      expect(auditRes.status).toBe(200);
+      const auditData = await auditRes.json();
+      const auditEvents = Array.isArray(auditData) ? auditData : (auditData.data ?? []);
+      const foundEvent = auditEvents.find((e: any) => e.entityId === reviewToHide.id);
+      expect(foundEvent).toBeDefined();
+      expect(foundEvent.actor).toBe(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com');
+      expect(foundEvent.detail).toContain('Contenido inapropiado');
+    });
+
+    it('26.4 validaciones: motivo vacío responde 400 y reseña inexistente responde 404', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      const badRes = await fetch(`${baseUrl}/reviews/inexistente/hide`, {
+        method: 'PATCH',
+        headers: auth(admin),
+        body: JSON.stringify({ reason: '' }),
+      });
+      expect(badRes.status).toBe(400);
+
+      const notFoundRes = await fetch(`${baseUrl}/reviews/review-inexistente/hide`, {
+        method: 'PATCH',
+        headers: auth(admin),
+        body: JSON.stringify({ reason: 'Motivo válido de prueba' }),
+      });
+      expect(notFoundRes.status).toBe(404);
+    });
+  });
+
   describe('HU-051 · Bloquear una publicación engañosa (CA1, CA2, CA3, CA4, RF-067, RF-068)', () => {
     const json = { 'Content-Type': 'application/json' };
     const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });

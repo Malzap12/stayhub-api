@@ -143,6 +143,18 @@ export class NotificationsService implements OnModuleInit {
     });
   }
 
+  /** HU-049 CA2 (RF-066, RN-021): la reseña fue ocultada por moderación; se notifica al autor. */
+  reviewHidden(review: { id: string; guestEmail: string; listingTitle?: string }, reason: string): void {
+    const title = review.listingTitle ? ` en "${review.listingTitle}"` : '';
+    this.notify({
+      recipient: { email: review.guestEmail },
+      type: 'RESENA_OCULTADA',
+      message: `Tu reseña${title} fue ocultada por moderación: ${reason}.`,
+      entity: 'Review' as any,
+      entityId: review.id,
+    });
+  }
+
   /** CA2: publicación aprobada, devuelta o bloqueada; se notifica a su anfitrión. */
   listingModerated(
     listing: { id: string; title: string; hostId: string },

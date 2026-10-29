@@ -2555,6 +2555,7 @@
                 "BOOKING_STATUS_CHANGE",
                 "BOOKING_CANCELLATION",
                 "REVIEW_CREATED",
+                "REVIEW_MODERATED",
                 "ADMIN_ACTION",
                 "EXPORT",
                 "AUDIT_TAMPER_ATTEMPT"
@@ -2858,6 +2859,69 @@
         ]
       }
     },
+    "/api/reviews/{id}/hide": {
+      "patch": {
+        "operationId": "ReviewsController_hideReview",
+        "summary": "Ocultar una reseña que incumple las reglas · HU-049 (CA1, CA2)",
+        "description": "El administrador oculta una reseña indicando el motivo. Deja de mostrarse públicamente y de contar en el promedio, pero se conserva para auditoría. Se registra en la bitácora con administrador, fecha y motivo, y se notifica al autor. RF-066, RN-021, RN-025.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la reseña a ocultar",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HideReviewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reseña ocultada exitosamente (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Motivo inválido o ausente"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Requiere rol ADMINISTRADOR"
+          },
+          "404": {
+            "description": "Reseña no encontrada"
+          },
+          "409": {
+            "description": "La reseña ya se encuentra oculta"
+          }
+        },
+        "tags": [
+          "Reviews"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/reviews/listing/{listingId}": {
       "get": {
         "operationId": "ReviewsController_findByListing",
@@ -3134,7 +3198,8 @@
               "PUBLICACION_APROBADA",
               "PUBLICACION_DEVUELTA",
               "PUBLICACION_BLOQUEADA",
-              "CUENTA_RESTRINGIDA"
+              "CUENTA_RESTRINGIDA",
+              "RESENA_OCULTADA"
             ],
             "example": "RESERVA_CONFIRMADA"
           },
@@ -5859,6 +5924,7 @@
               "BOOKING_STATUS_CHANGE",
               "BOOKING_CANCELLATION",
               "REVIEW_CREATED",
+              "REVIEW_MODERATED",
               "ADMIN_ACTION",
               "EXPORT",
               "AUDIT_TAMPER_ATTEMPT"
@@ -6116,6 +6182,19 @@
           "comment",
           "createdAt",
           "visible"
+        ]
+      },
+      "HideReviewDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "Lenguaje ofensivo o difamatorio que incumple las normas de la comunidad",
+            "description": "Motivo por el cual se oculta la reseña (CA1, CA2 · RF-066, RN-021)"
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "UsersByRoleDto": {
