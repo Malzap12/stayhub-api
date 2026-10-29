@@ -13,6 +13,50 @@ export class CreateAvailabilityPeriodDto {
   endDate: string;
 }
 
+
+export class UpdateAvailabilityPeriodDto {
+  @ApiPropertyOptional({ example: '2027-03-05', description: 'Nueva fecha de inicio del periodo disponible (YYYY-MM-DD) · HU-020' })
+  @IsOptional()
+  @IsDateString({}, { message: 'La fecha de inicio debe tener formato válido (YYYY-MM-DD)' })
+  startDate?: string;
+
+  @ApiPropertyOptional({ example: '2027-03-15', description: 'Nueva fecha de fin del periodo disponible (YYYY-MM-DD) · HU-020' })
+  @IsOptional()
+  @IsDateString({}, { message: 'La fecha de fin debe tener formato válido (YYYY-MM-DD)' })
+  endDate?: string;
+}
+
+export class AffectedBookingDto {
+  @ApiProperty({ example: 'booking-uuid-1', description: 'ID de la reserva confirmada afectada' })
+  bookingId: string;
+
+  @ApiPropertyOptional({ example: 'STAY-12345', description: 'Código amigable de la reserva' })
+  code?: string;
+
+  @ApiProperty({ example: '2027-03-10', description: 'Fecha de llegada de la reserva' })
+  checkIn: string;
+
+  @ApiProperty({ example: '2027-03-12', description: 'Fecha de salida de la reserva' })
+  checkOut: string;
+}
+
+export class PeriodHasBookingsErrorDto {
+  @ApiProperty({ example: 400 })
+  statusCode: number;
+
+  @ApiProperty({ example: 'Bad Request' })
+  error: string;
+
+  @ApiProperty({ example: 'No es posible modificar o eliminar el periodo porque contiene reservas confirmadas.' })
+  message: string;
+
+  @ApiProperty({ type: [AffectedBookingDto], description: 'Listado de reservas confirmadas afectadas (HU-020 CA2)' })
+  affectedBookings: AffectedBookingDto[];
+
+  @ApiProperty({ type: [AffectedBookingDto], description: 'Alias de reservas confirmadas afectadas (HU-020 CA2)' })
+  affectedReservations: AffectedBookingDto[];
+}
+
 export class AvailabilityPeriodResponseDto {
   @ApiProperty({ example: 'period-uuid-1', description: 'ID único del periodo de disponibilidad' })
   id: string;

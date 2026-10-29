@@ -8,6 +8,8 @@ import {
   AvailabilityResponseDto,
   CreateAvailabilityPeriodDto,
   AvailabilityPeriodResponseDto,
+  UpdateAvailabilityPeriodDto,
+  AffectedBookingDto,
   BlockReservedPeriodDto,
   BlockedPeriodResponseDto,
 } from './dto/availability.dto';
@@ -1115,6 +1117,205 @@ export class ListingsService implements OnModuleInit {
   }
 
   /** HU-019: periodos del alojamiento, visibles solo para su anfitrión. */
+
+  private bookingLookupHandler?: (bookingId: string) => { id: string; code?: string } | undefined;
+
+  setBookingLookupHandler(handler: (bookingId: string) => { id: string; code?: string } | undefined): void {
+    this.bookingLookupHandler = handler;
+  }
+
+  findAffectedBookings(listingId: string, removedNights: string[]): AffectedBookingDto[] {
+    if (removedNights.length === 0) {
+      return [];
+    }
+    const removedSet = new Set(removedNights);
+    const affected: AffectedBookingDto[] = [];
+    const seenIds = new Set<string>();
+
+    for (const block of this.reservedPeriodsOf(listingId)) {
+      if (block.type === 'BLOQUEO') {
+        continue;
+      }
+      const hasConflict = block.blockedNights.some((night) => removedSet.has(night));
+      if (hasConflict) {
+        const id = block.bookingId ?? block.id;
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          const booking = block.bookingId ? this.bookingLookupHandler?.(block.bookingId) : undefined;
+          affected.push({
+            bookingId: id,
+            code: booking?.code ?? block.bookingId ?? block.id,
+            checkIn: block.checkIn,
+            checkOut: block.checkOut,
+          });
+        }
+      }
+    }
+    return affected;
+  }
+
+  /**
+   * HU-020 · Modificar o reducir periodos disponibles sin afectar reservas (CA1, CA2, RF-026, RN-011).
+   */
+  async updateAvailabilityPeriod(
+    listingId: string,
+    periodId: string,
+    dto: UpdateAvailabilityPeriodDto,
+    host?: ActiveSession,
+  ): Promise<AvailabilityPeriodResponseDto> {
+    const fail = (detail: string) =>
+      this.recordAvailabilityChange(
+        host?.email,
+        listingId,
+        AuditResult.FALLIDO,
+        `Modificación rechazada: ${detail}`,
+        AuditAction.AVAILABILITY_PERIOD_UPDATE,
+      );
+
+    this.findOwnListing(listingId, host, fail);
+
+    const existingPeriod = this.availabilityPeriodsStore.find(
+      (p) => p.id === periodId && p.listingId === listingId,
+    );
+    if (!existingPeriod) {
+      fail('periodo no encontrado');
+      throw new NotFoundException(`Periodo con id ${periodId} no encontrado`);
+    }
+
+    let targetStartDate = existingPeriod.startDate;
+    let targetEndDate = existingPeriod.endDate;
+    try {
+      if (dto.startDate) {
+        targetStartDate = this.normalizeDateOnly(dto.startDate);
+      }
+      if (dto.endDate) {
+        targetEndDate = this.normalizeDateOnly(dto.endDate);
+      }
+    } catch (error) {
+      fail('fechas inválidas');
+      throw error;
+    }
+
+    if (targetEndDate <= targetStartDate) {
+      const message = 'La fecha de fin debe ser posterior a la fecha de inicio.';
+      fail(message);
+      throw new BadRequestException(message);
+    }
+
+    if (dto.startDate && targetStartDate < this.getTodayDateOnly()) {
+      const message = 'La fecha de inicio del periodo no puede estar en el pasado.';
+      fail(message);
+      throw new BadRequestException(message);
+    }
+
+    // Verificar superposiciones con otros periodos de la misma publicación
+    const otherPeriods = this.periodsOf(listingId).filter((p) => p.id !== periodId);
+    const overlapping = otherPeriods.find(
+      (p) => targetStartDate < p.endDate && targetEndDate > p.startDate,
+    );
+    if (overlapping) {
+      const message = `El periodo solicitado se superpone con el periodo existente del ${overlapping.startDate} al ${overlapping.endDate}.`;
+      fail(message);
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message,
+        conflictingPeriod: {
+          id: overlapping.id,
+          startDate: overlapping.startDate,
+          endDate: overlapping.endDate,
+        },
+      });
+    }
+
+    // CA1 & CA2: calcular fechas retiradas y verificar si contienen reservas confirmadas
+    const currentNights = nightsInInterval(existingPeriod.startDate, existingPeriod.endDate);
+    const newNights = nightsInInterval(targetStartDate, targetEndDate);
+    const removedNights = currentNights.filter((night) => !newNights.includes(night));
+
+    const affectedBookings = this.findAffectedBookings(listingId, removedNights);
+    if (affectedBookings.length > 0) {
+      const refs = affectedBookings.map((b) => b.code || b.bookingId).join(', ');
+      const message = `No es posible modificar el periodo porque las fechas a retirar contienen reservas confirmadas: ${refs}.`;
+      fail(message);
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message,
+        affectedBookings,
+        affectedReservations: affectedBookings,
+      });
+    }
+
+    existingPeriod.startDate = targetStartDate;
+    existingPeriod.endDate = targetEndDate;
+
+    this.recordAvailabilityChange(
+      host?.email,
+      listingId,
+      AuditResult.EXITOSO,
+      `Periodo disponible modificado: ${existingPeriod.startDate} al ${existingPeriod.endDate}`,
+      AuditAction.AVAILABILITY_PERIOD_UPDATE,
+    );
+
+    return existingPeriod;
+  }
+
+  /**
+   * HU-020 · Eliminar un periodo disponible sin afectar reservas (CA1, CA2, RF-026, RN-011).
+   */
+  async deleteAvailabilityPeriod(
+    listingId: string,
+    periodId: string,
+    host?: ActiveSession,
+  ): Promise<{ success: boolean; message: string }> {
+    const fail = (detail: string) =>
+      this.recordAvailabilityChange(
+        host?.email,
+        listingId,
+        AuditResult.FALLIDO,
+        `Eliminación rechazada: ${detail}`,
+        AuditAction.AVAILABILITY_PERIOD_DELETE,
+      );
+
+    this.findOwnListing(listingId, host, fail);
+
+    const existingPeriod = this.availabilityPeriodsStore.find(
+      (p) => p.id === periodId && p.listingId === listingId,
+    );
+    if (!existingPeriod) {
+      fail('periodo no encontrado');
+      throw new NotFoundException(`Periodo con id ${periodId} no encontrado`);
+    }
+
+    const removedNights = nightsInInterval(existingPeriod.startDate, existingPeriod.endDate);
+    const affectedBookings = this.findAffectedBookings(listingId, removedNights);
+    if (affectedBookings.length > 0) {
+      const refs = affectedBookings.map((b) => b.code || b.bookingId).join(', ');
+      const message = `No es posible eliminar el periodo porque contiene reservas confirmadas: ${refs}.`;
+      fail(message);
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message,
+        affectedBookings,
+        affectedReservations: affectedBookings,
+      });
+    }
+
+    this.availabilityPeriodsStore = this.availabilityPeriodsStore.filter((p) => p.id !== periodId);
+
+    this.recordAvailabilityChange(
+      host?.email,
+      listingId,
+      AuditResult.EXITOSO,
+      `Periodo disponible eliminado: ${existingPeriod.startDate} al ${existingPeriod.endDate}`,
+      AuditAction.AVAILABILITY_PERIOD_DELETE,
+    );
+
+    return { success: true, message: 'Periodo disponible eliminado correctamente' };
+  }
+
   getAvailabilityPeriods(listingId: string, host?: ActiveSession): AvailabilityPeriodResponseDto[] {
     this.findOwnListing(listingId, host);
     return this.periodsOf(listingId);
@@ -1269,10 +1470,11 @@ export class ListingsService implements OnModuleInit {
     listingId: string,
     result: AuditResult,
     detail: string,
+    action: AuditAction = AuditAction.AVAILABILITY_PERIOD_CREATE,
   ): void {
     this.auditService.record({
       actor,
-      action: AuditAction.AVAILABILITY_PERIOD_CREATE,
+      action: action ?? AuditAction.AVAILABILITY_PERIOD_CREATE,
       entity: 'Listing',
       entityId: listingId,
       result,

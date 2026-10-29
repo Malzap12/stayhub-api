@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Put, Delete, Body, Query, Param, Headers } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Query, Param, Headers } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { ListingsService } from './listings.service';
 import { CreateListingDto } from './dto/create-listing.dto';
@@ -11,6 +11,8 @@ import {
   AvailabilityResponseDto,
   CreateAvailabilityPeriodDto,
   AvailabilityPeriodResponseDto,
+  UpdateAvailabilityPeriodDto,
+  PeriodHasBookingsErrorDto,
   AvailabilityOverlapErrorDto,
   BlockReservedPeriodDto,
   BlockedPeriodResponseDto,
@@ -406,6 +408,45 @@ export class ListingsController {
     @CurrentUser() user?: ActiveSession,
   ): Promise<AvailabilityPeriodResponseDto> {
     return this.listingsService.registerAvailabilityPeriod(id, dto, user);
+  }
+
+
+  @Patch(':id/availability-periods/:periodId')
+  @Put(':id/availability-periods/:periodId')
+  @Roles(Role.ANFITRION)
+  @ApiOperation({
+    summary: 'Modificar o reducir un periodo disponible (HU-020 CA1, CA2, RF-026, RN-011)',
+    description:
+      'Permite al anfitrión propietario reducir o modificar un periodo disponible sin afectar reservas confirmadas. Si contiene reservas en las fechas retiradas, el sistema lo impide e indica las reservas afectadas (CA2).',
+  })
+  @ApiResponse({ status: 200, description: 'Periodo modificado correctamente (CA1)', type: AvailabilityPeriodResponseDto })
+  @ApiResponse({ status: 400, description: 'Periodo con reservas confirmadas (CA2) o fechas inválidas', type: PeriodHasBookingsErrorDto })
+  @ApiResponse({ status: 404, description: 'Alojamiento o periodo no encontrado' })
+  updateAvailabilityPeriod(
+    @Param('id') id: string,
+    @Param('periodId') periodId: string,
+    @Body() dto: UpdateAvailabilityPeriodDto,
+    @CurrentUser() host?: ActiveSession,
+  ): Promise<AvailabilityPeriodResponseDto> {
+    return this.listingsService.updateAvailabilityPeriod(id, periodId, dto, host);
+  }
+
+  @Delete(':id/availability-periods/:periodId')
+  @Roles(Role.ANFITRION)
+  @ApiOperation({
+    summary: 'Eliminar un periodo disponible (HU-020 CA1, CA2, RF-026, RN-011)',
+    description:
+      'Permite al anfitrión propietario eliminar un periodo disponible si no tiene reservas confirmadas. Si contiene reservas confirmadas, el sistema lo impide e indica las reservas afectadas (CA2).',
+  })
+  @ApiResponse({ status: 200, description: 'Periodo eliminado correctamente (CA1)' })
+  @ApiResponse({ status: 400, description: 'Periodo con reservas confirmadas (CA2)', type: PeriodHasBookingsErrorDto })
+  @ApiResponse({ status: 404, description: 'Alojamiento o periodo no encontrado' })
+  deleteAvailabilityPeriod(
+    @Param('id') id: string,
+    @Param('periodId') periodId: string,
+    @CurrentUser() host?: ActiveSession,
+  ): Promise<{ success: boolean; message: string }> {
+    return this.listingsService.deleteAvailabilityPeriod(id, periodId, host);
   }
 
   @Get(':id/availability-periods')

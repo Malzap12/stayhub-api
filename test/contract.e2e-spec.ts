@@ -789,6 +789,117 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
   });
 
+  describe('HU-020 · Modificar periodos sin afectar reservas (CA1, CA2, RF-026, RN-011)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const registerAndLogin = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: email, email, password: 'Password123', role }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return (await res.json()).token as string;
+    };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const createListing = async (token: string) =>
+      (
+        await (
+          await fetch(`${baseUrl}/listings`, {
+            method: 'POST',
+            headers: auth(token),
+            body: JSON.stringify({ title: 'Cabaña Campestre HU-020', city: 'Guatapé' }),
+          })
+        ).json()
+      ).id as string;
+    const registerPeriod = async (token: string, id: string, startDate: string, endDate: string) =>
+      (
+        await (
+          await fetch(`${baseUrl}/listings/${id}/availability-periods`, {
+            method: 'POST',
+            headers: auth(token),
+            body: JSON.stringify({ startDate, endDate }),
+          })
+        ).json()
+      ).id as string;
+
+    it('CA1: modifica o elimina periodos sin reservas dejando no disponibles las fechas retiradas', async () => {
+      const token = await registerAndLogin('anfitrion.hu020.ca1@stayhub.com', 'ANFITRION');
+      const id = await createListing(token);
+      const periodId = await registerPeriod(token, id, '2027-05-01', '2027-05-20');
+
+      // Reduce periodo a 05-05 al 05-15
+      const updateRes = await fetch(`${baseUrl}/listings/${id}/availability-periods/${periodId}`, {
+        method: 'PATCH',
+        headers: auth(token),
+        body: JSON.stringify({ startDate: '2027-05-05', endDate: '2027-05-15' }),
+      });
+      expect(updateRes.status).toBe(200);
+
+      const availRetired = await (
+        await fetch(`${baseUrl}/listings/${id}/availability?startDate=2027-05-01&endDate=2027-05-04`)
+      ).json();
+      expect(availRetired.isAvailable).toBe(false);
+
+      // Elimina periodo
+      const delRes = await fetch(`${baseUrl}/listings/${id}/availability-periods/${periodId}`, {
+        method: 'DELETE',
+        headers: auth(token),
+      });
+      expect(delRes.status).toBe(200);
+
+      const availDel = await (
+        await fetch(`${baseUrl}/listings/${id}/availability?startDate=2027-05-06&endDate=2027-05-10`)
+      ).json();
+      expect(availDel.isAvailable).toBe(false);
+    });
+
+    it('CA2: impide retirar fechas que contienen reservas confirmadas e indica reservas afectadas', async () => {
+      const hostToken = await registerAndLogin('anfitrion.hu020.ca2@stayhub.com', 'ANFITRION');
+      const guestToken = await registerAndLogin('huesped.hu020.ca2@stayhub.com', 'HUESPED');
+      const id = await createListing(hostToken);
+
+      const periodId = await registerPeriod(hostToken, id, '2027-06-01', '2027-06-30');
+
+      // Registrar periodo reservado confirmado (HU-023) del 10 al 15
+      const blockRes = await fetch(`${baseUrl}/listings/${id}/reserved-periods`, {
+        method: 'POST',
+        headers: auth(hostToken),
+        body: JSON.stringify({
+          checkIn: '2027-06-10',
+          checkOut: '2027-06-15',
+          bookingId: 'booking-hu020-e2e',
+          type: 'RESERVA',
+        }),
+      });
+      expect(blockRes.status).toBe(201);
+
+      // Intenta eliminar el periodo -> 400 con affectedBookings
+      const delRes = await fetch(`${baseUrl}/listings/${id}/availability-periods/${periodId}`, {
+        method: 'DELETE',
+        headers: auth(hostToken),
+      });
+      expect(delRes.status).toBe(400);
+      const delBody = await delRes.json();
+      expect(delBody.message).toMatch(/reservas confirmadas/);
+      expect(delBody.affectedBookings).toBeDefined();
+
+      // Intenta reducir retirando las fechas de la reserva (ej: fin al 08) -> 400
+      const patchRes = await fetch(`${baseUrl}/listings/${id}/availability-periods/${periodId}`, {
+        method: 'PATCH',
+        headers: auth(hostToken),
+        body: JSON.stringify({ endDate: '2027-06-08' }),
+      });
+      expect(patchRes.status).toBe(400);
+      const patchBody = await patchRes.json();
+      expect(patchBody.message).toMatch(/reservas confirmadas/);
+      expect(patchBody.affectedBookings).toBeDefined();
+    });
+  });
+
   describe('HU-006 · Consultar mi perfil (CA1, CA2, RF-009)', () => {
     const json = { 'Content-Type': 'application/json' };
     const register = (email: string, phone?: string) =>
