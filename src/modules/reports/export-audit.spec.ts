@@ -254,29 +254,29 @@ describe('HU-060 · Registrar las exportaciones (CA1, CA2 · RF-078, RN-027)', (
     });
 
     it('retorna eventos de exportación al consultar la auditoría general', () => {
-      const allEvents = auditController.findAll({});
+      const allEvents = auditController.findAll({}).data;
       const exportEvents = allEvents.filter((e) => e.action === AuditAction.EXPORT);
       expect(exportEvents).toHaveLength(3);
     });
 
     it('filtra exclusivamente eventos de exportación mediante action=EXPORT', () => {
-      const exportEvents = auditController.findAll({ action: AuditAction.EXPORT });
+      const exportEvents = auditController.findAll({ action: AuditAction.EXPORT }).data;
       expect(exportEvents).toHaveLength(3);
       expect(exportEvents.every((e) => e.action === AuditAction.EXPORT)).toBe(true);
-      expect(exportEvents.map((e) => e.entityId)).toEqual(['reservas', 'usuarios', 'ingresos']);
+      expect(exportEvents.map((e) => e.entityId)).toEqual(['ingresos', 'usuarios', 'reservas']);
     });
 
     it('permite filtrar exportaciones por actor específico', () => {
       const auditorExports = auditController.findAll({
         action: AuditAction.EXPORT,
         actor: AUDITOR_EMAIL,
-      });
+      }).data;
       expect(auditorExports).toHaveLength(2);
       expect(auditorExports.every((e) => e.actor === AUDITOR_EMAIL)).toBe(true);
     });
 
     it('garantiza la inmutabilidad de los eventos de exportación registrados (solo inserción)', () => {
-      const [firstExport] = auditController.findAll({ action: AuditAction.EXPORT });
+      const [firstExport] = auditController.findAll({ action: AuditAction.EXPORT }).data;
 
       expect(() => auditController.replace(firstExport.id, AUDITOR_SESSION)).toThrow();
       expect(() => auditController.update(firstExport.id, AUDITOR_SESSION)).toThrow();

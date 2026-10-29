@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { StatePersistenceService } from '../persistence/state-persistence.service';
@@ -32,6 +32,45 @@ export interface AuditEventFilters {
   action?: AuditAction;
   entity?: string;
   result?: AuditResult;
+  /** Desde esta fecha (AAAA-MM-DD, hora de Bogotá) o este instante ISO, incluido. */
+  from?: string;
+  /** Hasta esta fecha (AAAA-MM-DD, hora de Bogotá) o este instante ISO, incluido. */
+  to?: string;
+}
+
+export interface AuditEventsPageQuery extends AuditEventFilters {
+  page?: number;
+  limit?: number;
+}
+
+export interface AuditEventsPage {
+  data: AuditEvent[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export const DEFAULT_AUDIT_PAGE_SIZE = 20;
+export const MAX_AUDIT_PAGE_SIZE = 100;
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const BOGOTA_OFFSET = '-05:00';
+
+/** Una fecha sin hora cubre el día completo en Bogotá: desde las 00:00 o hasta las 23:59:59.999. */
+function toInstant(value: string | undefined, edge: 'start' | 'end'): number | undefined {
+  if (!value?.trim()) {
+    return undefined;
+  }
+  const raw = value.trim();
+  const iso = DATE_ONLY.test(raw)
+    ? `${raw}T${edge === 'start' ? '00:00:00.000' : '23:59:59.999'}${BOGOTA_OFFSET}`
+    : raw;
+  const time = Date.parse(iso);
+  if (Number.isNaN(time)) {
+    throw new BadRequestException(`La fecha «${raw}» no es válida; usa el formato AAAA-MM-DD`);
+  }
+  return time;
 }
 
 /**
@@ -73,14 +112,38 @@ export class AuditService {
     return event;
   }
 
+  /** Eventos que cumplen todos los filtros, en el orden en que se registraron (HU-054 CA2). */
   findAll(filters: AuditEventFilters = {}): AuditEvent[] {
-    return this.events.filter(
-      (event) =>
-        (!filters.actor ||
-          event.actor.toLowerCase() === filters.actor.trim().toLowerCase()) &&
+    const from = toInstant(filters.from, 'start');
+    const to = toInstant(filters.to, 'end');
+    if (from !== undefined && to !== undefined && from > to) {
+      throw new BadRequestException('La fecha inicial no puede ser posterior a la fecha final');
+    }
+    const actor = filters.actor?.trim().toLowerCase();
+    return this.events.filter((event) => {
+      const occurredAt = Date.parse(event.occurredAt);
+      return (
+        (!actor || event.actor.toLowerCase().includes(actor)) &&
         (!filters.action || event.action === filters.action) &&
         (!filters.entity || event.entity === filters.entity) &&
-        (!filters.result || event.result === filters.result),
-    );
+        (!filters.result || event.result === filters.result) &&
+        (from === undefined || occurredAt >= from) &&
+        (to === undefined || occurredAt <= to)
+      );
+    });
+  }
+
+  /** HU-054 CA1: los eventos filtrados, del más reciente al más antiguo y paginados. */
+  findPage(query: AuditEventsPageQuery = {}): AuditEventsPage {
+    const matching = this.findAll(query)
+      .map((event, index) => ({ event, index }))
+      .sort((a, b) => Date.parse(b.event.occurredAt) - Date.parse(a.event.occurredAt) || b.index - a.index)
+      .map(({ event }) => event);
+    const limit = Math.min(MAX_AUDIT_PAGE_SIZE, Math.max(1, Math.trunc(query.limit ?? DEFAULT_AUDIT_PAGE_SIZE)));
+    const total = matching.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const page = Math.min(totalPages, Math.max(1, Math.trunc(query.page ?? 1)));
+    const start = (page - 1) * limit;
+    return { data: matching.slice(start, start + limit), page, limit, total, totalPages };
   }
 }

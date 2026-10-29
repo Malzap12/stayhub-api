@@ -102,7 +102,7 @@ export class PlatformConfigService implements OnModuleInit {
       entity: 'PlatformConfig',
       entityId: 'service_fee',
       result: AuditResult.EXITOSO,
-      detail: `Tarifa de servicio actualizada: valor anterior ${previousValue} %, valor nuevo ${newValue} % (RN-014)`,
+      detail: `Tarifa de servicio actualizada: valor anterior ${previousValue} %, valor nuevo ${newValue} %`,
     });
 
     return this.getServiceFee();
