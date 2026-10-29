@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles, Public } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Role } from '../../common/enums/role.enum';
 import { ActiveSession } from '../auth/auth.service';
 import { CreateReviewDto } from './dto/create-review.dto';
+import { HideReviewDto } from './dto/hide-review.dto';
 import { ReviewResponseDto } from './dto/review-response.dto';
 import { ReviewsService } from './reviews.service';
 
@@ -32,6 +33,29 @@ export class ReviewsController {
   @ApiResponse({ status: 409, description: 'La reserva ya tiene reseña (RESENA_DUPLICADA)' })
   create(@Body() dto: CreateReviewDto, @CurrentUser() user?: ActiveSession): ReviewResponseDto {
     return this.reviewsService.create(dto, user?.email);
+  }
+
+  @Patch(':id/hide')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Ocultar una reseña que incumple las reglas · HU-049 (CA1, CA2)',
+    description:
+      'El administrador oculta una reseña indicando el motivo. Deja de mostrarse públicamente y de contar en el promedio, pero se conserva para auditoría. Se registra en la bitácora con administrador, fecha y motivo, y se notifica al autor. RF-066, RN-021, RN-025.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la reseña a ocultar' })
+  @ApiResponse({ status: 200, description: 'Reseña ocultada exitosamente (CA1)', type: ReviewResponseDto })
+  @ApiResponse({ status: 400, description: 'Motivo inválido o ausente' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Requiere rol ADMINISTRADOR' })
+  @ApiResponse({ status: 404, description: 'Reseña no encontrada' })
+  @ApiResponse({ status: 409, description: 'La reseña ya se encuentra oculta' })
+  hideReview(
+    @Param('id') id: string,
+    @Body() dto: HideReviewDto,
+    @CurrentUser() user?: ActiveSession,
+  ): ReviewResponseDto {
+    return this.reviewsService.hide(id, dto, user?.email ?? 'admin@inversioneslr.com');
   }
 
   @Get('listing/:listingId')

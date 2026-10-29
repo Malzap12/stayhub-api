@@ -797,6 +797,16 @@ export class ListingsService implements OnModuleInit {
     this.reviewsProvider = provider;
   }
 
+  /** HU-049 CA1 (RF-066, RN-025) · Recalcula el promedio y total tras ocultar una reseña. */
+  recalculateRating(listingId: string): void {
+    const listing = this.getListing(listingId);
+    if (!listing) return;
+    const visibleReviews = this.reviewsProvider ? this.reviewsProvider(listingId) : [];
+    const count = visibleReviews.length;
+    listing.reviewCount = count;
+    listing.rating = count > 0 ? Math.round((visibleReviews.reduce((sum, r) => sum + r.rating, 0) / count) * 100) / 100 : 0;
+  }
+
   /** HU-047 CA1 (RF-064) · Suma una calificación al promedio y al total de reseñas de la publicación. */
   addRating(listingId: string, rating: number): void {
     const listing = this.getListing(listingId);
