@@ -30,11 +30,11 @@ export class AuditController {
 
   @Get()
   @ApiOperation({
-    summary: 'Consultar eventos de auditoría · HU-054 (CA1, CA2), HU-061 (CA1, CA3)',
+    summary: 'Consultar eventos de auditoría · HU-054 (CA1, CA2), HU-060 (CA2), HU-061 (CA1, CA3)',
     description:
-      'Retorna los eventos registrados (actor, acción, entidad, fecha y hora, resultado), incluidos los fallidos, ' +
+      'Retorna los eventos registrados (actor, acción, entidad, fecha y hora, resultado), incluidos los eventos de exportación (HU-060 CA2) y los fallidos, ' +
       'del más reciente al más antiguo y paginados. Los filtros por rango de fechas, usuario, tipo de evento, entidad y resultado ' +
-      'se combinan: solo se devuelven los eventos que cumplen todos. Exclusivo del rol ADMINISTRADOR.',
+      'se combinan: solo se devuelven los eventos que cumplen todos. Exclusivo del rol ADMINISTRADOR. RF-072, RF-078, RF-080, RN-027, RN-032, RNF-022.'
   })
   @ApiResponse({ status: 200, description: 'Página de eventos de auditoría', type: AuditEventsPageDto })
   @ApiResponse({ status: 400, description: 'Filtros no válidos (fecha mal escrita o fecha inicial posterior a la final)' })

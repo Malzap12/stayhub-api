@@ -2031,6 +2031,54 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
   });
 
+  describe('HU-060 · Registrar las exportaciones (CA1, CA2 · RF-078, RN-027)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+
+    it('33.1 (CA1, CA2) cada exportación se registra en auditoría y se consulta como evento de exportación', async () => {
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      const xlsxRes = await fetch(`${baseUrl}/reports/export/reservas?from=2026-01-01&status=CONFIRMADA`, { headers: auth(admin) });
+      expect(xlsxRes.status).toBe(200);
+
+      const pdfRes = await fetch(`${baseUrl}/reports/export/usuarios/pdf`, { headers: auth(admin) });
+      expect(pdfRes.status).toBe(200);
+
+      const auditRes = await fetch(`${baseUrl}/audit/events?action=EXPORT`, { headers: auth(admin) });
+      expect(auditRes.status).toBe(200);
+      const auditPayload = (await auditRes.json()) as any;
+      const events = (Array.isArray(auditPayload) ? auditPayload : auditPayload.data) as Array<{
+        actor: string;
+        action: string;
+        entity: string;
+        entityId: string;
+        occurredAt: string;
+        detail: string;
+        metadata?: { report: string; format: string; filters: Record<string, unknown> };
+      }>;
+
+      expect(events.length).toBeGreaterThanOrEqual(2);
+      const lastXlsx = events.find((e) => e.entityId === 'reservas' && e.detail.includes('Excel'));
+      expect(lastXlsx).toBeDefined();
+      expect(lastXlsx?.actor).toBe(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com');
+      expect(lastXlsx?.action).toBe('EXPORT');
+      expect(lastXlsx?.entity).toBe('Report');
+      expect(lastXlsx?.detail).toContain('desde 2026-01-01');
+      expect(lastXlsx?.detail).toContain('estado CONFIRMADA');
+      expect(Number.isNaN(Date.parse(lastXlsx!.occurredAt))).toBe(false);
+
+      const lastPdf = events.find((e) => e.entityId === 'usuarios' && e.detail.includes('PDF'));
+      expect(lastPdf).toBeDefined();
+      expect(lastPdf?.actor).toBe(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com');
+      expect(lastPdf?.action).toBe('EXPORT');
+      expect(lastPdf?.entity).toBe('Report');
+      expect(lastPdf?.detail).toContain('PDF');
+      expect(Number.isNaN(Date.parse(lastPdf!.occurredAt))).toBe(false);
+    });
+  });
+
   describe('RF-041 · Solo una cuenta de huésped reserva (RN-002)', () => {
     const json = { 'Content-Type': 'application/json' };
     const login = async (email: string, password: string) =>

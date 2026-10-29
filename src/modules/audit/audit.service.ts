@@ -14,6 +14,7 @@ export interface AuditEvent {
   readonly occurredAt: string;
   readonly result: AuditResult;
   readonly detail?: string;
+  readonly metadata?: Record<string, unknown>;
 }
 
 export interface RecordAuditEventInput {
@@ -23,6 +24,7 @@ export interface RecordAuditEventInput {
   entityId?: string;
   result: AuditResult;
   detail?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface AuditEventFilters {
@@ -104,6 +106,7 @@ export class AuditService {
       occurredAt: new Date().toISOString(),
       result: input.result,
       detail: input.detail,
+      metadata: input.metadata ? Object.freeze({ ...input.metadata }) : undefined,
     });
     this.events.push(event);
     return event;
