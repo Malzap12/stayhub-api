@@ -481,5 +481,32 @@ describe('HU-049 · Ocultar reseñas que incumplen las reglas (CA1, CA2 · RF-06
       expect(notif?.message).toContain(reason);
       expect(notif?.recipientEmail).toBe(authorEmail);
     });
+
+    it('cubre findById con reviews demo (review-1 y review-2)', () => {
+      const r1 = service.findById('review-1');
+      expect(r1).toBeDefined();
+      expect(r1?.id).toBe('review-1');
+      const r2 = service.findById('review-2');
+      expect(r2).toBeDefined();
+      expect(r2?.id).toBe('review-2');
+      expect(service.findById('inexistente')).toBeUndefined();
+    });
+
+    it('cubre hideReview en el controlador usando el email por defecto cuando no hay usuario autenticado', () => {
+      const r = service.create({ bookingId: 'b1', rating: 5, comment: 'Muy buen lugar' }, authorEmail);
+      const hidden = controller.hideReview(r.id, { reason: 'Incumple normas' });
+      expect(hidden.visible).toBe(false);
+    });
+
+    it('cubre recalculateRating cuando la publicacion no existe', () => {
+      expect(() => listings.recalculateRating('listing-inexistente')).not.toThrow();
+    });
+
+    it('cubre reviewHidden en NotificationsService con y sin titulo de publicacion', () => {
+      notifications.reviewHidden({ id: 'r-1', guestEmail: 'g@test.com', listingTitle: 'Apto' }, 'Motivo 1');
+      notifications.reviewHidden({ id: 'r-2', guestEmail: 'g@test.com' }, 'Motivo 2');
+      const userNotifs = notifications.findMine({ email: 'g@test.com' });
+      expect(userNotifs.length).toBeGreaterThanOrEqual(2);
+    });
   });
 });
