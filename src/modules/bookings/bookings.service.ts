@@ -25,6 +25,7 @@ import { PlatformConfigService } from '../platform/platform-config.service';
 import { DEFAULT_SERVICE_FEE_PERCENT } from '../platform/dto/service-fee.dto';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
+import { CANCELLATION_POLICIES, type CancellationPolicyCode } from '../listings/cancellation-policies';
 import { PaymentsService } from '../payments/payments.service';
 import { PaymentCardDto } from '../payments/dto/payment.dto';
 import { PaymentStatus } from '../../common/enums/payment-status.enum';
@@ -568,6 +569,7 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       if (listing && error instanceof BadRequestException) { throw error; }
     }
 
+    const initialPolicy = this.listingsService?.getCancellationPolicyOf(bookingDto.listingId);
     const bookingCode = `RES-${randomBytes(4).toString('hex').toUpperCase()}`;
     const booking: BookingResponseDto = {
       id: `booking-${randomUUID()}`,
@@ -592,6 +594,9 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       currency: quoteData?.currency ?? 'COP',
       breakdown: quoteData,
       status: BookingStatus.PENDIENTE,
+      cancellationPolicy: (initialPolicy as any)?.code ?? (listing as any)?.cancellationPolicy,
+      cancellationPolicyName: initialPolicy?.name,
+      cancellationPolicyDescription: initialPolicy?.description,
       idempotencyKey: bookingDto.idempotencyKey,
       specialRequests: bookingDto.specialRequests,
       createdAt: new Date(),
@@ -838,7 +843,8 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
         });
       }
 
-      const policy = this.listingsService?.getCancellationPolicyOf(booking.listingId);
+      const bookedPolicy = (booking as any).cancellationPolicy;
+      const policy = (bookedPolicy && (CANCELLATION_POLICIES as any)[bookedPolicy]) || this.listingsService?.getCancellationPolicyOf(booking.listingId);
       const hoursBeforeArrival = (arrival - now) / 3_600_000;
       const {
         policy: policyCode,
@@ -926,7 +932,8 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     if (!listing) {
       return booking;
     }
-    const policy = this.listingsService?.getCancellationPolicyOf(booking.listingId);
+    const bookedPolicy = (booking as any).cancellationPolicy;
+    const policy = (bookedPolicy && (CANCELLATION_POLICIES as any)[bookedPolicy]) || this.listingsService?.getCancellationPolicyOf(booking.listingId);
     return {
       ...booking,
       listingTitle: listing.title,

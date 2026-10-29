@@ -2261,6 +2261,122 @@
       }
     },
     "/api/listings/{id}": {
+      "patch": {
+        "operationId": "ListingsController_update",
+        "summary": "Editar mi publicación · HU-011 (CA1, CA2, CA3)",
+        "description": "Permite al anfitrión propietario actualizar los datos de su publicación (RF-015, RN-003, RN-021). Si la publicación ya está activa, no exige nueva revisión (AMB-29). Las reservas confirmadas conservan sus condiciones pactadas.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateListingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Publicación actualizada exitosamente (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Datos inválidos"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (solo anfitrión)"
+          },
+          "404": {
+            "description": "Publicación no encontrada o de otro anfitrión (CA2)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "ListingsController_updatePut",
+        "summary": "Actualizar mi publicación · HU-011 (CA1, CA2, CA3)",
+        "description": "Permite al anfitrión propietario actualizar los datos de su publicación.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateListingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Publicación actualizada exitosamente (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Datos inválidos"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (solo anfitrión)"
+          },
+          "404": {
+            "description": "Publicación no encontrada o de otro anfitrión (CA2)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
       "get": {
         "operationId": "ListingsController_findOne",
         "summary": "Consultar el detalle de una publicación · HU-026 (CA1, CA2) / HU-003 CA3",
@@ -2923,6 +3039,7 @@
                 "PROFILE_UPDATE",
                 "PASSWORD_CHANGE",
                 "LISTING_STATUS_CHANGE",
+                "LISTING_UPDATE",
                 "LISTING_PRICING_UPDATE",
                 "SERVICE_FEE_UPDATE",
                 "AVAILABILITY_PERIOD_CREATE",
@@ -5360,6 +5477,121 @@
           "pricePerNight"
         ]
       },
+      "UpdateListingDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "example": "Hermosa cabaña en la montaña",
+            "description": "Título del alojamiento",
+            "minLength": 5,
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "example": "Cabaña espaciosa con vista panorámica, chimenea y jacuzzi.",
+            "description": "Descripción detallada"
+          },
+          "city": {
+            "type": "string",
+            "example": "Medellín",
+            "description": "Ciudad del alojamiento (AMB-18)"
+          },
+          "department": {
+            "type": "string",
+            "example": "Antioquia",
+            "description": "Departamento del alojamiento (AMB-18)"
+          },
+          "address": {
+            "type": "string",
+            "example": "Calle 10 # 43-20 · frente al parque",
+            "description": "Dirección o referencia"
+          },
+          "country": {
+            "type": "string",
+            "example": "Colombia",
+            "description": "País del alojamiento",
+            "default": "Colombia"
+          },
+          "propertyType": {
+            "type": "string",
+            "enum": [
+              "CASA",
+              "APARTAMENTO",
+              "CABANA",
+              "FINCA",
+              "HABITACION",
+              "OTRO"
+            ],
+            "example": "CABANA",
+            "description": "Tipo de alojamiento"
+          },
+          "maxGuests": {
+            "type": "number",
+            "example": 4,
+            "description": "Capacidad máxima de huéspedes (CA2: mayor que 0)",
+            "minimum": 1
+          },
+          "pricePerNight": {
+            "type": "number",
+            "example": 320000,
+            "description": "Precio por noche (CA2: mayor que 0)"
+          },
+          "bedrooms": {
+            "type": "number",
+            "example": 2,
+            "description": "Cantidad de habitaciones",
+            "minimum": 0
+          },
+          "bathrooms": {
+            "type": "number",
+            "example": 2,
+            "description": "Cantidad de baños",
+            "minimum": 0
+          },
+          "amenities": {
+            "example": [
+              "WIFI",
+              "COCINA",
+              "PISCINA"
+            ],
+            "description": "Servicios del alojamiento",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rules": {
+            "example": [
+              "No fumar",
+              "No se admiten fiestas"
+            ],
+            "description": "Reglas de la casa",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "images": {
+            "example": [
+              "https://storage.stayhub.com/img1.jpg"
+            ],
+            "description": "URLs de las imágenes",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cancellationPolicy": {
+            "type": "string",
+            "example": "FLEXIBLE",
+            "enum": [
+              "FLEXIBLE"
+            ],
+            "description": "Política de cancelación asociada del catálogo (HU-039, por defecto FLEXIBLE)"
+          }
+        }
+      },
       "ListingLocationDto": {
         "type": "object",
         "properties": {
@@ -6105,6 +6337,11 @@
             "example": "https://images.unsplash.com/photo-1",
             "description": "Primera imagen de la publicación (Mis reservas y detalle)"
           },
+          "cancellationPolicy": {
+            "type": "string",
+            "example": "Flexible",
+            "description": "Política de cancelación de la publicación (Mis reservas y detalle)"
+          },
           "cancellationPolicyName": {
             "type": "string",
             "example": "Flexible",
@@ -6421,6 +6658,7 @@
               "PROFILE_UPDATE",
               "PASSWORD_CHANGE",
               "LISTING_STATUS_CHANGE",
+              "LISTING_UPDATE",
               "LISTING_PRICING_UPDATE",
               "SERVICE_FEE_UPDATE",
               "AVAILABILITY_PERIOD_CREATE",
