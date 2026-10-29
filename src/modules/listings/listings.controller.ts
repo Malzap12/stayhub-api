@@ -147,12 +147,34 @@ export class ListingsController {
     return this.listingsService.requestActivation(id, user);
   }
 
+  @Patch(':id/pause')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Pausar mi publicación · HU-014 (CA1, CA3)',
+    description:
+      'El anfitrión pausa una publicación ACTIVA: pasa a PAUSADA, deja de aparecer en las búsquedas y no recibe reservas nuevas. ' +
+      'Sus reservas confirmadas se mantienen CONFIRMADAS. RF-018, RN-005, RN-006.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación' })
+  @ApiResponse({ status: 200, description: 'Publicación PAUSADA', type: MyListingDto })
+  @ApiResponse({ status: 400, description: 'La publicación no está ACTIVA' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ANFITRION)' })
+  @ApiResponse({ status: 404, description: 'Publicación no encontrada o de otro anfitrión (RN-005)' })
+  pauseListing(
+    @Param('id') id: string,
+    @CurrentUser() user?: ActiveSession,
+  ): MyListingDto {
+    return this.listingsService.pauseListing(id, user);
+  }
+
   @Patch(':id/reactivate')
   @Roles(Role.ANFITRION)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Reactivar publicación pausada · HU-053 (CA3)',
-    description: 'Permite al anfitrión reactivar una publicación que estaba en PAUSADA para que vuelva a estar ACTIVA.',
+    summary: 'Reactivar mi publicación pausada · HU-014 (CA2), HU-053 (CA3)',
+    description: 'La publicación PAUSADA vuelve a ACTIVA sin nueva revisión y aparece de nuevo en las búsquedas.',
   })
   @ApiParam({ name: 'id', description: 'ID de la publicación' })
   @ApiResponse({ status: 200, description: 'Publicación reactivada a ACTIVA', type: MyListingDto })
