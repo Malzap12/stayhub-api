@@ -2717,4 +2717,156 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await call('GET', '/bookings/host', other)).body).toEqual([]);
     });
   });
+
+  describe('HU-011 · Editar mi publicación (CA1, CA2, CA3, RF-015, RN-003, RN-021)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ Authorization: `Bearer ${token}`, ...json });
+    const loginAs = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: email, email, password: 'Password123', role }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return ((await res.json()) as { token: string }).token;
+    };
+
+    let hostToken: string;
+    let otherHostToken: string;
+    let listingId: string;
+
+    beforeAll(async () => {
+      hostToken = await loginAs('host.hu011.contract@stayhub.com', 'ANFITRION');
+      otherHostToken = await loginAs('other.hu011.contract@stayhub.com', 'ANFITRION');
+
+      const res = await fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: auth(hostToken),
+        body: JSON.stringify({
+          title: 'Cabaña Contrato Inicial',
+          description: 'Cabaña acogedora en el bosque',
+          city: 'Manizales',
+          department: 'Caldas',
+          address: 'Vereda Chipre km 2',
+          propertyType: 'CABANA',
+          maxGuests: 4,
+          pricePerNight: 200000,
+          amenities: ['WIFI', 'CHIMENEA'],
+          rules: ['No fumar'],
+          images: ['https://storage.stayhub.com/manizales-1.jpg'],
+          cancellationPolicy: 'FLEXIBLE',
+        }),
+      });
+      const created = await res.json();
+      listingId = created.id;
+    });
+
+    it('38.1 (CA1) el anfitrión propietario modifica datos válidos y se guarda registrando auditoría', async () => {
+      const updateRes = await fetch(`${baseUrl}/listings/${listingId}`, {
+        method: 'PATCH',
+        headers: auth(hostToken),
+        body: JSON.stringify({
+          title: 'Cabaña Contrato Renovada con Jacuzzi',
+          maxGuests: 6,
+          pricePerNight: 250000,
+          amenities: ['WIFI', 'CHIMENEA', 'JACUZZI'],
+        }),
+      });
+      expect(updateRes.status).toBe(200);
+      const updated = await updateRes.json();
+      expect(updated.title).toBe('Cabaña Contrato Renovada con Jacuzzi');
+      expect(updated.maxGuests).toBe(6);
+      expect(updated.pricePerNight).toBe(250000);
+      expect(updated.amenities).toContain('JACUZZI');
+
+      // Verificar que el detalle público refleja los cambios
+      const detailRes = await fetch(`${baseUrl}/listings/${listingId}`, { headers: auth(hostToken) });
+      expect(detailRes.status).toBe(200);
+      const detail = await detailRes.json();
+      expect(detail.title).toBe('Cabaña Contrato Renovada con Jacuzzi');
+    });
+
+    it('38.2 (CA2) otro anfitrión recibe 404 al intentar editar una publicación ajena', async () => {
+      const updateRes = await fetch(`${baseUrl}/listings/${listingId}`, {
+        method: 'PATCH',
+        headers: auth(otherHostToken),
+        body: JSON.stringify({
+          title: 'Intento Ilegítimo de Modificación',
+        }),
+      });
+      expect(updateRes.status).toBe(404);
+    });
+
+    it('38.3 (CA3) reservas confirmadas conservan las condiciones pactadas al modificarse precio o política', async () => {
+      // Activar y registrar periodo para poder reservar
+      await fetch(`${baseUrl}/listings/${listingId}/request-activation`, {
+        method: 'PATCH',
+        headers: auth(hostToken),
+      });
+      // admin aprueba con credenciales reales de admin
+      const adminLoginRes = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({
+          email: process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com',
+          password: process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!',
+        }),
+      });
+      const adminToken = ((await adminLoginRes.json()) as { token: string }).token;
+
+      const approveRes = await fetch(`${baseUrl}/listings/${listingId}/approve`, {
+        method: 'PATCH',
+        headers: auth(adminToken),
+      });
+      expect(approveRes.status).toBe(200);
+
+      const periodRes = await fetch(`${baseUrl}/listings/${listingId}/availability-periods`, {
+        method: 'POST',
+        headers: auth(hostToken),
+        body: JSON.stringify({ startDate: '2026-12-01', endDate: '2026-12-20' }),
+      });
+      expect(periodRes.status).toBe(201);
+
+      const guestToken = await loginAs('guest.hu011.contract@stayhub.com', 'HUESPED');
+      const bookingRes = await fetch(`${baseUrl}/bookings/instant`, {
+        method: 'POST',
+        headers: auth(guestToken),
+        body: JSON.stringify({
+          listingId,
+          checkIn: '2026-12-05',
+          checkOut: '2026-12-08',
+          guests: 2,
+          idempotencyKey: randomUUID(),
+        }),
+      });
+      expect(bookingRes.status).toBe(201);
+      const booking = await bookingRes.json();
+      const initialTotal = booking.totalAmount;
+      const initialNightlyRate = booking.nightlyRate;
+
+      // Anfitrión actualiza precio en la publicación
+      const hostEditRes = await fetch(`${baseUrl}/listings/${listingId}`, {
+        method: 'PATCH',
+        headers: auth(hostToken),
+        body: JSON.stringify({
+          pricePerNight: 500000,
+        }),
+      });
+      expect(hostEditRes.status).toBe(200);
+
+      // Reserva previa mantiene sus condiciones originales
+      const getBookingRes = await fetch(`${baseUrl}/bookings/${booking.id}`, {
+        headers: auth(guestToken),
+      });
+      expect(getBookingRes.status).toBe(200);
+      const bookingAfter = await getBookingRes.json();
+      expect(bookingAfter.nightlyRate).toBe(initialNightlyRate);
+      expect(bookingAfter.totalAmount).toBe(initialTotal);
+    });
+  });
+
 });

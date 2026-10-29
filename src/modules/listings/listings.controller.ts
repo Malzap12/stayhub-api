@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Patch, Delete, Body, Query, Param, Headers } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Put, Delete, Body, Query, Param, Headers } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { ListingsService } from './listings.service';
 import { CreateListingDto } from './dto/create-listing.dto';
+import { UpdateListingDto } from './dto/update-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
 import { AdditionalServiceDto, ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
 import { CreateAdditionalServiceDto, UpdateAdditionalServiceDto } from './dto/additional-service.dto';
@@ -518,6 +519,49 @@ export class ListingsController {
   @ApiResponse({ status: 200, description: 'Listado público de reseñas del alojamiento' })
   getReviews(@Param('id') id: string) {
     return this.listingsService.getReviews(id);
+  }
+
+  @Patch(':id')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Editar mi publicación · HU-011 (CA1, CA2, CA3)',
+    description:
+      'Permite al anfitrión propietario actualizar los datos de su publicación (RF-015, RN-003, RN-021). Si la publicación ya está activa, no exige nueva revisión (AMB-29). Las reservas confirmadas conservan sus condiciones pactadas.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación' })
+  @ApiResponse({ status: 200, description: 'Publicación actualizada exitosamente (CA1)', type: ListingResponseDto })
+  @ApiResponse({ status: 400, description: 'Datos inválidos' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (solo anfitrión)' })
+  @ApiResponse({ status: 404, description: 'Publicación no encontrada o de otro anfitrión (CA2)' })
+  update(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateListingDto,
+    @CurrentUser() user?: ActiveSession,
+  ): ListingResponseDto {
+    return this.listingsService.updateListing(id, updateDto, user);
+  }
+
+  @Put(':id')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Actualizar mi publicación · HU-011 (CA1, CA2, CA3)',
+    description: 'Permite al anfitrión propietario actualizar los datos de su publicación.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación' })
+  @ApiResponse({ status: 200, description: 'Publicación actualizada exitosamente (CA1)', type: ListingResponseDto })
+  @ApiResponse({ status: 400, description: 'Datos inválidos' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (solo anfitrión)' })
+  @ApiResponse({ status: 404, description: 'Publicación no encontrada o de otro anfitrión (CA2)' })
+  updatePut(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateListingDto,
+    @CurrentUser() user?: ActiveSession,
+  ): ListingResponseDto {
+    return this.listingsService.updateListing(id, updateDto, user);
   }
 
   @Get(':id')
