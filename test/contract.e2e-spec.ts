@@ -2326,4 +2326,101 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(ids).not.toContain(cancelled.id);
     });
   });
+
+  describe('HU-016 · Ofrecer servicios adicionales con costo (CA1, CA2, RF-020, RN-004, RN-013)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const call = async (method: string, path: string, token: string | null, body?: unknown) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const stay = { checkIn: '2026-12-05', checkOut: '2026-12-08', guests: 2 };
+    let host: string;
+    let listing: string;
+    let serviceId: string;
+    let bookingId: string;
+
+    beforeAll(async () => {
+      const email = `anfitrion.hu016.${randomUUID()}@prueba.com`;
+      await call('POST', '/auth/register', null, { name: 'Anfitriona Servicios', email, password: 'Password123', role: 'ANFITRION' });
+      host = await login(email, 'Password123');
+      const created = await call('POST', '/listings', host, {
+        title: 'Cabaña con servicios',
+        description: 'Cabaña de prueba para servicios adicionales',
+        city: 'Guatapé',
+        department: 'Antioquia',
+        address: 'Vereda El Roble',
+        propertyType: 'CASA',
+        maxGuests: 4,
+        pricePerNight: 200000,
+        amenities: ['WIFI'],
+        rules: ['No fumar'],
+        images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+      });
+      listing = created.body.id;
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2026-11-01', endDate: '2026-12-31' });
+      await call('PATCH', `/listings/${listing}/request-activation`, host);
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
+    });
+
+    it('36.1 (CA1) el anfitrión agrega un servicio con costo mayor que 0 y aparece en el detalle', async () => {
+      const res = await call('POST', `/listings/${listing}/additional-services`, host, { name: 'Desayuno para dos', cost: 45000 });
+
+      expect(res.status).toBe(201);
+      expect(res.body).toEqual([{ id: expect.any(String), name: 'Desayuno para dos', cost: 45000 }]);
+      serviceId = res.body[0].id;
+      const detail = (await call('GET', `/listings/${listing}`, null)).body;
+      expect(detail.additionalServices).toEqual([{ id: serviceId, name: 'Desayuno para dos', cost: 45000 }]);
+    });
+
+    it('36.2 (CA1) rechaza costo 0, nombre repetido, otros roles y publicaciones ajenas', async () => {
+      expect((await call('POST', `/listings/${listing}/additional-services`, host, { name: 'Gratis', cost: 0 })).status).toBe(400);
+      expect((await call('POST', `/listings/${listing}/additional-services`, host, { name: 'DESAYUNO PARA DOS', cost: 1000 })).status).toBe(400);
+      expect((await call('POST', `/listings/${listing}/additional-services`, guestBookingToken, { name: 'Tour', cost: 1000 })).status).toBe(403);
+      expect((await call('POST', `/listings/demo-bogota-chapinero/additional-services`, host, { name: 'Tour', cost: 1000 })).status).toBe(404);
+      expect((await call('POST', `/listings/${listing}/additional-services`, null, { name: 'Tour', cost: 1000 })).status).toBe(401);
+    });
+
+    it('36.3 (CA1) se puede seleccionar al cotizar y se guarda en la reserva', async () => {
+      const quoted = await call('POST', '/bookings/quote', null, { listingId: listing, ...stay, additionalServices: ['Desayuno para dos'] });
+      expect(quoted.status).toBe(200);
+      expect(quoted.body).toMatchObject({ additionalServices: [{ name: 'Desayuno para dos', cost: 45000 }], additionalServicesTotal: 45000 });
+
+      const booked = await call('POST', '/bookings/instant', guestBookingToken, {
+        listingId: listing,
+        ...stay,
+        additionalServices: ['Desayuno para dos'],
+        idempotencyKey: randomUUID(),
+      });
+      expect(booked.status).toBe(201);
+      bookingId = booked.body.id;
+    });
+
+    it('36.4 (CA2) modificar el costo aplica a cotizaciones nuevas y no altera la reserva', async () => {
+      const res = await call('PATCH', `/listings/${listing}/additional-services/${serviceId}`, host, { cost: 60000 });
+      expect(res.status).toBe(200);
+      expect(res.body[0]).toMatchObject({ id: serviceId, cost: 60000 });
+
+      const quoted = await call('POST', '/bookings/quote', null, { listingId: listing, ...stay, additionalServices: ['Desayuno para dos'] });
+      expect(quoted.body.additionalServicesTotal).toBe(60000);
+      const booking = (await call('GET', `/bookings/${bookingId}`, guestBookingToken)).body;
+      expect(booking.additionalServices).toEqual([{ name: 'Desayuno para dos', cost: 45000 }]);
+    });
+
+    it('36.5 (CA2) eliminar lo quita de cotizaciones nuevas y la reserva lo conserva', async () => {
+      const res = await call('DELETE', `/listings/${listing}/additional-services/${serviceId}`, host);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+
+      expect((await call('POST', '/bookings/quote', null, { listingId: listing, ...stay, additionalServices: ['Desayuno para dos'] })).status).toBe(400);
+      expect((await call('GET', `/listings/${listing}`, null)).body.additionalServices).toEqual([]);
+      const booking = (await call('GET', `/bookings/${bookingId}`, guestBookingToken)).body;
+      expect(booking.additionalServices).toEqual([{ name: 'Desayuno para dos', cost: 45000 }]);
+      expect((await call('DELETE', `/listings/${listing}/additional-services/${serviceId}`, host)).status).toBe(404);
+    });
+  });
 });
