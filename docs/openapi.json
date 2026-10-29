@@ -1354,8 +1354,8 @@
     "/api/listings/{id}/cancellation-policy": {
       "patch": {
         "operationId": "ListingsController_updateCancellationPolicy",
-        "summary": "Asociar una política de cancelación del catálogo a mi publicación · HU-039 (CA1)",
-        "description": "Permite al anfitrión asociar una política del catálogo (ej. Flexible) a su publicación (RF-058, RN-016).",
+        "summary": "Asociar una política de cancelación a mi publicación · HU-017 / HU-039 (CA1)",
+        "description": "Permite al anfitrión asociar una política del catálogo (ej. Flexible) a su publicación para que quede registrada y se muestre en el detalle (RF-021, RF-058, RN-004, RN-016).",
         "parameters": [
           {
             "name": "id",
@@ -4592,6 +4592,11 @@
             "type": "string",
             "example": "Las fotografías están oscuras; agrega imágenes del exterior.",
             "description": "Motivo indicado por el administrador al devolver o bloquear la publicación (CA2)"
+          },
+          "cancellationPolicy": {
+            "type": "string",
+            "example": "FLEXIBLE",
+            "description": "Código de la política de cancelación asociada (HU-017 CA1)"
           },
           "isComplete": {
             "type": "boolean",

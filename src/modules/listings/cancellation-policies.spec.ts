@@ -5,19 +5,15 @@ import { ListingsService } from './listings.service';
 import { AuditService } from '../audit/audit.service';
 import { ActiveSession, AuthService } from '../auth/auth.service';
 import { Role } from '../../common/enums/role.enum';
+import { ListingStatus } from '../../common/enums/listing-status.enum';
+import { PropertyType } from '../../common/enums/property-type.enum';
 import { CANCELLATION_POLICIES, getCancellationPoliciesCatalog } from './cancellation-policies';
 
-describe('HU-039 · Disponer de la política de cancelación Flexible (CA1, CA2, RF-058, RN-016)', () => {
+describe('HU-039 y HU-017 · Catálogo y asociación de política de cancelación (RF-021, RF-058, RN-004, RN-016)', () => {
   let controller: ListingsController;
   let authService: AuthService;
-
-  const host: ActiveSession = {
-    token: 'jwt-host-hu039',
-    userId: 'host-hu039',
-    email: 'anfitrion.hu039@stayhub.com',
-    role: Role.ANFITRION,
-    expiresAt: Date.now() + 60_000,
-  };
+  let host: ActiveSession;
+  let hostToken: string;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -28,10 +24,16 @@ describe('HU-039 · Disponer de la política de cancelación Flexible (CA1, CA2,
     controller = module.get(ListingsController);
     authService = module.get(AuthService);
     authService.onModuleInit();
+
+    const email = 'anfitrion.hu017@stayhub.com';
+    await authService.register({ name: 'Anfitrión HU017', email, password: 'Password123', role: Role.ANFITRION } as never);
+    const loginRes = await authService.login({ email, password: 'Password123' } as never);
+    hostToken = `Bearer ${loginRes.token}`;
+    host = authService.getSession(loginRes.token)!;
   });
 
-  describe('CA1 · Catálogo de políticas con la política Flexible (100 % hasta 48 h antes y 50 % después)', () => {
-    it('incluye la política Flexible con sus reglas de 100 % (>= 48 h) y 50 % (< 48 h)', () => {
+  describe('HU-039 · Disponer de la política de cancelación Flexible (CA1, CA2)', () => {
+    it('CA1: incluye la política Flexible con sus reglas de 100 % (>= 48 h) y 50 % (< 48 h)', () => {
       const catalog = controller.getCancellationPolicies();
 
       expect(catalog).toEqual(getCancellationPoliciesCatalog());
@@ -49,22 +51,41 @@ describe('HU-039 · Disponer de la política de cancelación Flexible (CA1, CA2,
       );
     });
 
-    it('permite asociar la política Flexible al crear o actualizar una publicación del anfitrión', () => {
-      const created = controller.create(
-        { title: 'Cabaña con política Flexible', cancellationPolicy: 'FLEXIBLE' },
-        host,
-      );
-      expect(created.cancellationPolicy).toBe('FLEXIBLE');
+    it('CA2: el detalle de la publicación muestra la explicación de la regla de 48 horas y 50 % junto con un ejemplo de fechas', () => {
+      const detail = controller.findOne('demo-bogota-chapinero');
 
-      const draft = controller.create({ title: 'Otra publicación del anfitrión' }, host);
+      expect(detail.cancellationPolicy.code).toBe('FLEXIBLE');
+      expect(detail.cancellationPolicy.name).toBe('Flexible');
+      expect(detail.cancellationPolicy.description).toContain('100 %');
+      expect(detail.cancellationPolicy.description).toContain('48 horas');
+      expect(detail.cancellationPolicy.description).toContain('50 %');
+      expect(detail.cancellationPolicy.description).toMatch(/Por ejemplo.*15 de noviembre.*13 de noviembre/);
+    });
+  });
+
+  describe('HU-017 · Asociar una política de cancelación (CA1, CA2 · RF-021, RN-004, RN-016)', () => {
+    it('CA1: asocia una política del catálogo a la publicación, queda registrada y se muestra en el detalle', () => {
+      const draft = controller.create({ title: 'Cabaña en Guatapé' }, host);
+      expect(draft.cancellationPolicy).toBeUndefined();
+
       const policy = controller.updateCancellationPolicy(draft.id, { code: 'FLEXIBLE' }, host);
-
       expect(policy).toEqual(CANCELLATION_POLICIES.FLEXIBLE);
+
+      const detail = controller.findOne(draft.id, hostToken);
+      expect(detail.cancellationPolicy.code).toBe('FLEXIBLE');
+      expect(detail.cancellationPolicy.name).toBe('Flexible');
+      expect(detail.cancellationPolicy.rules).toEqual(CANCELLATION_POLICIES.FLEXIBLE.rules);
+
+      const mine = controller.findMine(host);
+      const myListing = mine.find((item) => item.id === draft.id);
+      expect(myListing?.cancellationPolicy).toBe('FLEXIBLE');
     });
 
-    it('rechaza asociar una política inexistente o sobre una publicación ajena', () => {
+    it('CA1: rechaza asociar una política inexistente o sobre una publicación ajena', async () => {
       const draft = controller.create({ title: 'Publicación propia' }, host);
-      const otherHost: ActiveSession = { ...host, userId: 'otro-host-hu039', email: 'otro@stayhub.com' };
+      await authService.register({ name: 'Otro Anfitrión', email: 'otro@stayhub.com', password: 'Password123', role: Role.ANFITRION } as never);
+      const otherLogin = await authService.login({ email: 'otro@stayhub.com', password: 'Password123' } as never);
+      const otherHost = authService.getSession(otherLogin.token)!;
 
       expect(() =>
         controller.updateCancellationPolicy(draft.id, { code: 'INEXISTENTE' as 'FLEXIBLE' }, host),
@@ -74,18 +95,32 @@ describe('HU-039 · Disponer de la política de cancelación Flexible (CA1, CA2,
         controller.updateCancellationPolicy(draft.id, { code: 'FLEXIBLE' }, otherHost),
       ).toThrow(NotFoundException);
     });
-  });
 
-  describe('CA2 · En el detalle de una publicación el texto de la política explica la regla con un ejemplo de fechas', () => {
-    it('el detalle de la publicación muestra la explicación de la regla de 48 horas y 50 % junto con un ejemplo de fechas', () => {
-      const detail = controller.findOne('demo-bogota-chapinero');
+    it('CA2: dado que no elegí una política, al solicitar la activación el sistema asigna la política Flexible por defecto', () => {
+      const completeDraft = controller.create(
+        {
+          title: 'Casa Campestre sin política',
+          description: 'Espaciosa y campestre con todas las comodidades.',
+          city: 'Manizales',
+          department: 'Caldas',
+          address: 'Vereda La Linda',
+          propertyType: PropertyType.CASA,
+          maxGuests: 6,
+          pricePerNight: 400000,
+          amenities: ['WIFI', 'PARQUEADERO'],
+          rules: ['No fumar dentro'],
+          images: ['https://storage.stayhub.com/casa-1.jpg'],
+        },
+        host,
+      );
+      expect(completeDraft.cancellationPolicy).toBeUndefined();
 
+      const activated = controller.requestActivation(completeDraft.id, host);
+      expect(activated.status).toBe(ListingStatus.PENDIENTE_REVISION);
+      expect(activated.cancellationPolicy).toBe('FLEXIBLE');
+
+      const detail = controller.findOne(completeDraft.id, hostToken);
       expect(detail.cancellationPolicy.code).toBe('FLEXIBLE');
-      expect(detail.cancellationPolicy.name).toBe('Flexible');
-      expect(detail.cancellationPolicy.description).toContain('100 %');
-      expect(detail.cancellationPolicy.description).toContain('48 horas');
-      expect(detail.cancellationPolicy.description).toContain('50 %');
-      expect(detail.cancellationPolicy.description).toMatch(/Por ejemplo.*15 de noviembre.*13 de noviembre/);
     });
   });
 });

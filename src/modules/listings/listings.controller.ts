@@ -222,9 +222,9 @@ export class ListingsController {
   @Roles(Role.ANFITRION)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Asociar una política de cancelación del catálogo a mi publicación · HU-039 (CA1)',
+    summary: 'Asociar una política de cancelación a mi publicación · HU-017 / HU-039 (CA1)',
     description:
-      'Permite al anfitrión asociar una política del catálogo (ej. Flexible) a su publicación (RF-058, RN-016).',
+      'Permite al anfitrión asociar una política del catálogo (ej. Flexible) a su publicación para que quede registrada y se muestre en el detalle (RF-021, RF-058, RN-004, RN-016).',
   })
   @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
   @ApiResponse({ status: 200, description: 'Política de cancelación asociada', type: CancellationPolicyDto })

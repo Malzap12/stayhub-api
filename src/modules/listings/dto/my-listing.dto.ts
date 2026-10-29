@@ -35,6 +35,12 @@ export class MyListingDto {
   })
   adminReason?: string;
 
+  @ApiPropertyOptional({
+    example: 'FLEXIBLE',
+    description: 'Código de la política de cancelación asociada (HU-017 CA1)',
+  })
+  cancellationPolicy?: string;
+
   @ApiProperty({ example: true, description: 'Indica si tiene toda la información básica (HU-010 CA4)' })
   isComplete: boolean;
 
