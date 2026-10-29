@@ -14,6 +14,7 @@ import {
 import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
+import { ResolveReviewDto, ReviewDecision } from './dto/resolve-review.dto';
 import { BookingPaymentResultDto, BookingResponseDto } from './dto/booking-response.dto';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
 import { AuditService } from '../audit/audit.service';
@@ -178,6 +179,7 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     for (const booking of future) {
       const previous = booking.status;
       booking.status = BookingStatus.EN_REVISION;
+      booking.statusBeforeReview = previous;
       booking.reviewReason = reviewReason;
       booking.underReviewAt = now;
       this.auditService.record({
@@ -212,6 +214,7 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     for (const booking of future) {
       const previous = booking.status;
       booking.status = BookingStatus.EN_REVISION;
+      booking.statusBeforeReview = previous;
       booking.reviewReason = reason;
       booking.underReviewAt = now;
       this.auditService.record({
@@ -225,6 +228,100 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       this.notificationsService?.bookingUnderReview(this.noticeOf(booking), 'el anfitrión fue restringido por el administrador');
     }
     return future.map((booking) => booking.code ?? booking.id);
+  }
+
+  /** HU-052 · Reservas EN_REVISION que esperan la decisión del administrador, de la más antigua a la más reciente. */
+  findUnderReview(): BookingResponseDto[] {
+    return this.bookingsStore
+      .filter((booking) => booking.status === BookingStatus.EN_REVISION)
+      .sort(
+        (a, b) =>
+          new Date(a.underReviewAt ?? a.createdAt).getTime() - new Date(b.underReviewAt ?? b.createdAt).getTime() ||
+          String(a.checkIn).localeCompare(String(b.checkIn)),
+      )
+      .map((booking) => this.withListingInfo(booking));
+  }
+
+  /**
+   * HU-052 · Resolver las reservas en revisión (CA1, CA2 · RF-071, RN-017, RN-020).
+   * MANTENER: la reserva vuelve a CONFIRMADA (sus noches siguieron reservadas durante la revisión) y se notifica al
+   * huésped y al anfitrión. Si antes de la revisión aún no estaba pagada, vuelve a PENDIENTE para no confirmar sin pago.
+   * CANCELAR: pasa a CANCELADA con devolución simulada del 100 % de lo pagado (el huésped no causó el bloqueo),
+   * se liberan sus noches y se registra la cancelación completa. Toda decisión queda en la auditoría.
+   */
+  async resolveReview(id: string, dto: ResolveReviewDto, actor?: string): Promise<BookingResponseDto> {
+    const booking = this.findBookingOrFail(id);
+    return this.withListingLock(booking.listingId, async () => {
+      if (booking.status !== BookingStatus.EN_REVISION) {
+        this.auditService.record({
+          actor,
+          action: AuditAction.BOOKING_STATUS_CHANGE,
+          entity: 'Booking',
+          entityId: booking.id,
+          result: AuditResult.FALLIDO,
+          detail: `Resolución de revisión rechazada: la reserva está ${booking.status}`,
+        });
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          reason: 'RESERVA_NO_EN_REVISION',
+          message: `Solo se resuelven reservas en revisión (estado actual: ${booking.status})`,
+        });
+      }
+
+      const note = String(dto?.note ?? '').trim() || undefined;
+      const resolvedAt = new Date().toISOString();
+      const code = booking.code ?? booking.id;
+      const notice = this.noticeOf(booking);
+
+      if (dto.decision === ReviewDecision.MANTENER) {
+        const finalStatus = booking.statusBeforeReview === BookingStatus.PENDIENTE ? BookingStatus.PENDIENTE : BookingStatus.CONFIRMADA;
+        booking.status = finalStatus;
+        booking.reviewResolution = { decision: dto.decision, resolvedBy: actor ?? 'anonimo', resolvedAt, note, finalStatus };
+        this.auditService.record({
+          actor,
+          action: AuditAction.BOOKING_STATUS_CHANGE,
+          entity: 'Booking',
+          entityId: booking.id,
+          result: AuditResult.EXITOSO,
+          detail: `Reserva ${code} pasó de EN_REVISION a ${finalStatus}: el administrador decidió mantenerla${note ? `. Nota: ${note}` : ''}`,
+        });
+        this.notificationsService?.bookingReviewKept(notice, finalStatus);
+        return booking;
+      }
+
+      const paid = booking.statusBeforeReview === BookingStatus.PENDIENTE ? 0 : Math.round(booking.totalAmount * 100) / 100;
+      const reason = note ?? 'El administrador canceló la reserva tras revisar el bloqueo';
+      const releasedNights = this.listingsService?.releaseReservedPeriod(booking.listingId, booking.id, actor) ?? [];
+      booking.status = BookingStatus.CANCELADA;
+      booking.cancellation = {
+        cancelledBy: actor ?? 'anonimo',
+        cancelledAt: resolvedAt,
+        reason,
+        policy: 'REVISION_ADMINISTRADOR',
+        refundPercentage: 100,
+        refundableAmount: paid,
+        refundAmount: paid,
+        appliedRule: 'Cancelación por el administrador tras la revisión: devolución del 100 % de lo pagado, incluida la tarifa de servicio',
+        currency: booking.currency,
+        finalStatus: BookingStatus.CANCELADA,
+        releasedNights,
+      };
+      booking.reviewResolution = { decision: dto.decision, resolvedBy: actor ?? 'anonimo', resolvedAt, note, finalStatus: BookingStatus.CANCELADA };
+      this.auditService.record({
+        actor,
+        action: AuditAction.BOOKING_CANCELLATION,
+        entity: 'Booking',
+        entityId: booking.id,
+        result: AuditResult.EXITOSO,
+        detail:
+          `Reserva ${code} cancelada por el administrador tras la revisión. Motivo: ${reason}. ` +
+          `Devolución simulada ${paid} ${booking.currency} (100 %). Estado final: CANCELADA. ` +
+          `Noches liberadas: ${releasedNights.join(', ') || 'ninguna'}`,
+      });
+      this.notificationsService?.bookingReviewCancelled(notice, { amount: paid, percentage: 100, currency: booking.currency });
+      return booking;
+    });
   }
 
   onApplicationBootstrap(): void {
