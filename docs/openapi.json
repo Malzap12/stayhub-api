@@ -3522,6 +3522,127 @@
           }
         ]
       }
+    },
+    "/api/listings/{id}/availability-periods/{periodId}": {
+      "patch": {
+        "operationId": "ListingsController_updateAvailabilityPeriod",
+        "summary": "Modificar o reducir un periodo disponible (HU-020 CA1, CA2, RF-026, RN-011)",
+        "description": "Permite al anfitrión propietario reducir o modificar un periodo disponible sin afectar reservas confirmadas. Si contiene reservas en las fechas retiradas, el sistema lo impide e indica las reservas afectadas (CA2).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "periodId",
+            "required": true,
+            "in": "path",
+            "description": "ID del periodo de disponibilidad",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAvailabilityPeriodDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Periodo modificado correctamente (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityPeriodResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Periodo con reservas confirmadas (CA2) o fechas inválidas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeriodHasBookingsErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Alojamiento o periodo no encontrado"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ListingsController_deleteAvailabilityPeriod",
+        "summary": "Eliminar un periodo disponible (HU-020 CA1, CA2, RF-026, RN-011)",
+        "description": "Permite al anfitrión propietario eliminar un periodo disponible si no tiene reservas confirmadas. Si contiene reservas confirmadas, el sistema lo impide e indica las reservas afectadas (CA2).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "periodId",
+            "required": true,
+            "in": "path",
+            "description": "ID del periodo de disponibilidad",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Periodo eliminado correctamente (CA1)"
+          },
+          "400": {
+            "description": "Periodo con reservas confirmadas (CA2)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeriodHasBookingsErrorDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Alojamiento o periodo no encontrado"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
@@ -6859,6 +6980,86 @@
           "bookingsByStatus",
           "estimatedRevenue",
           "topCities"
+        ]
+      },
+      "UpdateAvailabilityPeriodDto": {
+        "type": "object",
+        "properties": {
+          "startDate": {
+            "type": "string",
+            "example": "2027-03-05",
+            "description": "Nueva fecha de inicio del periodo disponible (YYYY-MM-DD) · HU-020"
+          },
+          "endDate": {
+            "type": "string",
+            "example": "2027-03-15",
+            "description": "Nueva fecha de fin del periodo disponible (YYYY-MM-DD) · HU-020"
+          }
+        }
+      },
+      "AffectedBookingDto": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "example": "booking-uuid-1",
+            "description": "ID de la reserva confirmada afectada"
+          },
+          "code": {
+            "type": "string",
+            "example": "STAY-12345",
+            "description": "Código amigable de la reserva"
+          },
+          "checkIn": {
+            "type": "string",
+            "example": "2027-03-10",
+            "description": "Fecha de llegada de la reserva"
+          },
+          "checkOut": {
+            "type": "string",
+            "example": "2027-03-12",
+            "description": "Fecha de salida de la reserva"
+          }
+        },
+        "required": [
+          "bookingId",
+          "checkIn",
+          "checkOut"
+        ]
+      },
+      "PeriodHasBookingsErrorDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 400
+          },
+          "error": {
+            "type": "string",
+            "example": "Bad Request"
+          },
+          "message": {
+            "type": "string",
+            "example": "No es posible modificar o eliminar el periodo porque contiene reservas confirmadas."
+          },
+          "affectedBookings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AffectedBookingDto"
+            }
+          },
+          "affectedReservations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AffectedBookingDto"
+            }
+          }
+        },
+        "required": [
+          "statusCode",
+          "error",
+          "message",
+          "affectedBookings"
         ]
       }
     }
