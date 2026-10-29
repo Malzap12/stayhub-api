@@ -12,6 +12,7 @@ import {
 } from './dto/availability.dto';
 import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
+import { CreateAdditionalServiceDto, MAX_ADDITIONAL_SERVICES, UpdateAdditionalServiceDto } from './dto/additional-service.dto';
 import {
   ListingPricingResponseDto,
   LongStayDiscountDto,
@@ -217,6 +218,11 @@ interface PersistedListingsState {
 }
 
 /** Redondea montos y porcentajes a 2 decimales, como NUMERIC(12,2) en la base de datos. */
+/** HU-016: nombre del servicio sin espacios sobrantes. */
+export function normalizeServiceName(value: string): string {
+  return String(value ?? '').trim().replace(/\s+/g, ' ');
+}
+
 export function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -783,6 +789,123 @@ export class ListingsService implements OnModuleInit {
       `Tarifa de limpieza: ${pricing.cleaningFee} COP; descuento por estancia larga: ${discountDetail}`,
     );
     return pricing;
+  }
+
+  /**
+   * HU-016 · Servicios adicionales de una publicación propia, con su identificador para modificarlos o eliminarlos.
+   */
+  getAdditionalServices(listingId: string, host?: ActiveSession): AdditionalServiceDto[] {
+    this.findOwnListing(listingId, host);
+    return this.servicesOf(this.listingsStore.find((item) => item.id === listingId)!).map((service) => ({ ...service }));
+  }
+
+  /**
+   * HU-016 CA1 · Agregar un servicio adicional con nombre y costo por estancia mayor que 0 (RF-020, RN-004, RN-013).
+   * Aparece en el detalle de la publicación y se puede seleccionar al cotizar. No se repiten nombres en una misma
+   * publicación y se admiten hasta 10 servicios. Cada intento queda en la auditoría.
+   */
+  addAdditionalService(listingId: string, dto: CreateAdditionalServiceDto, host?: ActiveSession): AdditionalServiceDto[] {
+    const fail = (detail: string) =>
+      this.recordPricingChange(host?.email, listingId, AuditResult.FALLIDO, `Servicio adicional rechazado: ${detail}`);
+    this.findOwnListing(listingId, host, fail);
+    const listing = this.listingsStore.find((item) => item.id === listingId)!;
+    const services = this.servicesOf(listing);
+    const name = normalizeServiceName(dto.name);
+    const cost = roundMoney(Number(dto.cost));
+
+    this.validateAdditionalService(services, name, cost, undefined, fail);
+    if (services.length >= MAX_ADDITIONAL_SERVICES) {
+      fail(`ya tiene ${MAX_ADDITIONAL_SERVICES} servicios`);
+      throw new BadRequestException(`Una publicación admite máximo ${MAX_ADDITIONAL_SERVICES} servicios adicionales`);
+    }
+
+    services.push({ id: `svc-${randomUUID().slice(0, 8)}`, name, cost });
+    this.recordPricingChange(host?.email, listingId, AuditResult.EXITOSO, `Servicio adicional agregado: ${name} (${cost} COP por estancia)`);
+    return services.map((service) => ({ ...service }));
+  }
+
+  /**
+   * HU-016 CA2 · Modificar un servicio adicional. El cambio aplica a las cotizaciones nuevas; las reservas ya
+   * creadas conservan el nombre y el costo con que se cotizaron.
+   */
+  updateAdditionalService(
+    listingId: string,
+    serviceId: string,
+    dto: UpdateAdditionalServiceDto,
+    host?: ActiveSession,
+  ): AdditionalServiceDto[] {
+    const fail = (detail: string) =>
+      this.recordPricingChange(host?.email, listingId, AuditResult.FALLIDO, `Cambio de servicio adicional rechazado: ${detail}`);
+    this.findOwnListing(listingId, host, fail);
+    const services = this.servicesOf(this.listingsStore.find((item) => item.id === listingId)!);
+    const service = this.findServiceOrFail(services, serviceId, fail);
+    if (dto.name == null && dto.cost == null) {
+      fail('sin cambios');
+      throw new BadRequestException('Indica el nuevo nombre o el nuevo costo del servicio');
+    }
+    const name = dto.name != null ? normalizeServiceName(dto.name) : service.name;
+    const cost = dto.cost != null ? roundMoney(Number(dto.cost)) : service.cost;
+    this.validateAdditionalService(services, name, cost, service.id, fail);
+
+    const before = `${service.name} (${service.cost} COP)`;
+    service.name = name;
+    service.cost = cost;
+    this.recordPricingChange(host?.email, listingId, AuditResult.EXITOSO, `Servicio adicional modificado: ${before} → ${name} (${cost} COP)`);
+    return services.map((item) => ({ ...item }));
+  }
+
+  /** HU-016 CA2 · Eliminar un servicio adicional: deja de ofrecerse en cotizaciones nuevas sin tocar las reservas. */
+  removeAdditionalService(listingId: string, serviceId: string, host?: ActiveSession): AdditionalServiceDto[] {
+    const fail = (detail: string) =>
+      this.recordPricingChange(host?.email, listingId, AuditResult.FALLIDO, `Eliminación de servicio adicional rechazada: ${detail}`);
+    this.findOwnListing(listingId, host, fail);
+    const listing = this.listingsStore.find((item) => item.id === listingId)!;
+    const services = this.servicesOf(listing);
+    const service = this.findServiceOrFail(services, serviceId, fail);
+    listing.additionalServices = services.filter((item) => item !== service);
+    this.recordPricingChange(host?.email, listingId, AuditResult.EXITOSO, `Servicio adicional eliminado: ${service.name} (${service.cost} COP)`);
+    return listing.additionalServices.map((item) => ({ ...item }));
+  }
+
+  /** Servicios de la publicación; a los guardados antes de tener identificador se les asigna uno. */
+  private servicesOf(listing: ListingResponseDto): AdditionalServiceDto[] {
+    listing.additionalServices ??= [];
+    for (const service of listing.additionalServices) {
+      service.id ??= `svc-${randomUUID().slice(0, 8)}`;
+    }
+    return listing.additionalServices;
+  }
+
+  private findServiceOrFail(services: AdditionalServiceDto[], serviceId: string, fail: (detail: string) => void): AdditionalServiceDto {
+    const service = services.find((item) => item.id === serviceId);
+    if (!service) {
+      fail(`el servicio ${serviceId} no existe`);
+      throw new NotFoundException('El servicio adicional no existe en esta publicación');
+    }
+    return service;
+  }
+
+  private validateAdditionalService(
+    services: AdditionalServiceDto[],
+    name: string,
+    cost: number,
+    ownId: string | undefined,
+    fail: (detail: string) => void,
+  ): void {
+    const fieldErrors: Record<string, string> = {};
+    if (name.length < 3 || name.length > 80) {
+      fieldErrors.name = 'El nombre del servicio debe tener entre 3 y 80 caracteres';
+    } else if (services.some((item) => item.id !== ownId && item.name.toLowerCase() === name.toLowerCase())) {
+      fieldErrors.name = `Ya ofreces un servicio llamado «${name}»`;
+    }
+    if (!Number.isFinite(cost) || cost <= 0) {
+      fieldErrors.cost = 'El costo del servicio debe ser mayor que 0 COP';
+    }
+    if (Object.keys(fieldErrors).length > 0) {
+      const message = Object.values(fieldErrors).join(' ');
+      fail(message);
+      throw new BadRequestException({ statusCode: 400, error: 'Bad Request', message, fieldErrors });
+    }
   }
 
   /**

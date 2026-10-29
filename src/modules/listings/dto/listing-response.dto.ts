@@ -5,6 +5,9 @@ import { LongStayDiscountDto } from './listing-pricing.dto';
 
 /** HU-026: servicio adicional opcional que el anfitrión ofrece con costo por estancia. */
 export class AdditionalServiceDto {
+  @ApiPropertyOptional({ example: 'svc-3f1c2b4e', description: 'Identificador del servicio para modificarlo o eliminarlo (HU-016)' })
+  id?: string;
+
   @ApiProperty({ example: 'Traslado desde el aeropuerto' })
   name: string;
 
