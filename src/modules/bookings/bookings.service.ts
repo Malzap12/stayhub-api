@@ -25,10 +25,13 @@ import { PlatformConfigService } from '../platform/platform-config.service';
 import { DEFAULT_SERVICE_FEE_PERCENT } from '../platform/dto/service-fee.dto';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
+import { CANCELLATION_POLICIES, type CancellationPolicyCode } from '../listings/cancellation-policies';
 import { PaymentsService } from '../payments/payments.service';
 import { PaymentCardDto } from '../payments/dto/payment.dto';
 import { PaymentStatus } from '../../common/enums/payment-status.enum';
 import { BookingNotice, NotificationsService } from '../notifications/notifications.service';
+import { AuthService, type ActiveSession } from '../auth/auth.service';
+import { HostBookingDetailDto, HostBookingSummaryDto, HostListingBookingsDto } from './dto/host-booking.dto';
 
 /**
  * HU-040 · Momento de la llegada: el día de llegada a la hora de check-in (15:00, como en el ejemplo de la
@@ -142,6 +145,7 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     @Optional() private readonly platformConfigService?: PlatformConfigService,
     @Optional() private readonly paymentsService?: PaymentsService,
     @Optional() private readonly notificationsService?: NotificationsService,
+    @Optional() private readonly authService?: AuthService,
   ) {}
 
   /** HU-031 · Cola de pagos y confirmaciones por alojamiento: se procesan de a una (CA2, RN-011, RNF-010). */
@@ -568,6 +572,7 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       if (listing && error instanceof BadRequestException) { throw error; }
     }
 
+    const initialPolicy = this.listingsService?.getCancellationPolicyOf(bookingDto.listingId);
     const bookingCode = `RES-${randomBytes(4).toString('hex').toUpperCase()}`;
     const booking: BookingResponseDto = {
       id: `booking-${randomUUID()}`,
@@ -592,6 +597,9 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       currency: quoteData?.currency ?? 'COP',
       breakdown: quoteData,
       status: BookingStatus.PENDIENTE,
+      cancellationPolicy: (initialPolicy as any)?.code ?? (listing as any)?.cancellationPolicy,
+      cancellationPolicyName: initialPolicy?.name,
+      cancellationPolicyDescription: initialPolicy?.description,
       idempotencyKey: bookingDto.idempotencyKey,
       specialRequests: bookingDto.specialRequests,
       createdAt: new Date(),
@@ -838,7 +846,8 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
         });
       }
 
-      const policy = this.listingsService?.getCancellationPolicyOf(booking.listingId);
+      const bookedPolicy = (booking as any).cancellationPolicy;
+      const policy = (bookedPolicy && (CANCELLATION_POLICIES as any)[bookedPolicy]) || this.listingsService?.getCancellationPolicyOf(booking.listingId);
       const hoursBeforeArrival = (arrival - now) / 3_600_000;
       const {
         policy: policyCode,
@@ -926,7 +935,8 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     if (!listing) {
       return booking;
     }
-    const policy = this.listingsService?.getCancellationPolicyOf(booking.listingId);
+    const bookedPolicy = (booking as any).cancellationPolicy;
+    const policy = (bookedPolicy && (CANCELLATION_POLICIES as any)[bookedPolicy]) || this.listingsService?.getCancellationPolicyOf(booking.listingId);
     return {
       ...booking,
       listingTitle: listing.title,
@@ -957,5 +967,82 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       throw new ForbiddenException('Esta reserva es de otro huésped; solo puedes consultar tus reservas');
     }
     return this.withListingInfo(booking);
+  }
+
+  /**
+   * HU-035 CA1 · Reservas recibidas (RF-049): las reservas de los alojamientos del anfitrión de la sesión,
+   * agrupadas por alojamiento y ordenadas por fecha de llegada, con fechas, huésped, número de huéspedes y estado.
+   * El listado no incluye datos de contacto.
+   */
+  findHostBookings(host: ActiveSession, status?: BookingStatus): HostListingBookingsDto[] {
+    const groups = new Map<string, HostListingBookingsDto>();
+    for (const booking of this.bookingsStore) {
+      const listing = this.listingsService?.getListing(booking.listingId);
+      if (listing?.hostId !== host.userId || (status && booking.status !== status)) {
+        continue;
+      }
+      const group = groups.get(listing.id) ?? {
+        listingId: listing.id,
+        listingTitle: listing.title,
+        listingCity: listing.city,
+        listingImage: listing.images?.[0],
+        bookings: [],
+      };
+      group.bookings.push(this.toHostSummary(booking));
+      groups.set(listing.id, group);
+    }
+    return [...groups.values()]
+      .map((group) => ({ ...group, bookings: group.bookings.sort((a, b) => a.checkIn.localeCompare(b.checkIn)) }))
+      .sort((a, b) => a.listingTitle.localeCompare(b.listingTitle, 'es'));
+  }
+
+  /**
+   * HU-035 CA2 · Detalle de una reserva recibida. Con la reserva CONFIRMADA incluye el contacto del huésped;
+   * en otro estado se omite para proteger sus datos. Una reserva de otro anfitrión responde 404.
+   */
+  findHostBooking(id: string, host: ActiveSession): HostBookingDetailDto {
+    const booking = this.bookingsStore.find((item) => item.id === id);
+    const listing = booking ? this.listingsService?.getListing(booking.listingId) : undefined;
+    if (!booking || listing?.hostId !== host.userId) {
+      this.auditService.record({
+        actor: host.email,
+        action: AuditAction.BOOKING_STATUS_CHANGE,
+        entity: 'Booking',
+        entityId: id,
+        result: AuditResult.FALLIDO,
+        detail: 'Consulta rechazada: la reserva no es de un alojamiento del anfitrión',
+      });
+      throw new NotFoundException(`Reserva con id ${id} no encontrada`);
+    }
+    const guest = this.authService?.findByEmail(booking.guestId);
+    return {
+      ...this.toHostSummary(booking),
+      listingId: listing.id,
+      listingTitle: listing.title,
+      listingCity: listing.city,
+      specialRequests: booking.specialRequests,
+      additionalServices: booking.additionalServices,
+      guestContact:
+        booking.status === BookingStatus.CONFIRMADA
+          ? { name: guest?.name ?? booking.guestId, email: booking.guestId, phone: guest?.phone }
+          : undefined,
+    };
+  }
+
+  private toHostSummary(booking: BookingResponseDto): HostBookingSummaryDto {
+    const nights = Math.round((Date.parse(`${booking.checkOut}T00:00:00Z`) - Date.parse(`${booking.checkIn}T00:00:00Z`)) / 86_400_000);
+    return {
+      id: booking.id,
+      code: booking.code,
+      checkIn: booking.checkIn,
+      checkOut: booking.checkOut,
+      nights,
+      guests: booking.guests,
+      guestName: this.authService?.findByEmail(booking.guestId)?.name ?? 'Huésped',
+      status: booking.status,
+      totalAmount: booking.totalAmount,
+      currency: booking.currency,
+      createdAt: booking.createdAt,
+    };
   }
 }

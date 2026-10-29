@@ -152,6 +152,9 @@ export class BookingResponseDto {
   listingImage?: string;
 
   @ApiPropertyOptional({ example: 'Flexible', description: 'Política de cancelación de la publicación (Mis reservas y detalle)' })
+  cancellationPolicy?: string;
+
+  @ApiPropertyOptional({ example: 'Flexible', description: 'Política de cancelación de la publicación (Mis reservas y detalle)' })
   cancellationPolicyName?: string;
 
   @ApiPropertyOptional({

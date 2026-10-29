@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { CreateListingDto } from './dto/create-listing.dto';
+import { UpdateListingDto } from './dto/update-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
 import { AdditionalServiceDto, ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
 import {
@@ -510,6 +511,76 @@ export class ListingsService implements OnModuleInit {
    * HU-010 y HU-012 · Mis publicaciones (RF-016): solo las del anfitrión autenticado,
    * las más recientes primero, con título, ciudad, precio, estado y motivo del administrador.
    */
+
+  /**
+   * HU-011 · Editar mi publicación (CA1, CA2, RF-015, RN-003, RN-021).
+   * Solo el anfitrión propietario puede editarla (CA2).
+   * Si está ACTIVA no exige nueva revisión (AMB-29).
+   * Registra el evento en auditoría (CA1, RN-021).
+   */
+  updateListing(listingId: string, dto: UpdateListingDto, host?: ActiveSession): ListingResponseDto {
+    this.findOwnListing(listingId, host);
+    const listing = this.listingsStore.find((item) => item.id === listingId)!;
+
+    const trimmed = (value?: string) => (value !== undefined ? (value?.trim() || undefined) : undefined);
+    const cleanList = (values?: string[]) =>
+      values !== undefined ? values.map((val) => val.trim()).filter((val) => val.length > 0) : undefined;
+
+    if (dto.title !== undefined) {
+      const cleanTitle = dto.title.trim();
+      if (cleanTitle.length < 5 || cleanTitle.length > 100) {
+        throw new BadRequestException('El título debe tener entre 5 y 100 caracteres');
+      }
+      listing.title = cleanTitle;
+    }
+    if (dto.description !== undefined) listing.description = trimmed(dto.description);
+    if (dto.city !== undefined) listing.city = trimmed(dto.city);
+    if (dto.department !== undefined) listing.department = trimmed(dto.department);
+    if (dto.address !== undefined) listing.address = trimmed(dto.address);
+    if (dto.country !== undefined) listing.country = trimmed(dto.country) ?? 'Colombia';
+    if (dto.propertyType !== undefined) listing.propertyType = dto.propertyType;
+    if (dto.maxGuests !== undefined) {
+      if (dto.maxGuests <= 0) throw new BadRequestException('La capacidad debe ser mayor que 0');
+      listing.maxGuests = dto.maxGuests;
+    }
+    if (dto.pricePerNight !== undefined) {
+      if (dto.pricePerNight <= 0) throw new BadRequestException('El precio por noche debe ser mayor que 0');
+      listing.pricePerNight = dto.pricePerNight;
+    }
+    if (dto.bedrooms !== undefined) {
+      if (dto.bedrooms < 0) throw new BadRequestException('Las habitaciones no pueden ser negativas');
+      listing.bedrooms = dto.bedrooms;
+    }
+    if (dto.bathrooms !== undefined) {
+      if (dto.bathrooms < 0) throw new BadRequestException('Los baños no pueden ser negativos');
+      listing.bathrooms = dto.bathrooms;
+    }
+    if (dto.amenities !== undefined) listing.amenities = cleanList(dto.amenities) ?? [];
+    if (dto.rules !== undefined) listing.rules = cleanList(dto.rules) ?? [];
+    if (dto.images !== undefined) listing.images = cleanList(dto.images) ?? [];
+    if (dto.cancellationPolicy !== undefined) {
+      if (!CANCELLATION_POLICIES[dto.cancellationPolicy as CancellationPolicyCode]) {
+        throw new BadRequestException('Selecciona una política de cancelación válida del catálogo');
+      }
+      listing.cancellationPolicy = dto.cancellationPolicy;
+    }
+
+    const completeness = withCompleteness(listing);
+    listing.isComplete = completeness.isComplete;
+    listing.missingFields = completeness.missingFields;
+
+    this.auditService.record({
+      actor: host?.email,
+      action: AuditAction.LISTING_UPDATE,
+      entity: 'Listing',
+      entityId: listing.id,
+      result: AuditResult.EXITOSO,
+      detail: `Publicación actualizada: ${listing.title}`,
+    });
+
+    return { ...listing };
+  }
+
   findMine(hostId: string): MyListingDto[] {
     return this.listingsStore
       .filter((item) => item.hostId === hostId)

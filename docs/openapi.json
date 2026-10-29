@@ -2261,6 +2261,122 @@
       }
     },
     "/api/listings/{id}": {
+      "patch": {
+        "operationId": "ListingsController_update",
+        "summary": "Editar mi publicación · HU-011 (CA1, CA2, CA3)",
+        "description": "Permite al anfitrión propietario actualizar los datos de su publicación (RF-015, RN-003, RN-021). Si la publicación ya está activa, no exige nueva revisión (AMB-29). Las reservas confirmadas conservan sus condiciones pactadas.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateListingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Publicación actualizada exitosamente (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Datos inválidos"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (solo anfitrión)"
+          },
+          "404": {
+            "description": "Publicación no encontrada o de otro anfitrión (CA2)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "ListingsController_updatePut",
+        "summary": "Actualizar mi publicación · HU-011 (CA1, CA2, CA3)",
+        "description": "Permite al anfitrión propietario actualizar los datos de su publicación.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateListingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Publicación actualizada exitosamente (CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Datos inválidos"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (solo anfitrión)"
+          },
+          "404": {
+            "description": "Publicación no encontrada o de otro anfitrión (CA2)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
       "get": {
         "operationId": "ListingsController_findOne",
         "summary": "Consultar el detalle de una publicación · HU-026 (CA1, CA2) / HU-003 CA3",
@@ -2412,6 +2528,107 @@
           },
           "401": {
             "description": "Debes iniciar sesión para acceder a mis reservas (CA1)"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/bookings/host": {
+      "get": {
+        "operationId": "BookingsController_findHostBookings",
+        "summary": "Reservas recibidas en mis alojamientos · HU-035 (CA1)",
+        "description": "Reservas de los alojamientos del anfitrión autenticado (RF-049), agrupadas por alojamiento y ordenadas por fecha de llegada: fechas, noches, huésped, número de huéspedes y estado. No incluye datos de contacto.",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filtrar por estado de la reserva",
+            "schema": {
+              "enum": [
+                "PENDIENTE",
+                "CONFIRMADA",
+                "CANCELADA",
+                "COMPLETADA",
+                "EN_REVISION"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reservas agrupadas por alojamiento",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HostListingBookingsDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Solo para anfitriones"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/bookings/host/{id}": {
+      "get": {
+        "operationId": "BookingsController_findHostBooking",
+        "summary": "Detalle de una reserva recibida · HU-035 (CA2)",
+        "description": "Detalle de una reserva de un alojamiento del anfitrión. Con la reserva CONFIRMADA incluye el contacto del huésped (nombre, correo y teléfono); en otro estado se omite para proteger sus datos.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la reserva",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detalle de la reserva recibida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostBookingDetailDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Solo para anfitriones"
+          },
+          "404": {
+            "description": "La reserva no existe o es de un alojamiento de otro anfitrión"
           }
         },
         "tags": [
@@ -2923,6 +3140,7 @@
                 "PROFILE_UPDATE",
                 "PASSWORD_CHANGE",
                 "LISTING_STATUS_CHANGE",
+                "LISTING_UPDATE",
                 "LISTING_PRICING_UPDATE",
                 "SERVICE_FEE_UPDATE",
                 "AVAILABILITY_PERIOD_CREATE",
@@ -5481,6 +5699,121 @@
           "pricePerNight"
         ]
       },
+      "UpdateListingDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "example": "Hermosa cabaña en la montaña",
+            "description": "Título del alojamiento",
+            "minLength": 5,
+            "maxLength": 100
+          },
+          "description": {
+            "type": "string",
+            "example": "Cabaña espaciosa con vista panorámica, chimenea y jacuzzi.",
+            "description": "Descripción detallada"
+          },
+          "city": {
+            "type": "string",
+            "example": "Medellín",
+            "description": "Ciudad del alojamiento (AMB-18)"
+          },
+          "department": {
+            "type": "string",
+            "example": "Antioquia",
+            "description": "Departamento del alojamiento (AMB-18)"
+          },
+          "address": {
+            "type": "string",
+            "example": "Calle 10 # 43-20 · frente al parque",
+            "description": "Dirección o referencia"
+          },
+          "country": {
+            "type": "string",
+            "example": "Colombia",
+            "description": "País del alojamiento",
+            "default": "Colombia"
+          },
+          "propertyType": {
+            "type": "string",
+            "enum": [
+              "CASA",
+              "APARTAMENTO",
+              "CABANA",
+              "FINCA",
+              "HABITACION",
+              "OTRO"
+            ],
+            "example": "CABANA",
+            "description": "Tipo de alojamiento"
+          },
+          "maxGuests": {
+            "type": "number",
+            "example": 4,
+            "description": "Capacidad máxima de huéspedes (CA2: mayor que 0)",
+            "minimum": 1
+          },
+          "pricePerNight": {
+            "type": "number",
+            "example": 320000,
+            "description": "Precio por noche (CA2: mayor que 0)"
+          },
+          "bedrooms": {
+            "type": "number",
+            "example": 2,
+            "description": "Cantidad de habitaciones",
+            "minimum": 0
+          },
+          "bathrooms": {
+            "type": "number",
+            "example": 2,
+            "description": "Cantidad de baños",
+            "minimum": 0
+          },
+          "amenities": {
+            "example": [
+              "WIFI",
+              "COCINA",
+              "PISCINA"
+            ],
+            "description": "Servicios del alojamiento",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rules": {
+            "example": [
+              "No fumar",
+              "No se admiten fiestas"
+            ],
+            "description": "Reglas de la casa",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "images": {
+            "example": [
+              "https://storage.stayhub.com/img1.jpg"
+            ],
+            "description": "URLs de las imágenes",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cancellationPolicy": {
+            "type": "string",
+            "example": "FLEXIBLE",
+            "enum": [
+              "FLEXIBLE"
+            ],
+            "description": "Política de cancelación asociada del catálogo (HU-039, por defecto FLEXIBLE)"
+          }
+        }
+      },
       "ListingLocationDto": {
         "type": "object",
         "properties": {
@@ -6226,6 +6559,11 @@
             "example": "https://images.unsplash.com/photo-1",
             "description": "Primera imagen de la publicación (Mis reservas y detalle)"
           },
+          "cancellationPolicy": {
+            "type": "string",
+            "example": "Flexible",
+            "description": "Política de cancelación de la publicación (Mis reservas y detalle)"
+          },
           "cancellationPolicyName": {
             "type": "string",
             "example": "Flexible",
@@ -6307,6 +6645,245 @@
           "status",
           "idempotencyKey",
           "createdAt"
+        ]
+      },
+      "HostBookingSummaryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "uuid-reserva-789"
+          },
+          "code": {
+            "type": "string",
+            "example": "RES-8KQ2M7X1",
+            "description": "Código de la reserva"
+          },
+          "checkIn": {
+            "type": "string",
+            "example": "2026-11-01"
+          },
+          "checkOut": {
+            "type": "string",
+            "example": "2026-11-04"
+          },
+          "nights": {
+            "type": "number",
+            "example": 3
+          },
+          "guests": {
+            "type": "number",
+            "example": 2,
+            "description": "Número de huéspedes"
+          },
+          "guestName": {
+            "type": "string",
+            "example": "Laura Gómez",
+            "description": "Nombre del huésped que hizo la reserva"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDIENTE",
+              "CONFIRMADA",
+              "CANCELADA",
+              "COMPLETADA",
+              "EN_REVISION"
+            ],
+            "example": "CONFIRMADA"
+          },
+          "totalAmount": {
+            "type": "number",
+            "example": 900000
+          },
+          "currency": {
+            "type": "string",
+            "example": "COP"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-05T09:50:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "checkIn",
+          "checkOut",
+          "nights",
+          "guests",
+          "guestName",
+          "status",
+          "totalAmount",
+          "currency",
+          "createdAt"
+        ]
+      },
+      "HostListingBookingsDto": {
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "example": "demo-bogota-chapinero"
+          },
+          "listingTitle": {
+            "type": "string",
+            "example": "Apartamento en Chapinero Alto"
+          },
+          "listingCity": {
+            "type": "string",
+            "example": "Bogotá"
+          },
+          "listingImage": {
+            "type": "string",
+            "example": "https://images.unsplash.com/photo-1"
+          },
+          "bookings": {
+            "description": "Reservas del alojamiento, por fecha de llegada",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HostBookingSummaryDto"
+            }
+          }
+        },
+        "required": [
+          "listingId",
+          "listingTitle",
+          "listingCity",
+          "bookings"
+        ]
+      },
+      "GuestContactDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Laura Gómez"
+          },
+          "email": {
+            "type": "string",
+            "example": "laura@correo.com"
+          },
+          "phone": {
+            "type": "string",
+            "example": "+57 300 123 4567"
+          }
+        },
+        "required": [
+          "name",
+          "email"
+        ]
+      },
+      "HostBookingDetailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "uuid-reserva-789"
+          },
+          "code": {
+            "type": "string",
+            "example": "RES-8KQ2M7X1",
+            "description": "Código de la reserva"
+          },
+          "checkIn": {
+            "type": "string",
+            "example": "2026-11-01"
+          },
+          "checkOut": {
+            "type": "string",
+            "example": "2026-11-04"
+          },
+          "nights": {
+            "type": "number",
+            "example": 3
+          },
+          "guests": {
+            "type": "number",
+            "example": 2,
+            "description": "Número de huéspedes"
+          },
+          "guestName": {
+            "type": "string",
+            "example": "Laura Gómez",
+            "description": "Nombre del huésped que hizo la reserva"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDIENTE",
+              "CONFIRMADA",
+              "CANCELADA",
+              "COMPLETADA",
+              "EN_REVISION"
+            ],
+            "example": "CONFIRMADA"
+          },
+          "totalAmount": {
+            "type": "number",
+            "example": 900000
+          },
+          "currency": {
+            "type": "string",
+            "example": "COP"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-10-05T09:50:00.000Z"
+          },
+          "listingId": {
+            "type": "string",
+            "example": "demo-bogota-chapinero"
+          },
+          "listingTitle": {
+            "type": "string",
+            "example": "Apartamento en Chapinero Alto"
+          },
+          "listingCity": {
+            "type": "string",
+            "example": "Bogotá"
+          },
+          "specialRequests": {
+            "type": "string",
+            "example": "Llegaremos tarde, alrededor de las 10 p. m."
+          },
+          "additionalServices": {
+            "example": [
+              {
+                "name": "Desayuno",
+                "cost": 40000
+              }
+            ],
+            "description": "Servicios adicionales contratados",
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "guestContact": {
+            "description": "Contacto del huésped. Solo se incluye cuando la reserva está CONFIRMADA (privacidad).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GuestContactDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "checkIn",
+          "checkOut",
+          "nights",
+          "guests",
+          "guestName",
+          "status",
+          "totalAmount",
+          "currency",
+          "createdAt",
+          "listingId",
+          "listingTitle",
+          "listingCity"
         ]
       },
       "PaymentCardDto": {
@@ -6542,6 +7119,7 @@
               "PROFILE_UPDATE",
               "PASSWORD_CHANGE",
               "LISTING_STATUS_CHANGE",
+              "LISTING_UPDATE",
               "LISTING_PRICING_UPDATE",
               "SERVICE_FEE_UPDATE",
               "AVAILABILITY_PERIOD_CREATE",
