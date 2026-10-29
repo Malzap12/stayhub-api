@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Patch, Body, Query, Param, Headers } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Query, Param, Headers } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { ListingsService } from './listings.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
-import { ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
+import { AdditionalServiceDto, ListingResponseDto, PaginatedListingsResponseDto } from './dto/listing-response.dto';
+import { CreateAdditionalServiceDto, UpdateAdditionalServiceDto } from './dto/additional-service.dto';
 import {
   CheckAvailabilityQueryDto,
   AvailabilityResponseDto,
@@ -278,6 +279,85 @@ export class ListingsController {
     @CurrentUser() user?: ActiveSession,
   ): ListingPricingResponseDto {
     return this.listingsService.updatePricing(id, dto, user);
+  }
+
+  @Get(':id/additional-services')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Consultar los servicios adicionales de una publicación propia · HU-016',
+    description: 'Servicios adicionales opcionales con su identificador, nombre y costo por estancia (COP).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
+  @ApiResponse({ status: 200, description: 'Servicios adicionales', type: [AdditionalServiceDto] })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ANFITRION)' })
+  @ApiResponse({ status: 404, description: 'La publicación no existe o pertenece a otro anfitrión (RN-005)' })
+  getAdditionalServices(@Param('id') id: string, @CurrentUser() user?: ActiveSession): AdditionalServiceDto[] {
+    return this.listingsService.getAdditionalServices(id, user);
+  }
+
+  @Post(':id/additional-services')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Agregar un servicio adicional con costo · HU-016 (CA1)',
+    description:
+      'Agrega un servicio opcional con nombre y costo por estancia mayor que 0 COP. Aparece en el detalle de la publicación y se puede ' +
+      'seleccionar al cotizar. Máximo 10 por publicación y sin nombres repetidos. RF-020, RN-004, RN-013.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
+  @ApiResponse({ status: 201, description: 'Servicios de la publicación, con el nuevo', type: [AdditionalServiceDto] })
+  @ApiResponse({ status: 400, description: 'Nombre vacío o repetido, costo menor o igual a 0 o más de 10 servicios' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ANFITRION)' })
+  @ApiResponse({ status: 404, description: 'La publicación no existe o pertenece a otro anfitrión (RN-005)' })
+  addAdditionalService(
+    @Param('id') id: string,
+    @Body() dto: CreateAdditionalServiceDto,
+    @CurrentUser() user?: ActiveSession,
+  ): AdditionalServiceDto[] {
+    return this.listingsService.addAdditionalService(id, dto, user);
+  }
+
+  @Patch(':id/additional-services/:serviceId')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Modificar un servicio adicional · HU-016 (CA2)',
+    description: 'Cambia el nombre o el costo. Aplica a las cotizaciones nuevas; las reservas ya creadas conservan lo que se cotizó.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
+  @ApiParam({ name: 'serviceId', description: 'ID del servicio adicional' })
+  @ApiResponse({ status: 200, description: 'Servicios de la publicación, con el cambio', type: [AdditionalServiceDto] })
+  @ApiResponse({ status: 400, description: 'Sin cambios, nombre repetido o costo menor o igual a 0' })
+  @ApiResponse({ status: 404, description: 'La publicación o el servicio no existen' })
+  updateAdditionalService(
+    @Param('id') id: string,
+    @Param('serviceId') serviceId: string,
+    @Body() dto: UpdateAdditionalServiceDto,
+    @CurrentUser() user?: ActiveSession,
+  ): AdditionalServiceDto[] {
+    return this.listingsService.updateAdditionalService(id, serviceId, dto, user);
+  }
+
+  @Delete(':id/additional-services/:serviceId')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Eliminar un servicio adicional · HU-016 (CA2)',
+    description: 'Deja de ofrecerse en las cotizaciones nuevas; las reservas ya creadas conservan el servicio y su costo.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
+  @ApiParam({ name: 'serviceId', description: 'ID del servicio adicional' })
+  @ApiResponse({ status: 200, description: 'Servicios que quedan en la publicación', type: [AdditionalServiceDto] })
+  @ApiResponse({ status: 404, description: 'La publicación o el servicio no existen' })
+  removeAdditionalService(
+    @Param('id') id: string,
+    @Param('serviceId') serviceId: string,
+    @CurrentUser() user?: ActiveSession,
+  ): AdditionalServiceDto[] {
+    return this.listingsService.removeAdditionalService(id, serviceId, user);
   }
 
   @Post(':id/availability-periods')
