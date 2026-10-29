@@ -2330,6 +2330,103 @@
         ]
       }
     },
+    "/api/bookings/under-review": {
+      "get": {
+        "operationId": "BookingsController_findUnderReview",
+        "summary": "Listar las reservas en revisión · HU-052",
+        "description": "Reservas EN_REVISION (por bloqueo de la publicación o restricción del anfitrión) que esperan la decisión del administrador, de la más antigua a la más reciente, con el alojamiento, el huésped, las fechas, el total y el motivo de la revisión.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Reservas en revisión",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BookingResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Solo el administrador"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/bookings/{id}/resolve-review": {
+      "patch": {
+        "operationId": "BookingsController_resolveReview",
+        "summary": "Resolver una reserva en revisión · HU-052 (CA1, CA2)",
+        "description": "MANTENER: la reserva vuelve a CONFIRMADA y se notifica al huésped y al anfitrión (CA1); si aún no estaba pagada vuelve a PENDIENTE. CANCELAR: pasa a CANCELADA con devolución simulada del 100 % de lo pagado, se liberan sus noches y se registra la cancelación (usuario, fecha, motivo, devolución y estado final · RN-017) (CA2). La decisión queda en la auditoría.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la reserva",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveReviewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reserva resuelta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "La reserva no está EN_REVISION (RESERVA_NO_EN_REVISION) o la decisión no es válida"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Solo el administrador"
+          },
+          "404": {
+            "description": "Reserva no encontrada"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/bookings/{id}/cancel": {
       "patch": {
         "operationId": "BookingsController_cancelBooking",
@@ -3130,6 +3227,7 @@
               "RESERVA_CONFIRMADA",
               "RESERVA_CANCELADA",
               "RESERVA_EN_REVISION",
+              "RESERVA_MANTENIDA",
               "RESERVA_COMPLETADA",
               "PUBLICACION_APROBADA",
               "PUBLICACION_DEVUELTA",
@@ -5243,6 +5341,44 @@
           "message"
         ]
       },
+      "BookingReviewResolutionDto": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "example": "MANTENER",
+            "enum": [
+              "MANTENER",
+              "CANCELAR"
+            ],
+            "description": "Decisión del administrador"
+          },
+          "resolvedBy": {
+            "type": "string",
+            "example": "admin@inversioneslr.com",
+            "description": "Administrador que resolvió la revisión"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "example": "2026-10-29T14:00:00.000Z"
+          },
+          "note": {
+            "type": "string",
+            "example": "El anfitrión corrigió las fotografías"
+          },
+          "finalStatus": {
+            "type": "string",
+            "example": "CONFIRMADA",
+            "description": "Estado en que quedó la reserva"
+          }
+        },
+        "required": [
+          "decision",
+          "resolvedBy",
+          "resolvedAt",
+          "finalStatus"
+        ]
+      },
       "BookingReviewDto": {
         "type": "object",
         "properties": {
@@ -5527,6 +5663,26 @@
             "example": "2026-10-28T15:00:00.000Z",
             "description": "Fecha en que la reserva pasó a EN_REVISION (HU-051 CA2)"
           },
+          "statusBeforeReview": {
+            "type": "string",
+            "enum": [
+              "PENDIENTE",
+              "CONFIRMADA",
+              "CANCELADA",
+              "COMPLETADA",
+              "EN_REVISION"
+            ],
+            "example": "CONFIRMADA",
+            "description": "Estado que tenía la reserva antes de pasar a EN_REVISION (HU-052)"
+          },
+          "reviewResolution": {
+            "description": "Resolución del administrador sobre la revisión (HU-052)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BookingReviewResolutionDto"
+              }
+            ]
+          },
           "review": {
             "description": "Reseña del huésped, presente cuando ya reseñó la estancia (HU-047)",
             "allOf": [
@@ -5764,6 +5920,28 @@
         "required": [
           "booking",
           "payment"
+        ]
+      },
+      "ResolveReviewDto": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "MANTENER",
+              "CANCELAR"
+            ],
+            "example": "MANTENER",
+            "description": "Mantener o cancelar la reserva (HU-052 CA1, CA2)"
+          },
+          "note": {
+            "type": "string",
+            "example": "El anfitrión corrigió las fotografías y el alojamiento es el anunciado",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "decision"
         ]
       },
       "CancelBookingDto": {
