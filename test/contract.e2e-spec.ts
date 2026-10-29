@@ -2620,6 +2620,104 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
   });
 
+  describe('HU-035 · Consultar las reservas de mis alojamientos (CA1, CA2, RF-049)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const call = async (method: string, path: string, token: string | null, body?: unknown) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const card = { cardNumber: '4242424242424242', cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' };
+    const suffix = randomUUID().slice(0, 8);
+    const guestEmail = `huesped.hu035.${suffix}@prueba.com`;
+    let host: string;
+    let guest: string;
+    let listing: string;
+    let confirmed: string;
+    let pending: string;
+
+    beforeAll(async () => {
+      const email = `anfitrion.hu035.${suffix}@prueba.com`;
+      await call('POST', '/auth/register', null, { name: 'Anfitrión Reservas', email, password: 'Password123', role: 'ANFITRION' });
+      host = await login(email, 'Password123');
+      await call('POST', '/auth/register', null, { name: 'Huésped Contacto', email: guestEmail, password: 'Password123', phone: '300 555 1234', role: 'HUESPED' });
+      guest = await login(guestEmail, 'Password123');
+      listing = (
+        await call('POST', '/listings', host, {
+          title: `Casa con reservas ${suffix}`,
+          description: 'Casa de prueba para las reservas recibidas',
+          city: 'Salento',
+          department: 'Quindío',
+          address: 'Vereda Palestina',
+          propertyType: 'CASA',
+          maxGuests: 4,
+          pricePerNight: 150000,
+          amenities: ['WIFI'],
+          rules: ['No fumar'],
+          images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+        })
+      ).body.id;
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2027-01-01', endDate: '2027-02-28' });
+      await call('PATCH', `/listings/${listing}/request-activation`, host);
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
+      const book = async (checkIn: string, checkOut: string, guests: number) =>
+        (await call('POST', '/bookings/instant', guest, { listingId: listing, checkIn, checkOut, guests, idempotencyKey: randomUUID() })).body.id as string;
+      confirmed = await book('2027-01-20', '2027-01-23', 3);
+      expect((await call('POST', `/bookings/${confirmed}/pay`, guest, card)).status).toBe(200);
+      pending = await book('2027-01-10', '2027-01-12', 2);
+    });
+
+    it('39.1 solo los anfitriones consultan las reservas recibidas', async () => {
+      expect((await call('GET', '/bookings/host', null)).status).toBe(401);
+      expect((await call('GET', '/bookings/host', guest)).status).toBe(403);
+      expect((await call('GET', `/bookings/host/${confirmed}`, guest)).status).toBe(403);
+    });
+
+    it('39.2 (CA1) muestra por alojamiento las fechas, el huésped, el número de huéspedes y el estado', async () => {
+      const res = await call('GET', '/bookings/host', host);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0]).toMatchObject({ listingId: listing, listingCity: 'Salento' });
+      expect(res.body[0].bookings.map((item: { id: string }) => item.id)).toEqual([pending, confirmed]);
+      expect(res.body[0].bookings[1]).toMatchObject({
+        checkIn: '2027-01-20',
+        checkOut: '2027-01-23',
+        nights: 3,
+        guests: 3,
+        guestName: 'Huésped Contacto',
+        status: 'CONFIRMADA',
+      });
+      expect(JSON.stringify(res.body)).not.toContain(guestEmail);
+      const filtered = await call('GET', '/bookings/host?status=PENDIENTE', host);
+      expect(filtered.body[0].bookings.map((item: { id: string }) => item.id)).toEqual([pending]);
+    });
+
+    it('39.3 (CA2) el detalle de una reserva CONFIRMADA trae el contacto del huésped; las demás no', async () => {
+      const detail = await call('GET', `/bookings/host/${confirmed}`, host);
+
+      expect(detail.status).toBe(200);
+      expect(detail.body.guestContact).toEqual({ name: 'Huésped Contacto', email: guestEmail, phone: '300 555 1234' });
+      const notConfirmed = await call('GET', `/bookings/host/${pending}`, host);
+      expect(notConfirmed.status).toBe(200);
+      expect(notConfirmed.body.status).toBe('PENDIENTE');
+      expect(notConfirmed.body.guestContact).toBeUndefined();
+    });
+
+    it('39.4 otro anfitrión no ve la reserva', async () => {
+      const email = `otro.hu035.${suffix}@prueba.com`;
+      await call('POST', '/auth/register', null, { name: 'Otro Anfitrión', email, password: 'Password123', role: 'ANFITRION' });
+      const other = await login(email, 'Password123');
+
+      expect((await call('GET', `/bookings/host/${confirmed}`, other)).status).toBe(404);
+      expect((await call('GET', '/bookings/host', other)).body).toEqual([]);
+    });
+  });
+
   describe('HU-011 · Editar mi publicación (CA1, CA2, CA3, RF-015, RN-003, RN-021)', () => {
     const json = { 'Content-Type': 'application/json' };
     const auth = (token: string) => ({ Authorization: `Bearer ${token}`, ...json });

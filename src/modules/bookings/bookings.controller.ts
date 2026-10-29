@@ -6,6 +6,7 @@ import { CreateBookingDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { ResolveReviewDto } from './dto/resolve-review.dto';
 import { BookingPaymentResultDto, BookingResponseDto } from './dto/booking-response.dto';
+import { HostBookingDetailDto, HostListingBookingsDto } from './dto/host-booking.dto';
 import { PaymentCardDto } from '../payments/dto/payment.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -62,6 +63,39 @@ export class BookingsController {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  @Get('host')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Reservas recibidas en mis alojamientos · HU-035 (CA1)',
+    description:
+      'Reservas de los alojamientos del anfitrión autenticado (RF-049), agrupadas por alojamiento y ordenadas por fecha de llegada: fechas, noches, huésped, número de huéspedes y estado. No incluye datos de contacto.',
+  })
+  @ApiQuery({ name: 'status', required: false, enum: BookingStatus, description: 'Filtrar por estado de la reserva' })
+  @ApiResponse({ status: 200, description: 'Reservas agrupadas por alojamiento', type: [HostListingBookingsDto] })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Solo para anfitriones' })
+  findHostBookings(@CurrentUser() user: ActiveSession, @Query('status') status?: BookingStatus): HostListingBookingsDto[] {
+    return this.bookingsService.findHostBookings(user, status);
+  }
+
+  @Get('host/:id')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Detalle de una reserva recibida · HU-035 (CA2)',
+    description:
+      'Detalle de una reserva de un alojamiento del anfitrión. Con la reserva CONFIRMADA incluye el contacto del huésped (nombre, correo y teléfono); en otro estado se omite para proteger sus datos.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la reserva' })
+  @ApiResponse({ status: 200, description: 'Detalle de la reserva recibida', type: HostBookingDetailDto })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Solo para anfitriones' })
+  @ApiResponse({ status: 404, description: 'La reserva no existe o es de un alojamiento de otro anfitrión' })
+  findHostBooking(@Param('id') id: string, @CurrentUser() user: ActiveSession): HostBookingDetailDto {
+    return this.bookingsService.findHostBooking(id, user);
   }
 
   @Post('instant')
