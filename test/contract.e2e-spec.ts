@@ -388,11 +388,11 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const res = await fetch(`${baseUrl}/audit/events?action=LOGIN&result=FALLIDO`, {
         headers: { Authorization: `Bearer ${adminToken}` },
       });
-      const events = await res.json();
+      const { data: events } = await res.json();
 
       expect(res.status).toBe(200);
       expect(events.length).toBeGreaterThan(0);
-      expect(events[events.length - 1]).toEqual(
+      expect(events[0]).toEqual(
         expect.objectContaining({
           actor: adminEmail,
           action: 'LOGIN',
@@ -407,7 +407,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const listRes = await fetch(`${baseUrl}/audit/events`, {
         headers: { Authorization: `Bearer ${adminToken}` },
       });
-      const [firstEvent] = await listRes.json();
+      const [firstEvent] = (await listRes.json()).data;
 
       for (const method of ['PUT', 'PATCH', 'DELETE']) {
         const res = await fetch(`${baseUrl}/audit/events/${firstEvent.id}`, {
@@ -420,8 +420,13 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const afterRes = await fetch(`${baseUrl}/audit/events`, {
         headers: { Authorization: `Bearer ${adminToken}` },
       });
-      const [firstEventAfter] = await afterRes.json();
-      expect(firstEventAfter).toEqual(firstEvent);
+      const after = (await afterRes.json()).data;
+      expect(after.find((event: { id: string }) => event.id === firstEvent.id)).toEqual(firstEvent);
+      expect(after.slice(0, 3).map((event: { action: string }) => event.action)).toEqual([
+        'AUDIT_TAMPER_ATTEMPT',
+        'AUDIT_TAMPER_ATTEMPT',
+        'AUDIT_TAMPER_ATTEMPT',
+      ]);
     });
 
     it('5.3 GET /api/audit/events es exclusivo del ADMINISTRADOR', async () => {
@@ -673,9 +678,9 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(pending.map((item: { id: string }) => item.id)).toContain(listing.id);
 
       const events = await (
-        await fetch(`${baseUrl}/audit/events?action=LISTING_STATUS_CHANGE`, { headers: auth(adminToken) })
+        await fetch(`${baseUrl}/audit/events?action=LISTING_STATUS_CHANGE&limit=100`, { headers: auth(adminToken) })
       ).json();
-      const items = Array.isArray(events) ? events : events.data;
+      const items = events.data;
       expect(items).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -1526,8 +1531,8 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
 
     it('21.4 (CA3) la cancelación queda en la auditoría y no se puede repetir', async () => {
       const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
-      const events = await (await fetch(`${baseUrl}/audit/events?action=BOOKING_CANCELLATION`, { headers: auth(admin) })).json();
-      const items = Array.isArray(events) ? events : events.data;
+      const events = await (await fetch(`${baseUrl}/audit/events?action=BOOKING_CANCELLATION&limit=100`, { headers: auth(admin) })).json();
+      const items = events.data;
       expect(items).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ entityId: booking40.id, result: 'EXITOSO', actor: 'huesped.hu040@stayhub.com' }),
@@ -1812,8 +1817,8 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const toHost = (await (await fetch(`${baseUrl}/notifications`, { headers: auth(host) })).json()).data;
       expect(toHost[0]).toMatchObject({ type: 'PUBLICACION_BLOQUEADA' });
 
-      const events = await (await fetch(`${baseUrl}/audit/events?action=LISTING_STATUS_CHANGE`, { headers: auth(admin) })).json();
-      const items = Array.isArray(events) ? events : events.data;
+      const events = await (await fetch(`${baseUrl}/audit/events?action=LISTING_STATUS_CHANGE&limit=100`, { headers: auth(admin) })).json();
+      const items = events.data;
       expect(items.some((event: { entityId: string; detail: string }) => event.entityId === booking.listingId && event.detail.includes('ACTIVA -> BLOQUEADA'))).toBe(true);
 
       expect((await block(admin, booking.listingId, { reason })).status).toBe(400);
@@ -2056,6 +2061,77 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
 
     it('33.2 el huésped sí puede reservar', async () => {
       expect((await reserve(guestBookingToken)).status).toBe(201);
+    });
+  });
+
+  describe('HU-054 · Consultar los eventos de auditoría (CA1, CA2, RF-072, RN-032, RNF-022)', () => {
+    type AuditRow = { id: string; actor: string; action: string; entity: string; occurredAt: string; result: string };
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    let admin: string;
+    const actor = `auditoria.${randomUUID()}@prueba.com`;
+    const query = async (params: string) => {
+      const res = await fetch(`${baseUrl}/audit/events?${params}`, { headers: auth(admin) });
+      return { status: res.status, body: await res.json() };
+    };
+
+    beforeAll(async () => {
+      admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await fetch(`${baseUrl}/auth/login`, {
+          method: 'POST',
+          headers: json,
+          body: JSON.stringify({ email: actor, password: 'ClaveIncorrecta1' }),
+        });
+      }
+    });
+
+    it('34.1 (CA1) devuelve una página con los eventos completos, del más reciente al más antiguo', async () => {
+      const { status, body } = await query('limit=5');
+
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ page: 1, limit: 5, total: expect.any(Number), totalPages: expect.any(Number) });
+      expect(body.data.length).toBeLessThanOrEqual(5);
+      const times = body.data.map((event: AuditRow) => Date.parse(event.occurredAt));
+      expect([...times].sort((a, b) => b - a)).toEqual(times);
+      body.data.forEach((event: AuditRow) =>
+        expect(event).toEqual(
+          expect.objectContaining({ actor: expect.any(String), action: expect.any(String), entity: expect.any(String), result: expect.any(String) }),
+        ),
+      );
+    });
+
+    it('34.2 (CA1) la segunda página continúa donde terminó la primera', async () => {
+      const first = (await query(`actor=${actor}&limit=2&page=1`)).body;
+      const second = (await query(`actor=${actor}&limit=2&page=2`)).body;
+
+      expect(first).toMatchObject({ total: 3, totalPages: 2 });
+      expect(second.data).toHaveLength(1);
+      expect(second.data[0].id).not.toBe(first.data[0].id);
+      expect(Date.parse(second.data[0].occurredAt)).toBeLessThanOrEqual(Date.parse(first.data[1].occurredAt));
+    });
+
+    it('34.3 (CA2) solo devuelve los eventos que cumplen todos los filtros', async () => {
+      const today = new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
+      const { body } = await query(`actor=${actor}&action=LOGIN&entity=AuthSession&result=FALLIDO&from=${today}&to=${today}`);
+
+      expect(body.total).toBe(3);
+      body.data.forEach((event: AuditRow) => expect(event).toMatchObject({ actor, action: 'LOGIN', entity: 'AuthSession', result: 'FALLIDO' }));
+      expect((await query(`actor=${actor}&entity=Booking`)).body.total).toBe(0);
+      expect((await query(`actor=${actor}&to=2020-01-01`)).body.total).toBe(0);
+    });
+
+    it('34.4 (CA2) rechaza filtros de fecha no válidos', async () => {
+      expect((await query('from=2026-10-20&to=2026-10-01')).status).toBe(400);
+      expect((await query('from=ayer')).status).toBe(400);
+      expect((await query('limit=0')).status).toBe(400);
+    });
+
+    it('34.5 solo el administrador consulta la auditoría', async () => {
+      expect((await fetch(`${baseUrl}/audit/events`, { headers: auth(guestBookingToken) })).status).toBe(403);
     });
   });
 });

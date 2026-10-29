@@ -73,7 +73,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
     it('registra el inicio de sesión exitoso', async () => {
       await authService.login({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
 
-      const [event] = controller.findAll({ action: AuditAction.LOGIN });
+      const [event] = auditService.findAll({ action: AuditAction.LOGIN });
       expectCompleteEvent({ ...event });
       expect(event.actor).toBe(ADMIN_EMAIL);
       expect(event.entity).toBe('AuthSession');
@@ -98,7 +98,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
         { token: 't', userId: 'user-9', email: 'anfitrion@stayhub.com', role: Role.ANFITRION, expiresAt: 0 },
       );
 
-      const [event] = controller.findAll({ entity: 'Listing' });
+      const [event] = auditService.findAll({ entity: 'Listing' });
       expectCompleteEvent({ ...event });
       expect(event).toMatchObject({
         actor: 'anfitrion@stayhub.com',
@@ -116,7 +116,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
         ADMIN_EMAIL,
       );
 
-      const events = controller.findAll({ action: AuditAction.LISTING_STATUS_CHANGE });
+      const events = auditService.findAll({ action: AuditAction.LISTING_STATUS_CHANGE });
       expect(events).toEqual([
         expect.objectContaining({
           actor: ADMIN_EMAIL,
@@ -145,7 +145,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
         'huesped@stayhub.com',
       );
 
-      const [event] = controller.findAll({ entity: 'Booking' });
+      const [event] = auditService.findAll({ entity: 'Booking' });
       expect(event).toMatchObject({
         actor: 'huesped@stayhub.com',
         action: AuditAction.BOOKING_STATUS_CHANGE,
@@ -163,7 +163,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
       });
       authService.restrictAccount('host@stayhub.com', 'Publicación engañosa', ADMIN_EMAIL);
 
-      const [event] = controller.findAll({ action: AuditAction.ADMIN_ACTION });
+      const [event] = auditService.findAll({ action: AuditAction.ADMIN_ACTION });
       expect(event).toMatchObject({
         actor: ADMIN_EMAIL,
         entity: 'UserAccount',
@@ -183,7 +183,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
           }),
       );
 
-      expect(controller.findAll({ actor: 'USUARIO@stayhub.com' })).toHaveLength(3);
+      expect(auditService.findAll({ actor: 'USUARIO@stayhub.com' })).toHaveLength(3);
     });
 
     it('usa un actor anónimo cuando la acción no tiene sesión', () => {
@@ -199,7 +199,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
   describe('CA2 · La auditoría es de solo inserción', () => {
     it('no expone operaciones de actualización ni eliminación en el servicio', () => {
       const methods = Object.getOwnPropertyNames(AuditService.prototype);
-      expect(methods.sort()).toEqual(['constructor', 'findAll', 'record']);
+      expect(methods.sort()).toEqual(['constructor', 'findAll', 'findPage', 'record']);
     });
 
     it('los eventos registrados son inmutables y la consulta no altera la bitácora', () => {
@@ -243,7 +243,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
       expect((thrown as HttpException).getStatus()).toBe(HttpStatus.METHOD_NOT_ALLOWED);
 
       expect(auditService.findAll()[0]).toEqual(original);
-      const [attempt] = controller.findAll({ action: AuditAction.AUDIT_TAMPER_ATTEMPT });
+      const [attempt] = auditService.findAll({ action: AuditAction.AUDIT_TAMPER_ATTEMPT });
       expect(attempt).toMatchObject({
         entity: 'AuditEvent',
         entityId: original.id,
@@ -258,7 +258,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
         authService.login({ email: ADMIN_EMAIL, password: 'ClaveIncorrecta1' }),
       ).rejects.toThrow(UnauthorizedException);
 
-      const [event] = controller.findAll({ result: AuditResult.FALLIDO });
+      const [event] = auditService.findAll({ result: AuditResult.FALLIDO });
       expectCompleteEvent({ ...event });
       expect(event).toMatchObject({
         actor: ADMIN_EMAIL,
@@ -285,7 +285,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
         listingsService.returnListing('pending-listing-1', { reason: 'x' }, ADMIN_EMAIL),
       ).rejects.toThrow(BadRequestException);
 
-      const failed = controller.findAll({ entity: 'Listing', result: AuditResult.FALLIDO });
+      const failed = auditService.findAll({ entity: 'Listing', result: AuditResult.FALLIDO });
       expect(failed).toHaveLength(5);
       failed.forEach((event) => expect(event.actor).toBe(ADMIN_EMAIL));
     });
@@ -295,7 +295,7 @@ describe('HU-061 · Registrar los eventos de auditoría (CA1, CA2, CA3, RF-080, 
         UnauthorizedException,
       );
 
-      const [event] = controller.findAll({ action: AuditAction.ACCESS_DENIED });
+      const [event] = auditService.findAll({ action: AuditAction.ACCESS_DENIED });
       expect(event).toMatchObject({ actor: ANONYMOUS_ACTOR, result: AuditResult.FALLIDO });
     });
   });
