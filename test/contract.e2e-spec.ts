@@ -2423,4 +2423,97 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await call('DELETE', `/listings/${listing}/additional-services/${serviceId}`, host)).status).toBe(404);
     });
   });
+
+  describe('HU-014 · Pausar y reactivar mi publicación (CA1, CA2, CA3, RF-018, RN-005, RN-006)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const call = async (method: string, path: string, token: string | null, body?: unknown) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const card = { cardNumber: '4242424242424242', cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' };
+    const title = `Casa para pausar ${randomUUID().slice(0, 8)}`;
+    const inSearch = async () =>
+      (await call('GET', `/listings/search?city=${encodeURIComponent('Jardín')}&limit=50`, null)).body.data.some((item: { id: string }) => item.id === listing);
+    let host: string;
+    let listing: string;
+    let bookingId: string;
+
+    beforeAll(async () => {
+      const email = `anfitrion.hu014.${randomUUID()}@prueba.com`;
+      await call('POST', '/auth/register', null, { name: 'Anfitrión Pausa', email, password: 'Password123', role: 'ANFITRION' });
+      host = await login(email, 'Password123');
+      listing = (
+        await call('POST', '/listings', host, {
+          title,
+          description: 'Casa de prueba para pausar y reactivar',
+          city: 'Jardín',
+          department: 'Antioquia',
+          address: 'Vereda La Linda',
+          propertyType: 'CASA',
+          maxGuests: 4,
+          pricePerNight: 180000,
+          amenities: ['WIFI'],
+          rules: ['No fumar'],
+          images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+        })
+      ).body.id;
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2026-11-01', endDate: '2026-12-31' });
+      await call('PATCH', `/listings/${listing}/request-activation`, host);
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
+      const booked = await call('POST', '/bookings/instant', guestBookingToken, {
+        listingId: listing,
+        checkIn: '2026-12-10',
+        checkOut: '2026-12-12',
+        guests: 2,
+        idempotencyKey: randomUUID(),
+      });
+      bookingId = booked.body.id;
+      expect((await call('POST', `/bookings/${bookingId}/pay`, guestBookingToken, card)).status).toBe(200);
+    });
+
+    it('37.1 solo el anfitrión dueño pausa su publicación', async () => {
+      expect((await call('PATCH', `/listings/${listing}/pause`, guestBookingToken)).status).toBe(403);
+      expect((await call('PATCH', `/listings/${listing}/pause`, null)).status).toBe(401);
+      expect((await call('PATCH', '/listings/demo-bogota-chapinero/pause', host)).status).toBe(404);
+      expect((await call('PATCH', `/listings/${listing}/reactivate`, host)).status).toBe(400);
+    });
+
+    it('37.2 (CA1, CA3) al pausar pasa a PAUSADA, sale de las búsquedas, no recibe reservas y la reserva confirmada se mantiene', async () => {
+      expect(await inSearch()).toBe(true);
+
+      const res = await call('PATCH', `/listings/${listing}/pause`, host);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ id: listing, status: 'PAUSADA' });
+      expect(await inSearch()).toBe(false);
+      expect((await call('GET', `/listings/${listing}`, null)).status).toBe(404);
+      const newBooking = await call('POST', '/bookings/instant', guestBookingToken, {
+        listingId: listing,
+        checkIn: '2026-12-20',
+        checkOut: '2026-12-22',
+        guests: 2,
+        idempotencyKey: randomUUID(),
+      });
+      expect(newBooking.status).toBe(400);
+      expect((await call('GET', `/bookings/${bookingId}`, guestBookingToken)).body.status).toBe('CONFIRMADA');
+      expect((await call('PATCH', `/listings/${listing}/pause`, host)).status).toBe(400);
+    });
+
+    it('37.3 (CA2) al reactivar vuelve a ACTIVA sin nueva revisión y aparece en las búsquedas', async () => {
+      const res = await call('PATCH', `/listings/${listing}/reactivate`, host);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ id: listing, status: 'ACTIVA' });
+      expect(await inSearch()).toBe(true);
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      const pending = (await call('GET', '/listings/pending', admin)).body.map((item: { id: string }) => item.id);
+      expect(pending).not.toContain(listing);
+      expect((await call('GET', `/bookings/${bookingId}`, guestBookingToken)).body.status).toBe('CONFIRMADA');
+    });
+  });
 });
