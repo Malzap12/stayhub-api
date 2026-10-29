@@ -2327,6 +2327,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
   });
 
+
   describe('HU-016 · Ofrecer servicios adicionales con costo (CA1, CA2, RF-020, RN-004, RN-013)', () => {
     const json = { 'Content-Type': 'application/json' };
     const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
@@ -2476,14 +2477,14 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await call('POST', `/bookings/${bookingId}/pay`, guestBookingToken, card)).status).toBe(200);
     });
 
-    it('37.1 solo el anfitrión dueño pausa su publicación', async () => {
+    it('38.1 solo el anfitrión dueño pausa su publicación', async () => {
       expect((await call('PATCH', `/listings/${listing}/pause`, guestBookingToken)).status).toBe(403);
       expect((await call('PATCH', `/listings/${listing}/pause`, null)).status).toBe(401);
       expect((await call('PATCH', '/listings/demo-bogota-chapinero/pause', host)).status).toBe(404);
       expect((await call('PATCH', `/listings/${listing}/reactivate`, host)).status).toBe(400);
     });
 
-    it('37.2 (CA1, CA3) al pausar pasa a PAUSADA, sale de las búsquedas, no recibe reservas y la reserva confirmada se mantiene', async () => {
+    it('38.2 (CA1, CA3) al pausar pasa a PAUSADA, sale de las búsquedas, no recibe reservas y la reserva confirmada se mantiene', async () => {
       expect(await inSearch()).toBe(true);
 
       const res = await call('PATCH', `/listings/${listing}/pause`, host);
@@ -2504,7 +2505,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await call('PATCH', `/listings/${listing}/pause`, host)).status).toBe(400);
     });
 
-    it('37.3 (CA2) al reactivar vuelve a ACTIVA sin nueva revisión y aparece en las búsquedas', async () => {
+    it('38.3 (CA2) al reactivar vuelve a ACTIVA sin nueva revisión y aparece en las búsquedas', async () => {
       const res = await call('PATCH', `/listings/${listing}/reactivate`, host);
 
       expect(res.status).toBe(200);
@@ -2514,6 +2515,108 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const pending = (await call('GET', '/listings/pending', admin)).body.map((item: { id: string }) => item.id);
       expect(pending).not.toContain(listing);
       expect((await call('GET', `/bookings/${bookingId}`, guestBookingToken)).body.status).toBe('CONFIRMADA');
+    });
+  });
+
+  describe('37 HU-017 (RF-021, RN-004, RN-016): Asociar una política de cancelación', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ Authorization: `Bearer ${token}`, ...json });
+    const loginAs = async (email: string, role: string) => {
+      await fetch(`${baseUrl}/auth/register`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ name: email, email, password: 'Password123', role }),
+      });
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ email, password: 'Password123' }),
+      });
+      return ((await res.json()) as { token: string }).token;
+    };
+    let hostToken: string;
+    let draftId: string;
+
+    beforeAll(async () => {
+      hostToken = await loginAs('anfitrion.hu017.e2e@stayhub.com', 'ANFITRION');
+      const createRes = await fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: auth(hostToken),
+        body: JSON.stringify({
+          title: 'Alojamiento para prueba de política',
+          description: 'Hermoso alojamiento con vista a la montaña',
+          city: 'Manizales',
+          department: 'Caldas',
+          address: 'Cra 23 # 45-12',
+          propertyType: 'CASA',
+          maxGuests: 4,
+          pricePerNight: 200000,
+          amenities: ['WIFI', 'PARQUEADERO'],
+          rules: ['No fumar'],
+          images: ['https://storage.stayhub.com/manizales-1.jpg'],
+        }),
+      });
+      expect(createRes.status).toBe(201);
+      const created = await createRes.json();
+      draftId = created.id;
+    });
+
+    it('37.1 (CA1) el anfitrión asocia la política Flexible del catálogo y se muestra en el detalle', async () => {
+      const catalogRes = await fetch(`${baseUrl}/listings/cancellation-policies`);
+      expect(catalogRes.status).toBe(200);
+      const catalog = await catalogRes.json();
+      expect(catalog.some((p: { code: string }) => p.code === 'FLEXIBLE')).toBe(true);
+
+      const patchRes = await fetch(`${baseUrl}/listings/${draftId}/cancellation-policy`, {
+        method: 'PATCH',
+        headers: auth(hostToken),
+        body: JSON.stringify({ code: 'FLEXIBLE' }),
+      });
+      expect(patchRes.status).toBe(200);
+      const patchBody = await patchRes.json();
+      expect(patchBody.code).toBe('FLEXIBLE');
+
+      const detailRes = await fetch(`${baseUrl}/listings/${draftId}`, { headers: auth(hostToken) });
+      expect(detailRes.status).toBe(200);
+      const detailBody = await detailRes.json();
+      expect(detailBody.cancellationPolicy.code).toBe('FLEXIBLE');
+      expect(detailBody.cancellationPolicy.name).toBe('Flexible');
+    });
+
+    it('37.2 (CA2) si no eligió política, al solicitar activación el sistema asigna Flexible por defecto', async () => {
+      const res = await fetch(`${baseUrl}/listings`, {
+        method: 'POST',
+        headers: auth(hostToken),
+        body: JSON.stringify({
+          title: 'Alojamiento sin política previa',
+          description: 'Alojamiento listo para activar',
+          city: 'Pereira',
+          department: 'Risaralda',
+          address: 'Av Circunvalar # 10-20',
+          propertyType: 'APARTAMENTO',
+          maxGuests: 2,
+          pricePerNight: 180000,
+          amenities: ['WIFI'],
+          rules: ['No mascotas'],
+          images: ['https://storage.stayhub.com/pereira-1.jpg'],
+        }),
+      });
+      const draft = await res.json();
+      expect(draft.cancellationPolicy).toBeUndefined();
+
+      const actRes = await fetch(`${baseUrl}/listings/${draft.id}/request-activation`, {
+        method: 'PATCH',
+        headers: auth(hostToken),
+      });
+      expect(actRes.status).toBe(200);
+      const actBody = await actRes.json();
+      expect(actBody.status).toBe('PENDIENTE_REVISION');
+      expect(actBody.cancellationPolicy).toBe('FLEXIBLE');
+
+      const detailRes = await fetch(`${baseUrl}/listings/${draft.id}`, { headers: auth(hostToken) });
+      const detail = await detailRes.json();
+      expect(detail.cancellationPolicy.code).toBe('FLEXIBLE');
+
     });
   });
 });
