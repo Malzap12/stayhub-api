@@ -187,6 +187,7 @@ export function toMyListing(listing: ListingResponseDto): MyListingDto {
     status,
     statusLabel: LISTING_STATUS_LABELS[status],
     ...adminReason,
+    cancellationPolicy: listing.cancellationPolicy,
     isComplete: listing.isComplete,
     missingFields: listing.missingFields,
     createdAt: listing.createdAt,
@@ -645,6 +646,10 @@ export class ListingsService implements OnModuleInit {
     listing.returnReason = undefined;
     listing.isComplete = true;
     listing.missingFields = [];
+    if (!listing.cancellationPolicy) {
+      // HU-017 CA2: si no se eligió una política, se asigna la política Flexible por defecto al solicitar activación (RN-004, RN-016)
+      listing.cancellationPolicy = DEFAULT_CANCELLATION_POLICY;
+    }
     this.recordStatusChange(
       host?.email,
       id,
