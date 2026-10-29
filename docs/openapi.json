@@ -1163,11 +1163,61 @@
         ]
       }
     },
+    "/api/listings/{id}/pause": {
+      "patch": {
+        "operationId": "ListingsController_pauseListing",
+        "summary": "Pausar mi publicación · HU-014 (CA1, CA3)",
+        "description": "El anfitrión pausa una publicación ACTIVA: pasa a PAUSADA, deja de aparecer en las búsquedas y no recibe reservas nuevas. Sus reservas confirmadas se mantienen CONFIRMADAS. RF-018, RN-005, RN-006.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publicación PAUSADA",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyListingDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "La publicación no está ACTIVA"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ANFITRION)"
+          },
+          "404": {
+            "description": "Publicación no encontrada o de otro anfitrión (RN-005)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings/{id}/reactivate": {
       "patch": {
         "operationId": "ListingsController_reactivateListing",
-        "summary": "Reactivar publicación pausada · HU-053 (CA3)",
-        "description": "Permite al anfitrión reactivar una publicación que estaba en PAUSADA para que vuelva a estar ACTIVA.",
+        "summary": "Reactivar mi publicación pausada · HU-014 (CA2), HU-053 (CA3)",
+        "description": "La publicación PAUSADA vuelve a ACTIVA sin nueva revisión y aparece de nuevo en las búsquedas.",
         "parameters": [
           {
             "name": "id",

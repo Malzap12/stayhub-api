@@ -592,17 +592,45 @@ export class ListingsService implements OnModuleInit {
     return active;
   }
 
-  /** HU-053 CA3: el anfitrión puede reactivar una publicación que quedó PAUSADA. */
-  reactivateListing(id: string, host?: ActiveSession): MyListingDto {
-    const listing = this.listingsStore.find((item) => item.id === id);
-    const ownerId = host?.userId;
-    if (!ownerId || listing?.hostId !== ownerId) {
-      throw new NotFoundException(`Publicación con id ${id} no encontrada`);
+  /**
+   * HU-014 · Pausar mi publicación (CA1, CA3 · RF-018, RN-005, RN-006).
+   * Solo el anfitrión dueño pausa una publicación ACTIVA: pasa a PAUSADA, deja de aparecer en las búsquedas y no
+   * recibe reservas nuevas. Sus reservas (confirmadas o pendientes) no cambian.
+   */
+  pauseListing(id: string, host?: ActiveSession): MyListingDto {
+    const fail = (detail: string) => this.recordStatusChange(host?.email, id, AuditResult.FALLIDO, `Pausa rechazada: ${detail}`);
+    this.findOwnListing(id, host, fail);
+    const listing = this.listingsStore.find((item) => item.id === id)!;
+    const currentStatus = listing.status ?? ListingStatus.BORRADOR;
+    if (currentStatus !== ListingStatus.ACTIVA) {
+      fail(`la publicación está ${currentStatus}`);
+      throw new BadRequestException(
+        `Solo puedes pausar una publicación activa (estado actual: ${LISTING_STATUS_LABELS[currentStatus]})`,
+      );
     }
+    listing.status = ListingStatus.PAUSADA;
+    this.recordStatusChange(
+      host?.email,
+      id,
+      AuditResult.EXITOSO,
+      `${ListingStatus.ACTIVA} -> ${ListingStatus.PAUSADA} (pausa por el anfitrión)`,
+    );
+    return toMyListing(listing);
+  }
+
+  /**
+   * HU-014 CA2 y HU-053 CA3 · Reactivar mi publicación: una publicación PAUSADA vuelve a ACTIVA sin nueva revisión
+   * (ya fue aprobada) y aparece de nuevo en las búsquedas.
+   */
+  reactivateListing(id: string, host?: ActiveSession): MyListingDto {
+    const fail = (detail: string) => this.recordStatusChange(host?.email, id, AuditResult.FALLIDO, `Reactivación rechazada: ${detail}`);
+    this.findOwnListing(id, host, fail);
+    const listing = this.listingsStore.find((item) => item.id === id)!;
     const currentStatus = listing.status ?? ListingStatus.BORRADOR;
     if (currentStatus !== ListingStatus.PAUSADA) {
+      fail(`la publicación está ${currentStatus}`);
       throw new BadRequestException(
-        `Solo puedes reactivar una publicación en PAUSADA (estado actual: ${LISTING_STATUS_LABELS[currentStatus]})`,
+        `Solo puedes reactivar una publicación pausada (estado actual: ${LISTING_STATUS_LABELS[currentStatus]})`,
       );
     }
     listing.status = ListingStatus.ACTIVA;
