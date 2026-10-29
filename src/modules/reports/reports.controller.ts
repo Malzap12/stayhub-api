@@ -38,9 +38,9 @@ export class ReportsController {
 
   @Get('export/:report')
   @ApiOperation({
-    summary: 'Exportar un reporte de gestión a Excel · HU-058 (CA1, CA2)',
+    summary: 'Exportar un reporte de gestión a Excel · HU-058 (CA1, CA2) y registrar en auditoría · HU-060 (CA1, CA2)',
     description:
-      'Descarga un archivo .xlsx del reporte indicado (usuarios, publicaciones, reservas, ingresos o demanda por ciudad y tipo) con título, fecha de generación, filtros aplicados, encabezados con autofiltro y una fila de totales que coincide con los datos del sistema. Filtros opcionales: from y to (fecha de creación), city y status. Exclusivo para ADMINISTRADOR; la exportación queda en la auditoría. RF-076, RF-077, RN-026.',
+      'Descarga un archivo .xlsx del reporte indicado (usuarios, publicaciones, reservas, ingresos o demanda por ciudad y tipo) con título, fecha de generación, filtros aplicados, encabezados con autofiltro y una fila de totales que coincide con los datos del sistema. Filtros opcionales: from y to (fecha de creación), city y status. Exclusivo para ADMINISTRADOR; la exportación queda en la auditoría. RF-076, RF-077, RF-078, RN-026, RN-027.',
   })
   @ApiParam({ name: 'report', enum: EXPORTABLE_REPORTS })
   @ApiProduces(XLSX_MIME)
@@ -61,9 +61,9 @@ export class ReportsController {
 
   @Get('export/:report/pdf')
   @ApiOperation({
-    summary: 'Exportar un reporte de gestión a PDF · HU-059 (CA1, CA2)',
+    summary: 'Exportar un reporte de gestión a PDF · HU-059 (CA1, CA2) y registrar en auditoría · HU-060 (CA1, CA2)',
     description:
-      'Descarga un documento .pdf del reporte indicado con título, filtros aplicados, fecha de generación, tabla de datos y fila de totales que coincide con el reporte en Excel (CA2). RF-076, RF-077, RN-026.',
+      'Descarga un documento .pdf del reporte indicado con título, filtros aplicados, fecha de generación, tabla de datos y fila de totales que coincide con el reporte en Excel (CA2). La exportación queda registrada en la bitácora de auditoría. RF-076, RF-077, RF-078, RN-026, RN-027.',
   })
   @ApiParam({ name: 'report', enum: EXPORTABLE_REPORTS })
   @ApiProduces(PDF_MIME)

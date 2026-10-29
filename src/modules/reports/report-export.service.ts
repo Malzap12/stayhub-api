@@ -75,7 +75,7 @@ const dayOnly = (value: unknown): Date | null => {
 };
 
 /**
- * HU-058 · Exportar reportes a Excel y HU-059 · Exportar reportes a PDF (CA1, CA2 · RF-076, RF-077, RN-026).
+ * HU-058 · Exportar reportes a Excel, HU-059 · Exportar reportes a PDF y HU-060 · Registrar las exportaciones (CA1, CA2 · RF-076, RF-077, RF-078, RN-026, RN-027).
  * Cinco reportes (AMB-23): usuarios, publicaciones, reservas, ingresos estimados y demanda por ciudad y tipo.
  * Tanto el archivo .xlsx como el documento .pdf se construyen con la misma tabla y fila de totales (`buildTable` y
  * `buildTotalRow`), por lo que con el mismo filtro los totales de Excel y PDF coinciden exactamente (HU-059 CA2).
@@ -284,6 +284,11 @@ export class ReportExportService {
       entityId: report,
       result: AuditResult.EXITOSO,
       detail: `Exportó ${table.title.toLowerCase()} a ${label} (${table.rows.length} filas). Filtros: ${describeFilters(filters)}`,
+      metadata: {
+        report,
+        format,
+        filters: { ...filters },
+      },
     });
     return { fileName: `stayhub-${report}-${stamp}.${format}`, buffer, rows: table.rows.length };
   }

@@ -30,9 +30,9 @@ export class AuditController {
 
   @Get()
   @ApiOperation({
-    summary: 'Consultar eventos de auditoría · HU-061 (CA1, CA3)',
+    summary: 'Consultar eventos de auditoría · HU-060 (CA2), HU-061 (CA1, CA3)',
     description:
-      'Retorna los eventos registrados (actor, acción, entidad, fecha y hora, resultado), incluidos los fallidos. Exclusivo del rol ADMINISTRADOR.',
+      'Retorna los eventos registrados (actor, acción, entidad, fecha y hora, resultado), incluidos los eventos de exportación (HU-060 CA2) y los fallidos. Exclusivo del rol ADMINISTRADOR. RF-078, RF-080, RN-027.',
   })
   @ApiResponse({ status: 200, description: 'Eventos de auditoría', type: [AuditEventDto] })
   @ApiResponse({ status: 401, description: 'No autenticado' })

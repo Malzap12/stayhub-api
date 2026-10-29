@@ -26,6 +26,10 @@ export class AuditEventDto {
 
   @ApiPropertyOptional({ example: 'Correo electrónico o contraseña incorrectos' })
   detail?: string;
+
+  @ApiPropertyOptional({ example: { report: 'reservas', format: 'xlsx', filters: { status: 'CONFIRMADA' } }, description: 'Metadatos estructurados del evento (HU-060)' })
+  @IsOptional()
+  metadata?: Record<string, unknown>;
 }
 
 export class AuditEventsQueryDto {
