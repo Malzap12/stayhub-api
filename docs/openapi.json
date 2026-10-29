@@ -2519,13 +2519,14 @@
     "/api/audit/events": {
       "get": {
         "operationId": "AuditController_findAll",
-        "summary": "Consultar eventos de auditoría · HU-061 (CA1, CA3)",
-        "description": "Retorna los eventos registrados (actor, acción, entidad, fecha y hora, resultado), incluidos los fallidos. Exclusivo del rol ADMINISTRADOR.",
+        "summary": "Consultar eventos de auditoría · HU-054 (CA1, CA2), HU-061 (CA1, CA3)",
+        "description": "Retorna los eventos registrados (actor, acción, entidad, fecha y hora, resultado), incluidos los fallidos, del más reciente al más antiguo y paginados. Los filtros por rango de fechas, usuario, tipo de evento, entidad y resultado se combinan: solo se devuelven los eventos que cumplen todos. Exclusivo del rol ADMINISTRADOR.",
         "parameters": [
           {
             "name": "actor",
             "required": false,
             "in": "query",
+            "description": "Usuario que ejecutó la acción; acepta parte del correo (HU-054 CA2)",
             "schema": {
               "example": "admin@inversioneslr.com",
               "type": "string"
@@ -2535,6 +2536,7 @@
             "name": "action",
             "required": false,
             "in": "query",
+            "description": "Tipo de evento (HU-054 CA2)",
             "schema": {
               "enum": [
                 "REGISTER",
@@ -2564,9 +2566,53 @@
             "name": "entity",
             "required": false,
             "in": "query",
+            "description": "Entidad afectada (HU-054 CA2)",
             "schema": {
               "example": "Booking",
               "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "Desde esta fecha, incluida, en hora de Bogotá (HU-054 CA2)",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "Hasta esta fecha, incluida, en hora de Bogotá (HU-054 CA2)",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "description": "Número de página (por defecto 1 · HU-054 CA1)",
+            "schema": {
+              "minimum": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Eventos por página (por defecto 20, máx. 100 · HU-054 CA1)",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "example": 20,
+              "type": "number"
             }
           },
           {
@@ -2584,17 +2630,17 @@
         ],
         "responses": {
           "200": {
-            "description": "Eventos de auditoría",
+            "description": "Página de eventos de auditoría",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/AuditEventDto"
-                  }
+                  "$ref": "#/components/schemas/AuditEventsPageDto"
                 }
               }
             }
+          },
+          "400": {
+            "description": "Filtros no válidos (fecha mal escrita o fecha inicial posterior a la final)"
           },
           "401": {
             "description": "No autenticado"
@@ -5856,6 +5902,45 @@
           "entity",
           "occurredAt",
           "result"
+        ]
+      },
+      "AuditEventsPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "Eventos de la página, del más reciente al más antiguo (HU-054 CA1)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEventDto"
+            }
+          },
+          "page": {
+            "type": "number",
+            "example": 1,
+            "description": "Página actual"
+          },
+          "limit": {
+            "type": "number",
+            "example": 20,
+            "description": "Eventos por página"
+          },
+          "total": {
+            "type": "number",
+            "example": 57,
+            "description": "Total de eventos que cumplen los filtros"
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 3,
+            "description": "Total de páginas"
+          }
+        },
+        "required": [
+          "data",
+          "page",
+          "limit",
+          "total",
+          "totalPages"
         ]
       },
       "TestCardDto": {
