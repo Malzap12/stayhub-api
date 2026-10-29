@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuditService } from './audit.service';
-import { AuditEventDto, AuditEventsQueryDto } from './dto/audit-event.dto';
+import { AuditEventsPageDto, AuditEventsQueryDto } from './dto/audit-event.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Role } from '../../common/enums/role.enum';
@@ -30,15 +30,18 @@ export class AuditController {
 
   @Get()
   @ApiOperation({
-    summary: 'Consultar eventos de auditoría · HU-061 (CA1, CA3)',
+    summary: 'Consultar eventos de auditoría · HU-054 (CA1, CA2), HU-061 (CA1, CA3)',
     description:
-      'Retorna los eventos registrados (actor, acción, entidad, fecha y hora, resultado), incluidos los fallidos. Exclusivo del rol ADMINISTRADOR.',
+      'Retorna los eventos registrados (actor, acción, entidad, fecha y hora, resultado), incluidos los fallidos, ' +
+      'del más reciente al más antiguo y paginados. Los filtros por rango de fechas, usuario, tipo de evento, entidad y resultado ' +
+      'se combinan: solo se devuelven los eventos que cumplen todos. Exclusivo del rol ADMINISTRADOR.',
   })
-  @ApiResponse({ status: 200, description: 'Eventos de auditoría', type: [AuditEventDto] })
+  @ApiResponse({ status: 200, description: 'Página de eventos de auditoría', type: AuditEventsPageDto })
+  @ApiResponse({ status: 400, description: 'Filtros no válidos (fecha mal escrita o fecha inicial posterior a la final)' })
   @ApiResponse({ status: 401, description: 'No autenticado' })
   @ApiResponse({ status: 403, description: 'Requiere rol ADMINISTRADOR' })
-  findAll(@Query() filters: AuditEventsQueryDto): AuditEventDto[] {
-    return this.auditService.findAll(filters);
+  findAll(@Query() query: AuditEventsQueryDto): AuditEventsPageDto {
+    return this.auditService.findPage(query);
   }
 
   @Put(':id')
