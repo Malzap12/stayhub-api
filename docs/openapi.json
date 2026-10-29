@@ -1516,6 +1516,234 @@
         ]
       }
     },
+    "/api/listings/{id}/additional-services": {
+      "get": {
+        "operationId": "ListingsController_getAdditionalServices",
+        "summary": "Consultar los servicios adicionales de una publicación propia · HU-016",
+        "description": "Servicios adicionales opcionales con su identificador, nombre y costo por estancia (COP).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación del anfitrión",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Servicios adicionales",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdditionalServiceDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ANFITRION)"
+          },
+          "404": {
+            "description": "La publicación no existe o pertenece a otro anfitrión (RN-005)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "ListingsController_addAdditionalService",
+        "summary": "Agregar un servicio adicional con costo · HU-016 (CA1)",
+        "description": "Agrega un servicio opcional con nombre y costo por estancia mayor que 0 COP. Aparece en el detalle de la publicación y se puede seleccionar al cotizar. Máximo 10 por publicación y sin nombres repetidos. RF-020, RN-004, RN-013.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación del anfitrión",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAdditionalServiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Servicios de la publicación, con el nuevo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdditionalServiceDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Nombre vacío o repetido, costo menor o igual a 0 o más de 10 servicios"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ANFITRION)"
+          },
+          "404": {
+            "description": "La publicación no existe o pertenece a otro anfitrión (RN-005)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/{id}/additional-services/{serviceId}": {
+      "patch": {
+        "operationId": "ListingsController_updateAdditionalService",
+        "summary": "Modificar un servicio adicional · HU-016 (CA2)",
+        "description": "Cambia el nombre o el costo. Aplica a las cotizaciones nuevas; las reservas ya creadas conservan lo que se cotizó.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación del anfitrión",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "description": "ID del servicio adicional",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAdditionalServiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Servicios de la publicación, con el cambio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdditionalServiceDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Sin cambios, nombre repetido o costo menor o igual a 0"
+          },
+          "404": {
+            "description": "La publicación o el servicio no existen"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ListingsController_removeAdditionalService",
+        "summary": "Eliminar un servicio adicional · HU-016 (CA2)",
+        "description": "Deja de ofrecerse en las cotizaciones nuevas; las reservas ya creadas conservan el servicio y su costo.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación del anfitrión",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "description": "ID del servicio adicional",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Servicios que quedan en la publicación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdditionalServiceDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La publicación o el servicio no existen"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings/{id}/availability-periods": {
       "post": {
         "operationId": "ListingsController_registerAvailabilityPeriod",
@@ -4093,6 +4321,11 @@
       "AdditionalServiceDto": {
         "type": "object",
         "properties": {
+          "id": {
+            "type": "string",
+            "example": "svc-3f1c2b4e",
+            "description": "Identificador del servicio para modificarlo o eliminarlo (HU-016)"
+          },
           "name": {
             "type": "string",
             "example": "Traslado desde el aeropuerto"
@@ -4641,6 +4874,44 @@
         "required": [
           "cleaningFee"
         ]
+      },
+      "CreateAdditionalServiceDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Traslado desde el aeropuerto",
+            "minLength": 3,
+            "maxLength": 80
+          },
+          "cost": {
+            "type": "number",
+            "example": 80000,
+            "description": "Costo por estancia en COP, mayor que 0",
+            "minimum": 1,
+            "maximum": 10000000
+          }
+        },
+        "required": [
+          "name",
+          "cost"
+        ]
+      },
+      "UpdateAdditionalServiceDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Traslado ida y vuelta al aeropuerto",
+            "minLength": 3,
+            "maxLength": 80
+          },
+          "cost": {
+            "type": "number",
+            "example": 95000,
+            "description": "Costo por estancia en COP, mayor que 0"
+          }
+        }
       },
       "CreateAvailabilityPeriodDto": {
         "type": "object",
