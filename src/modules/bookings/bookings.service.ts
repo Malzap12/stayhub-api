@@ -32,6 +32,7 @@ import { PaymentStatus } from '../../common/enums/payment-status.enum';
 import { BookingNotice, NotificationsService } from '../notifications/notifications.service';
 import { AuthService, type ActiveSession } from '../auth/auth.service';
 import { HostBookingDetailDto, HostBookingSummaryDto, HostListingBookingsDto } from './dto/host-booking.dto';
+import type { UpcomingStayDto } from '../users/dto/deactivate-account.dto';
 
 /**
  * HU-040 · Momento de la llegada: el día de llegada a la hora de check-in (15:00, como en el ejemplo de la
@@ -1044,5 +1045,37 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       currency: booking.currency,
       createdAt: booking.createdAt,
     };
+  }
+
+  /**
+   * HU-008 CA2 · Reservas futuras confirmadas de un usuario: las suyas como huésped y las de sus alojamientos
+   * como anfitrión. Cuenta como futura toda estancia CONFIRMADA cuya salida aún no ha llegado (incluye las que están
+   * en curso).
+   */
+  findUpcomingConfirmed(user: { email: string; userId: string }, now = new Date()): UpcomingStayDto[] {
+    const today = bogotaDate(now);
+    const email = user.email.toLowerCase();
+    return this.bookingsStore
+      .filter((booking) => booking.status === BookingStatus.CONFIRMADA && booking.checkOut > today)
+      .flatMap((booking): UpcomingStayDto[] => {
+        const listing = this.listingsService?.getListing(booking.listingId);
+        const relation = booking.guestId.toLowerCase() === email ? 'HUESPED' : listing?.hostId === user.userId ? 'ANFITRION' : undefined;
+        if (!relation) {
+          return [];
+        }
+        return [
+          {
+            id: booking.id,
+            code: booking.code,
+            listingId: booking.listingId,
+            listingTitle: listing?.title ?? 'Alojamiento',
+            checkIn: booking.checkIn,
+            checkOut: booking.checkOut,
+            guests: booking.guests,
+            relation,
+          },
+        ];
+      })
+      .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
   }
 }

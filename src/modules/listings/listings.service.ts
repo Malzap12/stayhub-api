@@ -648,8 +648,11 @@ export class ListingsService implements OnModuleInit {
     return { listingId: listing.id, status: listing.status, previousStatus, blockReason: reason, bookingsUnderReview, notification };
   }
 
-  /** HU-053 CA2: al restringir a un anfitrión, sus publicaciones ACTIVAS pasan a PAUSADA. */
-  pauseHostActiveListings(hostIdOrEmail: string, actor?: string): ListingResponseDto[] {
+  /**
+   * HU-053 CA2: al restringir a un anfitrión, sus publicaciones ACTIVAS pasan a PAUSADA.
+   * HU-008 CA3: también al desactivar su cuenta (con otro motivo en la auditoría).
+   */
+  pauseHostActiveListings(hostIdOrEmail: string, actor?: string, reason = 'anfitrión restringido'): ListingResponseDto[] {
     const active = this.listingsStore.filter(
       (item) => (item.hostId === hostIdOrEmail || item.hostName === hostIdOrEmail) && item.status === ListingStatus.ACTIVA,
     );
@@ -659,7 +662,7 @@ export class ListingsService implements OnModuleInit {
         actor,
         listing.id,
         AuditResult.EXITOSO,
-        `${ListingStatus.ACTIVA} -> ${ListingStatus.PAUSADA} (anfitrión restringido)`,
+        `${ListingStatus.ACTIVA} -> ${ListingStatus.PAUSADA} (${reason})`,
       );
     }
     return active;
@@ -1872,5 +1875,10 @@ export class ListingsService implements OnModuleInit {
         },
       ],
     };
+  }
+
+  /** HU-008 CA3: publicaciones ACTIVAS del anfitrión, que pasarían a PAUSADA si desactiva su cuenta. */
+  findHostActiveListings(hostId: string): ListingResponseDto[] {
+    return this.listingsStore.filter((item) => item.hostId === hostId && item.status === ListingStatus.ACTIVA);
   }
 }
