@@ -151,7 +151,50 @@
             "description": "Correo electrónico o contraseña incorrectos (CA2)"
           },
           "403": {
-            "description": "Cuenta restringida por un administrador (CA3)"
+            "description": "Cuenta restringida por un administrador (CA3), o cuenta DESACTIVADA: se ofrece reactivarla (HU-009 CA1)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeactivatedLoginDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Autenticación (Auth)"
+        ]
+      }
+    },
+    "/api/auth/reactivate": {
+      "post": {
+        "operationId": "AuthController_reactivate",
+        "summary": "Reactivar mi cuenta · HU-009 (CA1, CA2)",
+        "description": "Al iniciar sesión con una cuenta DESACTIVADA y credenciales correctas, el login responde 403 CUENTA_DESACTIVADA con un token de reactivación de un solo uso (CA1). Al confirmar con ese token la cuenta vuelve a ACTIVA, se registra el evento (RN-021) y se abre la sesión. Las publicaciones siguen PAUSADAS hasta que el anfitrión las reactive (CA2).",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReactivateAccountDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cuenta reactivada y sesión abierta (CA2)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Token vencido, inválido o ya usado, o la cuenta no está desactivada"
           }
         },
         "tags": [
@@ -3325,6 +3368,7 @@
                 "PROFILE_UPDATE",
                 "PASSWORD_CHANGE",
                 "ACCOUNT_DEACTIVATION",
+                "ACCOUNT_REACTIVATION",
                 "LISTING_STATUS_CHANGE",
                 "LISTING_UPDATE",
                 "LISTING_PRICING_UPDATE",
@@ -4167,6 +4211,52 @@
           "token",
           "expiresInMinutes",
           "user"
+        ]
+      },
+      "DeactivatedLoginDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 403
+          },
+          "reason": {
+            "type": "string",
+            "example": "CUENTA_DESACTIVADA"
+          },
+          "message": {
+            "type": "string",
+            "example": "Tu cuenta está desactivada. ¿Quieres reactivarla? Tu historial se conserva."
+          },
+          "reactivationToken": {
+            "type": "string",
+            "example": "3f9c2a7d1e5b4c8a9f0e1d2c3b4a5968",
+            "description": "Token para confirmar la reactivación (un solo uso)"
+          },
+          "reactivationExpiresInMinutes": {
+            "type": "number",
+            "example": 10
+          }
+        },
+        "required": [
+          "statusCode",
+          "reason",
+          "message",
+          "reactivationToken",
+          "reactivationExpiresInMinutes"
+        ]
+      },
+      "ReactivateAccountDto": {
+        "type": "object",
+        "properties": {
+          "reactivationToken": {
+            "type": "string",
+            "example": "3f9c2a7d1e5b4c8a9f0e1d2c3b4a5968",
+            "description": "Token de un solo uso que devuelve el inicio de sesión de una cuenta DESACTIVADA (vence en 10 minutos)"
+          }
+        },
+        "required": [
+          "reactivationToken"
         ]
       },
       "LogoutDto": {
@@ -7420,6 +7510,7 @@
               "PROFILE_UPDATE",
               "PASSWORD_CHANGE",
               "ACCOUNT_DEACTIVATION",
+              "ACCOUNT_REACTIVATION",
               "LISTING_STATUS_CHANGE",
               "LISTING_UPDATE",
               "LISTING_PRICING_UPDATE",
