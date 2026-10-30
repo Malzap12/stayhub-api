@@ -5,6 +5,8 @@ import {
   LoginDto,
   RegisterDto,
   LoginResponseDto,
+  ReactivateAccountDto,
+  DeactivatedLoginDto,
   RegisterResponseDto,
   LogoutDto,
   LogoutResponseDto,
@@ -26,9 +28,23 @@ export class AuthController {
   })
   @ApiResponse({ status: 200, description: 'Inicio de sesión exitoso (CA1)', type: LoginResponseDto })
   @ApiResponse({ status: 401, description: 'Correo electrónico o contraseña incorrectos (CA2)' })
-  @ApiResponse({ status: 403, description: 'Cuenta restringida por un administrador (CA3)' })
+  @ApiResponse({ status: 403, description: 'Cuenta restringida por un administrador (CA3), o cuenta DESACTIVADA: se ofrece reactivarla (HU-009 CA1)', type: DeactivatedLoginDto })
   login(@Body() credentials: LoginDto): Promise<LoginResponseDto> {
     return this.authService.login(credentials);
+  }
+
+  @Post('reactivate')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reactivar mi cuenta · HU-009 (CA1, CA2)',
+    description:
+      'Al iniciar sesión con una cuenta DESACTIVADA y credenciales correctas, el login responde 403 CUENTA_DESACTIVADA con un token de reactivación de un solo uso (CA1). Al confirmar con ese token la cuenta vuelve a ACTIVA, se registra el evento (RN-021) y se abre la sesión. Las publicaciones siguen PAUSADAS hasta que el anfitrión las reactive (CA2).',
+  })
+  @ApiResponse({ status: 200, description: 'Cuenta reactivada y sesión abierta (CA2)', type: LoginResponseDto })
+  @ApiResponse({ status: 400, description: 'Token vencido, inválido o ya usado, o la cuenta no está desactivada' })
+  reactivate(@Body() dto: ReactivateAccountDto): LoginResponseDto {
+    return this.authService.reactivate(dto);
   }
 
   @Post('logout')
