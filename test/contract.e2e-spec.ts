@@ -2980,4 +2980,172 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
     });
   });
 
+  describe('HU-008 · Desactivar mi cuenta (CA1, CA2, CA3, RF-011, RN-021)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const call = async (method: string, path: string, token: string | null, body?: unknown) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const signUp = async (prefix: string, role: 'HUESPED' | 'ANFITRION') => {
+      const email = `${prefix}.hu008.${randomUUID()}@prueba.com`;
+      await call('POST', '/auth/register', null, { name: 'Usuario Desactivación', email, password: 'Password123', role });
+      const token = (await call('POST', '/auth/login', null, { email, password: 'Password123' })).body.token as string;
+      return { email, token };
+    };
+    const card = { cardNumber: '4242424242424242', cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' };
+    const publish = async (hostToken: string, title: string) => {
+      const id = (
+        await call('POST', '/listings', hostToken, {
+          title,
+          description: 'Casa de prueba para desactivar la cuenta',
+          city: 'Villa de Leyva',
+          department: 'Boyacá',
+          address: 'Calle 1',
+          propertyType: 'CASA',
+          maxGuests: 4,
+          pricePerNight: 160000,
+          amenities: ['WIFI'],
+          rules: ['No fumar'],
+          images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+        })
+      ).body.id as string;
+      await call('POST', `/listings/${id}/availability-periods`, hostToken, { startDate: '2027-03-01', endDate: '2027-04-30' });
+      await call('PATCH', `/listings/${id}/request-activation`, hostToken);
+      const admin = (
+        await call('POST', '/auth/login', null, {
+          email: process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com',
+          password: process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!',
+        })
+      ).body.token as string;
+      expect((await call('PATCH', `/listings/${id}/approve`, admin)).status).toBe(200);
+      return id;
+    };
+
+    it('40.1 solo huéspedes y anfitriones con sesión desactivan su cuenta', async () => {
+      expect((await call('POST', '/users/me/deactivate', null)).status).toBe(401);
+      expect((await call('GET', '/users/me/deactivation', null)).status).toBe(401);
+    });
+
+    it('40.2 (CA1) sin reservas futuras la cuenta queda DESACTIVADA, la sesión se cierra y se registra el evento', async () => {
+      const guest = await signUp('huesped', 'HUESPED');
+      expect((await call('GET', '/users/me/deactivation', guest.token)).body).toEqual({ canDeactivate: true, upcomingBookings: [], listingsToPause: [] });
+
+      const res = await call('POST', '/users/me/deactivate', guest.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ status: 'DESACTIVADA', pausedListings: [] });
+      expect((await call('GET', '/users/me', guest.token)).status).toBe(401);
+      const login = await call('POST', '/auth/login', null, { email: guest.email, password: 'Password123' });
+      expect(login.status).toBe(403);
+      expect(login.body.reason).toBe('CUENTA_DESACTIVADA');
+    });
+
+    it('40.3 (CA2, CA3) con una reserva futura confirmada lo impide; sin ella pausa las publicaciones activas', async () => {
+      const host = await signUp('anfitrion', 'ANFITRION');
+      const guest = await signUp('huesped', 'HUESPED');
+      const listing = await publish(host.token, `Casa para desactivar ${randomUUID().slice(0, 8)}`);
+      const booked = await call('POST', '/bookings/instant', guest.token, {
+        listingId: listing,
+        checkIn: '2027-03-10',
+        checkOut: '2027-03-12',
+        guests: 2,
+        idempotencyKey: randomUUID(),
+      });
+      expect((await call('POST', `/bookings/${booked.body.id}/pay`, guest.token, card)).status).toBe(200);
+
+      for (const user of [guest, host]) {
+        const blocked = await call('POST', '/users/me/deactivate', user.token);
+        expect(blocked.status).toBe(409);
+        expect(blocked.body).toMatchObject({ code: 'RESERVAS_FUTURAS_CONFIRMADAS', upcomingBookings: [{ id: booked.body.id, checkIn: '2027-03-10' }] });
+        expect((await call('GET', '/users/me', user.token)).body.status).toBe('ACTIVA');
+      }
+      expect((await call('GET', `/listings/${listing}`, null)).status).toBe(200);
+
+      expect((await call('PATCH', `/bookings/${booked.body.id}/cancel`, guest.token, { reason: 'Cambio de planes' })).status).toBe(200);
+      expect((await call('GET', '/users/me/deactivation', host.token)).body).toMatchObject({ canDeactivate: true, listingsToPause: [{ id: listing }] });
+
+      const res = await call('POST', '/users/me/deactivate', host.token);
+
+      expect(res.status).toBe(200);
+      expect(res.body.pausedListings).toEqual([expect.objectContaining({ id: listing })]);
+      expect((await call('GET', `/listings/${listing}`, null)).status).toBe(404);
+    });
+  });
+
+  describe('HU-009 · Reactivar mi cuenta (CA1, CA2, RF-012, RN-021)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const call = async (method: string, path: string, token: string | null, body?: unknown) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const email = `anfitrion.hu009.${randomUUID()}@prueba.com`;
+    let listing: string;
+
+    beforeAll(async () => {
+      await call('POST', '/auth/register', null, { name: 'Anfitrión Reactiva', email, password: 'Password123', role: 'ANFITRION' });
+      const host = (await call('POST', '/auth/login', null, { email, password: 'Password123' })).body.token as string;
+      listing = (
+        await call('POST', '/listings', host, {
+          title: `Casa para reactivar ${randomUUID().slice(0, 8)}`,
+          description: 'Casa de prueba para reactivar la cuenta',
+          city: 'Mompox',
+          department: 'Bolívar',
+          address: 'Albarrada',
+          propertyType: 'CASA',
+          maxGuests: 4,
+          pricePerNight: 150000,
+          amenities: ['WIFI'],
+          rules: ['No fumar'],
+          images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+        })
+      ).body.id;
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2027-05-01', endDate: '2027-06-30' });
+      await call('PATCH', `/listings/${listing}/request-activation`, host);
+      const admin = (
+        await call('POST', '/auth/login', null, {
+          email: process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com',
+          password: process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!',
+        })
+      ).body.token as string;
+      expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
+      expect((await call('POST', '/users/me/deactivate', host)).status).toBe(200);
+    });
+
+    it('41.1 (CA1) con credenciales correctas el inicio de sesión ofrece reactivar; con la clave errada no lo revela', async () => {
+      const wrong = await call('POST', '/auth/login', null, { email, password: 'OtraClave123' });
+      expect(wrong.status).toBe(401);
+      expect(wrong.body.reactivationToken).toBeUndefined();
+
+      const res = await call('POST', '/auth/login', null, { email, password: 'Password123' });
+
+      expect(res.status).toBe(403);
+      expect(res.body).toMatchObject({ reason: 'CUENTA_DESACTIVADA', reactivationExpiresInMinutes: 10 });
+      expect(res.body.token).toBeUndefined();
+      expect(typeof res.body.reactivationToken).toBe('string');
+    });
+
+    it('41.2 rechaza un token inválido o ausente', async () => {
+      expect((await call('POST', '/auth/reactivate', null, { reactivationToken: 'inventado' })).status).toBe(400);
+      expect((await call('POST', '/auth/reactivate', null, {})).status).toBe(400);
+    });
+
+    it('41.3 (CA2) al confirmar la cuenta vuelve a ACTIVA con sesión y la publicación sigue PAUSADA hasta reactivarla', async () => {
+      const offer = await call('POST', '/auth/login', null, { email, password: 'Password123' });
+
+      const res = await call('POST', '/auth/reactivate', null, { reactivationToken: offer.body.reactivationToken });
+
+      expect(res.status).toBe(200);
+      expect(res.body.user).toMatchObject({ email: email.toLowerCase(), status: 'ACTIVA' });
+      expect((await call('GET', '/users/me', res.body.token)).body.status).toBe('ACTIVA');
+      const mine = (await call('GET', '/listings/mine', res.body.token)).body as Array<{ id: string; status: string }>;
+      expect(mine.find((item) => item.id === listing)?.status).toBe('PAUSADA');
+      expect((await call('GET', `/listings/${listing}`, null)).status).toBe(404);
+      expect((await call('POST', '/auth/reactivate', null, { reactivationToken: offer.body.reactivationToken })).status).toBe(400);
+
+      expect((await call('PATCH', `/listings/${listing}/reactivate`, res.body.token)).status).toBe(200);
+      expect((await call('GET', `/listings/${listing}`, null)).status).toBe(200);
+    });
+  });
 });
