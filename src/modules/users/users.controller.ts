@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -8,6 +8,7 @@ import { UsersService } from './users.service';
 import { UserProfileDto } from './dto/user-profile.dto';
 import { ChangePasswordDto, ChangePasswordResponseDto, UpdateProfileDto } from './dto/update-profile.dto';
 import { RestrictUserDto, RestrictUserResponseDto, UnrestrictUserResponseDto } from './dto/restrict-user.dto';
+import { DeactivateAccountResponseDto, DeactivationBlockedDto, DeactivationCheckDto } from './dto/deactivate-account.dto';
 
 @ApiTags('Usuarios (Users)')
 @Controller('users')
@@ -69,6 +70,38 @@ export class UsersController {
   @ApiResponse({ status: 401, description: 'No autenticado' })
   changeMyPassword(@Body() dto: ChangePasswordDto, @CurrentUser() user: ActiveSession): ChangePasswordResponseDto {
     return this.usersService.changeMyPassword(dto, user);
+  }
+
+  @Get('me/deactivation')
+  @Roles(Role.HUESPED, Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Revisar si puedo desactivar mi cuenta · HU-008 (CA2, CA3)',
+    description:
+      'Indica si la cuenta se puede desactivar, las reservas futuras confirmadas que lo impiden (como huésped o en tus alojamientos) y las publicaciones activas que pasarían a PAUSADA.',
+  })
+  @ApiResponse({ status: 200, description: 'Revisión previa', type: DeactivationCheckDto })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'El administrador no desactiva su cuenta desde aquí' })
+  getDeactivationCheck(@CurrentUser() user: ActiveSession): DeactivationCheckDto {
+    return this.usersService.getDeactivationCheck(user);
+  }
+
+  @Post('me/deactivate')
+  @HttpCode(HttpStatus.OK)
+  @Roles(Role.HUESPED, Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Desactivar mi cuenta · HU-008 (CA1, CA2, CA3)',
+    description:
+      'Sin reservas futuras confirmadas, la cuenta pasa a DESACTIVADA, se cierran sus sesiones y se registra el evento (RF-011, RN-021); las publicaciones ACTIVAS del anfitrión pasan a PAUSADA. El historial se conserva y la cuenta ya no puede iniciar sesión.',
+  })
+  @ApiResponse({ status: 200, description: 'Cuenta desactivada (CA1, CA3)', type: DeactivateAccountResponseDto })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'El administrador no desactiva su cuenta desde aquí' })
+  @ApiResponse({ status: 409, description: 'Hay reservas futuras confirmadas (CA2)', type: DeactivationBlockedDto })
+  deactivateMyAccount(@CurrentUser() user: ActiveSession): DeactivateAccountResponseDto {
+    return this.usersService.deactivateMyAccount(user);
   }
 
   @Patch(':id/restrict')

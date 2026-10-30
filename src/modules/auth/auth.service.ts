@@ -34,6 +34,8 @@ export interface UserAccount {
   role: Role;
   status: AccountStatus;
   restrictionReason?: string;
+  /** HU-008: fecha en que el propio usuario desactivó su cuenta. */
+  deactivatedAt?: Date;
   createdAt: Date;
 }
 
@@ -198,11 +200,7 @@ export class AuthService implements OnModuleInit {
       account.restrictionReason = reason;
 
       // HU-053 CA1: la sesión vigente se invalida inmediatamente
-      for (const [token, session] of this.activeSessions.entries()) {
-        if (session.userId === account.id || session.email.toLowerCase() === account.email.toLowerCase()) {
-          this.activeSessions.delete(token);
-        }
-      }
+      this.closeSessionsOf(account);
       this.auditService.record({
         actor,
         action: AuditAction.ADMIN_ACTION,
@@ -212,6 +210,21 @@ export class AuthService implements OnModuleInit {
         detail: `Cuenta restringida: ${reason}`,
       });
       this.notificationsService?.accountRestricted(account, reason);
+    }
+  }
+
+  /** HU-008 CA1: la cuenta pasa a DESACTIVADA y se cierran todas sus sesiones; sus datos e historial se conservan. */
+  deactivateAccount(account: UserAccount, now = new Date()): void {
+    account.status = 'DESACTIVADA';
+    account.deactivatedAt = now;
+    this.closeSessionsOf(account);
+  }
+
+  private closeSessionsOf(account: UserAccount): void {
+    for (const [token, session] of this.activeSessions.entries()) {
+      if (session.userId === account.id || session.email.toLowerCase() === account.email.toLowerCase()) {
+        this.activeSessions.delete(token);
+      }
     }
   }
 
@@ -280,6 +293,17 @@ export class AuthService implements OnModuleInit {
       throw new ForbiddenException(
         `Acceso denegado: tu cuenta se encuentra restringida${reasonSuffix}`,
       );
+    }
+
+    // HU-008: una cuenta desactivada no inicia sesión; su historial se conserva.
+    if (existing.status === 'DESACTIVADA') {
+      this.recordAudit(existing.email, AuditAction.LOGIN, AuditResult.FALLIDO, 'Cuenta desactivada por el usuario');
+      throw new ForbiddenException({
+        statusCode: 403,
+        error: 'Forbidden',
+        reason: 'CUENTA_DESACTIVADA',
+        message: 'Tu cuenta está desactivada. Tu historial se conserva.',
+      });
     }
 
     const timeoutMinutes = Number(
