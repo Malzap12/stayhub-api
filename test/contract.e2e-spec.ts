@@ -2449,7 +2449,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
       return { status: res.status, body: await res.json().catch(() => ({})) };
     };
-    const stay = { checkIn: '2026-12-05', checkOut: '2026-12-08', guests: 2 };
+    const stay = { checkIn: '2027-12-05', checkOut: '2027-12-08', guests: 2 };
     let host: string;
     let listing: string;
     let serviceId: string;
@@ -2473,7 +2473,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
         images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
       });
       listing = created.body.id;
-      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2026-11-01', endDate: '2026-12-31' });
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2027-11-01', endDate: '2027-12-31' });
       await call('PATCH', `/listings/${listing}/request-activation`, host);
       const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
       expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
@@ -2573,14 +2573,14 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
           images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
         })
       ).body.id;
-      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2026-11-01', endDate: '2026-12-31' });
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2027-11-01', endDate: '2027-12-31' });
       await call('PATCH', `/listings/${listing}/request-activation`, host);
       const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
       expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
       const booked = await call('POST', '/bookings/instant', guestBookingToken, {
         listingId: listing,
-        checkIn: '2026-12-10',
-        checkOut: '2026-12-12',
+        checkIn: '2027-12-10',
+        checkOut: '2027-12-12',
         guests: 2,
         idempotencyKey: randomUUID(),
       });
@@ -2606,8 +2606,8 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await call('GET', `/listings/${listing}`, null)).status).toBe(404);
       const newBooking = await call('POST', '/bookings/instant', guestBookingToken, {
         listingId: listing,
-        checkIn: '2026-12-20',
-        checkOut: '2026-12-22',
+        checkIn: '2027-12-20',
+        checkOut: '2027-12-22',
         guests: 2,
         idempotencyKey: randomUUID(),
       });
