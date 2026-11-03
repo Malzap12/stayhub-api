@@ -3,6 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 /** HU-043 · Eventos que generan una notificación dentro de la plataforma (RF-059, AMB-32). */
 export type NotificationType =
   | 'RESERVA_CONFIRMADA'
+  | 'SOLICITUD_RESERVA'
   | 'RESERVA_CANCELADA'
   | 'RESERVA_EN_REVISION'
   | 'RESERVA_MANTENIDA'
@@ -15,6 +16,7 @@ export type NotificationType =
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
   'RESERVA_CONFIRMADA',
+  'SOLICITUD_RESERVA',
   'RESERVA_CANCELADA',
   'RESERVA_EN_REVISION',
   'RESERVA_MANTENIDA',

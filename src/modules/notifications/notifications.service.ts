@@ -96,6 +96,28 @@ export class NotificationsService implements OnModuleInit {
     });
   }
 
+  /** HU-018 CA2: solicitud en una publicación con aprobación; el anfitrión debe decidir y el huésped espera. */
+  bookingRequested(booking: BookingNotice): void {
+    const title = booking.listingTitle ? ` en "${booking.listingTitle}"` : '';
+    const stay = `del ${booking.checkIn.slice(0, 10)} al ${booking.checkOut.slice(0, 10)}`;
+    this.notify({
+      recipient: { email: booking.guestEmail },
+      type: 'SOLICITUD_RESERVA',
+      message: `Enviaste la solicitud ${booking.code}${title} ${stay}. El anfitrión debe aprobarla; no se te cobra hasta entonces.`,
+      entity: 'Booking',
+      entityId: booking.id,
+      bookingCode: booking.code,
+    });
+    this.notify({
+      recipient: { userId: booking.hostId },
+      type: 'SOLICITUD_RESERVA',
+      message: `Tienes una nueva solicitud de reserva ${booking.code}${title} ${stay} que espera tu aprobación.`,
+      entity: 'Booking',
+      entityId: booking.id,
+      bookingCode: booking.code,
+    });
+  }
+
   /** CA2: al cancelarse una reserva se notifica al huésped y al anfitrión. */
   bookingCancelled(booking: BookingNotice, refund: { amount: number; percentage: number; currency: string }): void {
     const title = booking.listingTitle ? ` en "${booking.listingTitle}"` : '';
