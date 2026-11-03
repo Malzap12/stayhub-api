@@ -52,6 +52,7 @@ describe('HU-012 · Consultar mis publicaciones (CA1, CA2, RF-016, RN-005)', () 
         pricePerNight: 320000,
         status: ListingStatus.BORRADOR,
         statusLabel: 'Borrador',
+        bookingMode: 'INMEDIATA',
         isComplete: false,
         missingFields: expect.any(Array),
         createdAt: first.createdAt,
