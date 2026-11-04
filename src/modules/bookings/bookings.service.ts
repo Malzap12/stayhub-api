@@ -1157,15 +1157,129 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
    * en otro estado se omite para proteger sus datos. Una reserva de otro anfitrión responde 404.
    */
   findHostBooking(id: string, host: ActiveSession): HostBookingDetailDto {
-    const booking = this.findHostBookingOrFail(id, host, 'Consulta');
-    const listing = this.listingsService!.getListing(booking.listingId)!;
+    const booking = this.bookingsStore.find((item) => item.id === id);
+    const listing = booking ? this.listingsService?.getListing(booking.listingId) : undefined;
+    if (!booking || listing?.hostId !== host.userId) {
+      this.auditService.record({
+        actor: host.email,
+        action: AuditAction.BOOKING_STATUS_CHANGE,
+        entity: 'Booking',
+        entityId: id,
+        result: AuditResult.FALLIDO,
+        detail: 'Consulta rechazada: la reserva no es de un alojamiento del anfitrión',
+      });
+      throw new NotFoundException(`Reserva con id ${id} no encontrada`);
+    }
+    return this.toHostDetail(booking, listing);
+  }
+
+  /**
+   * HU-042 · Cancelar una reserva como anfitrión (CA1, CA2 · RF-057, RN-017, RN-029, AMB-10).
+   * Solo el anfitrión dueño del alojamiento cancela una reserva CONFIRMADA antes de la llegada indicando un motivo.
+   * Pasa a CANCELADA con devolución simulada del 100 % del total (incluida la tarifa de servicio), libera las noches,
+   * notifica al huésped y registra el evento en la auditoría.
+   */
+  async cancelHostBooking(id: string, dto: CancelBookingDto, host: ActiveSession): Promise<HostBookingDetailDto> {
+    const booking = this.bookingsStore.find((item) => item.id === id);
+    const listing = booking ? this.listingsService?.getListing(booking.listingId) : undefined;
+    if (!booking || listing?.hostId !== host.userId) {
+      this.auditService.record({
+        actor: host.email,
+        action: AuditAction.BOOKING_CANCELLATION,
+        entity: 'Booking',
+        entityId: id,
+        result: AuditResult.FALLIDO,
+        detail: 'Cancelación rechazada: la reserva no pertenece a un alojamiento del anfitrión',
+      });
+      throw new NotFoundException(`Reserva con id ${id} no encontrada`);
+    }
+
+    return this.withListingLock(booking.listingId, async () => {
+      const reason = String(dto?.reason ?? '').trim();
+      if (booking.status !== BookingStatus.CONFIRMADA) {
+        this.recordCancellationFailure(booking, host.email, `la reserva está ${booking.status}`);
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          reason: 'ESTADO_NO_CANCELABLE',
+          message: `Solo se pueden cancelar reservas confirmadas (estado actual: ${booking.status})`,
+        });
+      }
+
+      const now = Date.now();
+      const arrival = arrivalInstant(booking.checkIn);
+      if (now >= arrival) {
+        this.recordCancellationFailure(booking, host.email, `la llegada (${booking.checkIn}) ya pasó`);
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          reason: 'LLEGADA_PASADA',
+          message: `La fecha de llegada (${booking.checkIn}) ya pasó; la reserva no se puede cancelar`,
+        });
+      }
+
+      if (reason.length < 3) {
+        this.recordCancellationFailure(booking, host.email, 'falta el motivo de la cancelación');
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          reason: 'MOTIVO_REQUERIDO',
+          message: 'Indica un motivo de al menos 3 caracteres para cancelar la reserva',
+        });
+      }
+
+      const totalRefund = Math.round(booking.totalAmount * 100) / 100;
+      const releasedNights = this.listingsService?.releaseReservedPeriod(booking.listingId, booking.id, host.email) ?? [];
+      booking.status = BookingStatus.CANCELADA;
+      booking.cancellation = {
+        cancelledBy: host.email,
+        cancelledAt: new Date(now).toISOString(),
+        reason,
+        policy: 'CANCELACION_ANFITRION',
+        refundPercentage: 100,
+        refundableAmount: totalRefund,
+        refundAmount: totalRefund,
+        appliedRule: 'Cancelación por el anfitrión: devolución del 100 % del total pagado, incluida la tarifa de servicio',
+        currency: booking.currency,
+        finalStatus: BookingStatus.CANCELADA,
+        releasedNights,
+      };
+
+      const code = booking.code ?? booking.id;
+      this.auditService.record({
+        actor: host.email,
+        action: AuditAction.BOOKING_CANCELLATION,
+        entity: 'Booking',
+        entityId: booking.id,
+        result: AuditResult.EXITOSO,
+        detail:
+          `Reserva ${code} cancelada por el anfitrión (${host.email}). Motivo: ${reason}. ` +
+          `Devolución simulada ${totalRefund} ${booking.currency} (100 % del total). Estado final: CANCELADA. ` +
+          `Noches liberadas: ${releasedNights.join(', ') || 'ninguna'}`,
+      });
+      this.notificationsService?.bookingCancelledByHost(this.noticeOf(booking), reason, {
+        amount: totalRefund,
+        percentage: 100,
+        currency: booking.currency,
+      });
+
+      return this.toHostDetail(booking, listing);
+    });
+  }
+
+  private toHostDetail(
+    booking: BookingResponseDto,
+    listing: { id: string; title: string; city?: string },
+  ): HostBookingDetailDto {
     const method = booking.savedPaymentMethod;
     const guest = this.authService?.findByEmail(booking.guestId);
+    const { cancelledBy: _cancelledBy, ...hostCancellation } =
+      booking.cancellation ?? ({} as NonNullable<BookingResponseDto['cancellation']>);
     return {
       ...this.toHostSummary(booking),
       listingId: listing.id,
       listingTitle: listing.title,
-      listingCity: listing.city,
+      listingCity: listing.city ?? '',
       specialRequests: booking.specialRequests,
       additionalServices: booking.additionalServices,
       guestContact:
@@ -1174,6 +1288,7 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
           : undefined,
       ...(method ? { paymentCard: `${method.cardBrand} ···· ${method.cardLast4}` } : {}),
       ...(booking.hostDecision?.reason ? { rejectionReason: booking.hostDecision.reason } : {}),
+      ...(booking.cancellation ? { cancellation: hostCancellation } : {}),
     };
   }
 
