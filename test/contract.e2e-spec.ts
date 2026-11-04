@@ -3242,4 +3242,115 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await call('GET', `/listings/${listing}`, null)).status).toBe(200);
     });
   });
+
+  describe('HU-042 · Cancelar una reserva como anfitrión (CA1, CA2, RF-057, RN-017, RN-029)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const call = async (method: string, path: string, token: string | null, body?: unknown) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const card = { cardNumber: '4242424242424242', cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' };
+    const suffix = randomUUID().slice(0, 8);
+    let hostToken: string;
+    let otherHostToken: string;
+    let guestToken: string;
+    let adminToken: string;
+    let listingId42: string;
+
+    beforeAll(async () => {
+      const signUp = async (prefix: string, role: 'HUESPED' | 'ANFITRION') => {
+        const email = `${prefix}.hu042.${suffix}@prueba.com`;
+        await call('POST', '/auth/register', null, { name: `Usuario ${prefix}`, email, password: 'Password123', role });
+        return (await call('POST', '/auth/login', null, { email, password: 'Password123' })).body.token as string;
+      };
+      hostToken = await signUp('anfitrion', 'ANFITRION');
+      otherHostToken = await signUp('otro', 'ANFITRION');
+      guestToken = await signUp('huesped', 'HUESPED');
+      adminToken = (
+        await call('POST', '/auth/login', null, {
+          email: process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com',
+          password: process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!',
+        })
+      ).body.token as string;
+
+      listingId42 = (
+        await call('POST', '/listings', hostToken, {
+          title: `Cabaña anfitrión cancela ${suffix}`,
+          description: 'Cabaña para pruebas de cancelación por anfitrión',
+          city: 'Jardín',
+          department: 'Antioquia',
+          address: 'Vereda Macanas',
+          propertyType: 'CABANA',
+          maxGuests: 4,
+          pricePerNight: 220000,
+          amenities: ['WIFI'],
+          rules: ['No fumar'],
+          images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+        })
+      ).body.id as string;
+      await call('POST', `/listings/${listingId42}/availability-periods`, hostToken, { startDate: '2027-04-01', endDate: '2027-04-30' });
+      await call('PATCH', `/listings/${listingId42}/request-activation`, hostToken);
+      expect((await call('PATCH', `/listings/${listingId42}/approve`, adminToken)).status).toBe(200);
+    });
+
+    it('43.1 exige sesión de anfitrión, motivo válido y que la reserva pertenezca a su alojamiento', async () => {
+      const booked = await call('POST', '/bookings/instant', guestToken, {
+        listingId: listingId42,
+        checkIn: '2027-04-10',
+        checkOut: '2027-04-13',
+        guests: 2,
+        idempotencyKey: randomUUID(),
+        card,
+      });
+      expect(booked.status).toBe(201);
+      const id = booked.body.id as string;
+
+      expect((await call('PATCH', `/bookings/host/${id}/cancel`, null, { reason: 'Daño eléctrico' })).status).toBe(401);
+      expect((await call('PATCH', `/bookings/host/${id}/cancel`, guestToken, { reason: 'Daño eléctrico' })).status).toBe(403);
+      expect((await call('PATCH', `/bookings/host/${id}/cancel`, otherHostToken, { reason: 'Daño eléctrico' })).status).toBe(404);
+      expect((await call('PATCH', `/bookings/host/${id}/cancel`, hostToken, { reason: 'no' })).status).toBe(400);
+
+      // CA1 y CA2: cancelación exitosa devuelve 100 % del total, libera periodo, notifica al huésped y audita.
+      const cancelled = await call('PATCH', `/bookings/host/${id}/cancel`, hostToken, {
+        reason: 'Falla imprevista en suministro de agua',
+      });
+      expect(cancelled.status).toBe(200);
+      expect(cancelled.body).toMatchObject({
+        id,
+        status: 'CANCELADA',
+        cancellation: {
+          reason: 'Falla imprevista en suministro de agua',
+          policy: 'CANCELACION_ANFITRION',
+          refundPercentage: 100,
+          refundAmount: booked.body.totalAmount,
+          releasedNights: ['2027-04-10', '2027-04-11', '2027-04-12'],
+        },
+      });
+
+      // El periodo quedó liberado y se puede cotizar de nuevo.
+      const requote = await call('POST', '/bookings/quote', null, {
+        listingId: listingId42,
+        checkIn: '2027-04-10',
+        checkOut: '2027-04-13',
+        guests: 2,
+      });
+      expect(requote.status).toBe(200);
+
+      // Notificación recibida por el huésped.
+      const guestNotifs = await call('GET', '/notifications', guestToken);
+      expect(guestNotifs.status).toBe(200);
+      expect(
+        guestNotifs.body.data.some(
+          (item: { entityId: string; type: string; message: string }) =>
+            item.entityId === id && item.type === 'RESERVA_CANCELADA' && item.message.includes('Falla imprevista en suministro de agua'),
+        ),
+      ).toBe(true);
+
+      // Evento registrado en auditoría.
+      const auditRes = await call('GET', '/audit/events?action=BOOKING_CANCELLATION&result=EXITOSO', adminToken);
+      expect(auditRes.status).toBe(200);
+      expect(auditRes.body.data.some((item: { entityId: string }) => item.entityId === id)).toBe(true);
+    });
+  });
 });
