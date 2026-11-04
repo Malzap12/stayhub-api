@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { Role } from '../../common/enums/role.enum';
 import { AuditService } from '../audit/audit.service';
@@ -8,6 +8,7 @@ import { BookingsService } from '../bookings/bookings.service';
 import { UserProfileDto } from './dto/user-profile.dto';
 import { ChangePasswordDto, ChangePasswordResponseDto, UpdateProfileDto } from './dto/update-profile.dto';
 import { RestrictUserDto, RestrictUserResponseDto, UnrestrictUserResponseDto } from './dto/restrict-user.dto';
+import { DeactivateAccountResponseDto, DeactivationCheckDto } from './dto/deactivate-account.dto';
 
 export function toUserProfile(account: UserAccount): UserProfileDto {
   return {
@@ -207,6 +208,69 @@ export class UsersService {
     this.authService.updatePassword(account.email, dto.newPassword, session.token);
     this.recordPasswordChange(session, account.id, AuditResult.EXITOSO);
     return { message: 'Contraseña actualizada correctamente' };
+  }
+
+  /**
+   * HU-008 · Revisión previa a la desactivación (CA2, CA3): reservas futuras confirmadas que la impiden y
+   * publicaciones activas que pasarían a PAUSADA.
+   */
+  getDeactivationCheck(session: ActiveSession, now = new Date()): DeactivationCheckDto {
+    const account = this.findAccount(session);
+    const upcomingBookings = this.bookingsService?.findUpcomingConfirmed({ email: account.email, userId: account.id }, now) ?? [];
+    const listingsToPause =
+      account.role === Role.ANFITRION
+        ? (this.listingsService?.findHostActiveListings(account.id) ?? []).map((listing) => ({ id: listing.id, title: listing.title }))
+        : [];
+    return { canDeactivate: upcomingBookings.length === 0, upcomingBookings, listingsToPause };
+  }
+
+  /**
+   * HU-008 · Desactivar mi cuenta (CA1, CA2, CA3 · RF-011, RN-021).
+   * CA2: con reservas futuras confirmadas (como huésped o en sus alojamientos) se rechaza con 409 y la lista.
+   * CA3: las publicaciones ACTIVAS del anfitrión pasan a PAUSADA.
+   * CA1: la cuenta pasa a DESACTIVADA, se cierran sus sesiones y se registra el evento. El historial se conserva.
+   */
+  deactivateMyAccount(session: ActiveSession, now = new Date()): DeactivateAccountResponseDto {
+    const account = this.findAccount(session);
+    const check = this.getDeactivationCheck(session, now);
+    if (!check.canDeactivate) {
+      const count = check.upcomingBookings.length;
+      this.recordDeactivation(session, account.id, AuditResult.FALLIDO, `Desactivación rechazada: ${count} reserva(s) futura(s) confirmada(s)`);
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'RESERVAS_FUTURAS_CONFIRMADAS',
+        message: `No puedes desactivar tu cuenta: tienes ${count} ${count === 1 ? 'reserva futura confirmada' : 'reservas futuras confirmadas'}.`,
+        upcomingBookings: check.upcomingBookings,
+      });
+    }
+
+    const paused =
+      account.role === Role.ANFITRION
+        ? (this.listingsService?.pauseHostActiveListings(account.id, account.email, 'desactivación de la cuenta del anfitrión') ?? [])
+        : [];
+    this.authService.deactivateAccount(account, now);
+    this.recordDeactivation(
+      session,
+      account.id,
+      AuditResult.EXITOSO,
+      `Cuenta desactivada por el usuario${paused.length ? `; publicaciones pausadas: ${paused.length}` : ''}`,
+    );
+    return {
+      message: 'Tu cuenta quedó desactivada y tu sesión se cerró. Tu historial se conserva.',
+      status: 'DESACTIVADA',
+      pausedListings: paused.map((listing) => ({ id: listing.id, title: listing.title })),
+    };
+  }
+
+  private recordDeactivation(session: ActiveSession, accountId: string, result: AuditResult, detail: string): void {
+    this.auditService.record({
+      actor: session.email,
+      action: AuditAction.ACCOUNT_DEACTIVATION,
+      entity: 'UserAccount',
+      entityId: accountId,
+      result,
+      detail,
+    });
   }
 
   private findAccount(session: ActiveSession): UserAccount {

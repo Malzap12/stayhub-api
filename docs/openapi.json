@@ -566,6 +566,84 @@
         ]
       }
     },
+    "/api/users/me/deactivation": {
+      "get": {
+        "operationId": "UsersController_getDeactivationCheck",
+        "summary": "Revisar si puedo desactivar mi cuenta · HU-008 (CA2, CA3)",
+        "description": "Indica si la cuenta se puede desactivar, las reservas futuras confirmadas que lo impiden (como huésped o en tus alojamientos) y las publicaciones activas que pasarían a PAUSADA.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Revisión previa",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeactivationCheckDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "El administrador no desactiva su cuenta desde aquí"
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/users/me/deactivate": {
+      "post": {
+        "operationId": "UsersController_deactivateMyAccount",
+        "summary": "Desactivar mi cuenta · HU-008 (CA1, CA2, CA3)",
+        "description": "Sin reservas futuras confirmadas, la cuenta pasa a DESACTIVADA, se cierran sus sesiones y se registra el evento (RF-011, RN-021); las publicaciones ACTIVAS del anfitrión pasan a PAUSADA. El historial se conserva y la cuenta ya no puede iniciar sesión.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Cuenta desactivada (CA1, CA3)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeactivateAccountResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "El administrador no desactiva su cuenta desde aquí"
+          },
+          "409": {
+            "description": "Hay reservas futuras confirmadas (CA2)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeactivationBlockedDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Usuarios (Users)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/users/{id}/restrict": {
       "patch": {
         "operationId": "UsersController_restrictUser",
@@ -3308,6 +3386,7 @@
                 "ACCESS_DENIED",
                 "PROFILE_UPDATE",
                 "PASSWORD_CHANGE",
+                "ACCOUNT_DEACTIVATION",
                 "LISTING_STATUS_CHANGE",
                 "LISTING_UPDATE",
                 "LISTING_PRICING_UPDATE",
@@ -4463,6 +4542,157 @@
         },
         "required": [
           "message"
+        ]
+      },
+      "UpcomingStayDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "booking-6f1c2a9e"
+          },
+          "code": {
+            "type": "string",
+            "example": "RES-8KQ2M7X1"
+          },
+          "listingId": {
+            "type": "string",
+            "example": "demo-bogota-chapinero"
+          },
+          "listingTitle": {
+            "type": "string",
+            "example": "Apartamento en Chapinero Alto"
+          },
+          "checkIn": {
+            "type": "string",
+            "example": "2026-12-10"
+          },
+          "checkOut": {
+            "type": "string",
+            "example": "2026-12-13"
+          },
+          "guests": {
+            "type": "number",
+            "example": 2
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "HUESPED",
+              "ANFITRION"
+            ],
+            "example": "HUESPED",
+            "description": "HUESPED: la reserva es tuya; ANFITRION: es de un huésped en uno de tus alojamientos"
+          }
+        },
+        "required": [
+          "id",
+          "listingId",
+          "listingTitle",
+          "checkIn",
+          "checkOut",
+          "guests",
+          "relation"
+        ]
+      },
+      "ListingToPauseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "demo-bogota-chapinero"
+          },
+          "title": {
+            "type": "string",
+            "example": "Apartamento en Chapinero Alto"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ]
+      },
+      "DeactivationCheckDto": {
+        "type": "object",
+        "properties": {
+          "canDeactivate": {
+            "type": "boolean",
+            "example": true,
+            "description": "false si hay reservas futuras confirmadas (CA2)"
+          },
+          "upcomingBookings": {
+            "description": "Reservas futuras confirmadas como huésped o en tus alojamientos (CA2)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpcomingStayDto"
+            }
+          },
+          "listingsToPause": {
+            "description": "Publicaciones activas que pasarán a PAUSADA (CA3)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListingToPauseDto"
+            }
+          }
+        },
+        "required": [
+          "canDeactivate",
+          "upcomingBookings",
+          "listingsToPause"
+        ]
+      },
+      "DeactivateAccountResponseDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Tu cuenta quedó desactivada y tu sesión se cerró. Tu historial se conserva."
+          },
+          "status": {
+            "type": "string",
+            "example": "DESACTIVADA"
+          },
+          "pausedListings": {
+            "description": "Publicaciones que pasaron a PAUSADA (CA3)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListingToPauseDto"
+            }
+          }
+        },
+        "required": [
+          "message",
+          "status",
+          "pausedListings"
+        ]
+      },
+      "DeactivationBlockedDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 409
+          },
+          "code": {
+            "type": "string",
+            "example": "RESERVAS_FUTURAS_CONFIRMADAS"
+          },
+          "message": {
+            "type": "string",
+            "example": "No puedes desactivar tu cuenta: tienes 1 reserva futura confirmada."
+          },
+          "upcomingBookings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpcomingStayDto"
+            }
+          }
+        },
+        "required": [
+          "statusCode",
+          "code",
+          "message",
+          "upcomingBookings"
         ]
       },
       "RestrictUserDto": {
@@ -7355,6 +7585,7 @@
               "ACCESS_DENIED",
               "PROFILE_UPDATE",
               "PASSWORD_CHANGE",
+              "ACCOUNT_DEACTIVATION",
               "LISTING_STATUS_CHANGE",
               "LISTING_UPDATE",
               "LISTING_PRICING_UPDATE",
