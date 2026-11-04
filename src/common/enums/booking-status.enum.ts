@@ -1,5 +1,7 @@
 export enum BookingStatus {
   PENDIENTE = 'PENDIENTE',
+  /** HU-018 CA2: solicitud en una publicación con aprobación; espera la decisión del anfitrión (RN-015). */
+  PENDIENTE_APROBACION = 'PENDIENTE_APROBACION',
   CONFIRMADA = 'CONFIRMADA',
   CANCELADA = 'CANCELADA',
   COMPLETADA = 'COMPLETADA',

@@ -176,7 +176,7 @@ describe('HU-011 · Editar mi publicación (CA1, CA2, CA3, RF-015, RN-003, RN-02
       // Habilitar periodo disponible para poder cotizar y reservar
       await listingsService.registerAvailabilityPeriod(
         listing.id,
-        { startDate: '2026-11-01', endDate: '2026-11-30' },
+        { startDate: '2027-11-01', endDate: '2027-11-30' },
         host,
       );
 
@@ -184,8 +184,8 @@ describe('HU-011 · Editar mi publicación (CA1, CA2, CA3, RF-015, RN-003, RN-02
       const booking = await bookingsService.createInstant(
         {
           listingId: listing.id,
-          checkIn: '2026-11-20',
-          checkOut: '2026-11-23', // 3 noches
+          checkIn: '2027-11-20',
+          checkOut: '2027-11-23', // 3 noches
           guests: 2,
           idempotencyKey: '00000000-0000-0000-0000-000000000011',
         },

@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsNotEmpty, IsString } from 'class-validator';
 import { ListingStatus } from '../../../common/enums/listing-status.enum';
 import { PropertyType } from '../../../common/enums/property-type.enum';
+import { BookingMode } from '../../../common/enums/booking-mode.enum';
 import { AdditionalServiceDto } from './listing-response.dto';
 
 export class CancellationRuleDto {
@@ -101,6 +102,13 @@ export class ListingDetailDto {
 
   @ApiProperty({ type: CancellationPolicyDto, description: 'Política de cancelación asociada (Flexible si el anfitrión no eligió)' })
   cancellationPolicy: CancellationPolicyDto;
+
+  @ApiProperty({
+    enum: BookingMode,
+    example: BookingMode.INMEDIATA,
+    description: 'Modalidad de reserva (HU-018): con CON_APROBACION la solicitud espera la decisión del anfitrión',
+  })
+  bookingMode: BookingMode;
 
   @ApiProperty({ type: [AdditionalServiceDto], description: 'Servicios adicionales opcionales con costo por estancia' })
   additionalServices: AdditionalServiceDto[];

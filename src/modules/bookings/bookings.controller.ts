@@ -142,7 +142,7 @@ export class BookingsController {
   })
   @ApiResponse({ status: 401, description: 'No autenticado' })
   @ApiResponse({ status: 404, description: 'Reserva no encontrada' })
-  @ApiResponse({ status: 409, description: 'La reserva ya está confirmada y pagada' })
+  @ApiResponse({ status: 409, description: 'La reserva ya está confirmada y pagada, o es una solicitud que espera la aprobación del anfitrión (HU-018, ESPERA_APROBACION_ANFITRION)' })
   @ApiResponse({ status: 503, description: 'El proveedor no está en modo de pruebas o hay claves de producción configuradas (CA3)' })
   payBooking(
     @Param('id') id: string,
