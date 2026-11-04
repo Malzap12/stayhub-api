@@ -19,6 +19,7 @@ import {
   LoginDto,
   LoginResponseDto,
   LogoutResponseDto,
+  ReactivateAccountDto,
   RegisterDto,
   RegisteredUserDto,
 } from './dto/auth.dto';
@@ -36,6 +37,8 @@ export interface UserAccount {
   restrictionReason?: string;
   /** HU-008: fecha en que el propio usuario desactivó su cuenta. */
   deactivatedAt?: Date;
+  /** HU-009: última vez que el usuario reactivó su cuenta. */
+  reactivatedAt?: Date;
   createdAt: Date;
 }
 
@@ -51,6 +54,9 @@ export interface ActiveSession {
 export class AuthService implements OnModuleInit {
   private readonly users: Map<string, UserAccount> = new Map();
   private readonly activeSessions: Map<string, ActiveSession> = new Map();
+  /** HU-009: solicitudes de reactivación pendientes (token de un solo uso -> correo y vencimiento). */
+  private readonly reactivationTokens = new Map<string, { email: string; expiresAt: number }>();
+  static readonly REACTIVATION_TOKEN_MINUTES = 10;
   private static readonly PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
   private static readonly GENERIC_LOGIN_ERROR =
     'Correo electrónico o contraseña incorrectos';
@@ -295,17 +301,70 @@ export class AuthService implements OnModuleInit {
       );
     }
 
-    // HU-008: una cuenta desactivada no inicia sesión; su historial se conserva.
+    // HU-008 y HU-009 CA1: una cuenta desactivada no abre sesión; con credenciales correctas se le ofrece reactivarla.
     if (existing.status === 'DESACTIVADA') {
-      this.recordAudit(existing.email, AuditAction.LOGIN, AuditResult.FALLIDO, 'Cuenta desactivada por el usuario');
+      this.recordAudit(existing.email, AuditAction.LOGIN, AuditResult.FALLIDO, 'Cuenta desactivada: se ofrece reactivarla');
       throw new ForbiddenException({
         statusCode: 403,
         error: 'Forbidden',
         reason: 'CUENTA_DESACTIVADA',
-        message: 'Tu cuenta está desactivada. Tu historial se conserva.',
+        message: 'Tu cuenta está desactivada. ¿Quieres reactivarla? Tu historial se conserva.',
+        reactivationToken: this.issueReactivationToken(existing.email),
+        reactivationExpiresInMinutes: AuthService.REACTIVATION_TOKEN_MINUTES,
       });
     }
 
+    this.recordAudit(existing.email, AuditAction.LOGIN, AuditResult.EXITOSO);
+    return this.openSession(existing, 'Inicio de sesión exitoso');
+  }
+
+  /**
+   * HU-009 · Reactivar mi cuenta (CA2 · RF-012, RN-021).
+   * Con el token que entregó el inicio de sesión, la cuenta DESACTIVADA vuelve a ACTIVA, se registra el evento y se
+   * abre la sesión. Las publicaciones siguen PAUSADAS hasta que el anfitrión las reactive.
+   */
+  reactivate(dto: ReactivateAccountDto, now = new Date()): LoginResponseDto {
+    const pending = this.reactivationTokens.get(dto.reactivationToken);
+    this.reactivationTokens.delete(dto.reactivationToken);
+    const account = pending && pending.expiresAt > now.getTime() ? this.findByEmail(pending.email) : undefined;
+    if (!account || account.status !== 'DESACTIVADA') {
+      this.auditService.record({
+        actor: pending?.email,
+        action: AuditAction.ACCOUNT_REACTIVATION,
+        entity: 'UserAccount',
+        entityId: account?.id,
+        result: AuditResult.FALLIDO,
+        detail: account ? 'Reactivación rechazada: la cuenta no está desactivada' : 'Reactivación rechazada: solicitud vencida o inválida',
+      });
+      throw new BadRequestException('La solicitud de reactivación venció o no es válida. Inicia sesión de nuevo.');
+    }
+
+    for (const [token, item] of this.reactivationTokens.entries()) {
+      if (item.email === account.email) {
+        this.reactivationTokens.delete(token);
+      }
+    }
+    account.status = 'ACTIVA';
+    account.deactivatedAt = undefined;
+    account.reactivatedAt = now;
+    this.auditService.record({
+      actor: account.email,
+      action: AuditAction.ACCOUNT_REACTIVATION,
+      entity: 'UserAccount',
+      entityId: account.id,
+      result: AuditResult.EXITOSO,
+      detail: 'Cuenta reactivada por el usuario',
+    });
+    return this.openSession(account, 'Tu cuenta se reactivó. ¡Qué bueno tenerte de vuelta!');
+  }
+
+  private issueReactivationToken(email: string): string {
+    const token = randomBytes(16).toString('hex');
+    this.reactivationTokens.set(token, { email, expiresAt: Date.now() + AuthService.REACTIVATION_TOKEN_MINUTES * 60 * 1000 });
+    return token;
+  }
+
+  private openSession(existing: UserAccount, message: string): LoginResponseDto {
     const timeoutMinutes = Number(
       this.configService?.get<string>('SESSION_TIMEOUT_MINUTES') ??
         process.env.SESSION_TIMEOUT_MINUTES ??
@@ -321,10 +380,8 @@ export class AuthService implements OnModuleInit {
       expiresAt: Date.now() + timeoutMinutes * 60 * 1000,
     });
 
-    this.recordAudit(existing.email, AuditAction.LOGIN, AuditResult.EXITOSO);
-
     return {
-      message: 'Inicio de sesión exitoso',
+      message,
       token,
       expiresInMinutes: timeoutMinutes,
       user: this.toPublicUser(existing),

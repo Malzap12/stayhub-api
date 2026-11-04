@@ -92,6 +92,35 @@ export class LoginResponseDto {
   user: RegisteredUserDto;
 }
 
+/** HU-009 CA2 · Confirmar la reactivación con el token entregado al iniciar sesión. */
+export class ReactivateAccountDto {
+  @ApiProperty({
+    example: '3f9c2a7d1e5b4c8a9f0e1d2c3b4a5968',
+    description: 'Token de un solo uso que devuelve el inicio de sesión de una cuenta DESACTIVADA (vence en 10 minutos)',
+  })
+  @IsString({ message: 'El token de reactivación debe ser un texto' })
+  @IsNotEmpty({ message: 'Falta el token de reactivación' })
+  reactivationToken: string;
+}
+
+/** HU-009 CA1 · Respuesta 403 del inicio de sesión con una cuenta DESACTIVADA y credenciales correctas. */
+export class DeactivatedLoginDto {
+  @ApiProperty({ example: 403 })
+  statusCode: number;
+
+  @ApiProperty({ example: 'CUENTA_DESACTIVADA' })
+  reason: string;
+
+  @ApiProperty({ example: 'Tu cuenta está desactivada. ¿Quieres reactivarla? Tu historial se conserva.' })
+  message: string;
+
+  @ApiProperty({ example: '3f9c2a7d1e5b4c8a9f0e1d2c3b4a5968', description: 'Token para confirmar la reactivación (un solo uso)' })
+  reactivationToken: string;
+
+  @ApiProperty({ example: 10 })
+  reactivationExpiresInMinutes: number;
+}
+
 export class RegisterResponseDto {
   @ApiProperty({ example: 'Cuenta creada exitosamente' })
   message: string;
