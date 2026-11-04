@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ListingStatus } from '../../../common/enums/listing-status.enum';
+import { BookingMode } from '../../../common/enums/booking-mode.enum';
 
 export type AdminReasonType = 'DEVUELTA' | 'BLOQUEADA';
 
@@ -40,6 +41,9 @@ export class MyListingDto {
     description: 'Código de la política de cancelación asociada (HU-017 CA1)',
   })
   cancellationPolicy?: string;
+
+  @ApiProperty({ enum: BookingMode, example: BookingMode.INMEDIATA, description: 'Modalidad de reserva (HU-018 CA1 y CA2)' })
+  bookingMode: BookingMode;
 
   @ApiProperty({ example: true, description: 'Indica si tiene toda la información básica (HU-010 CA4)' })
   isComplete: boolean;

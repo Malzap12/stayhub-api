@@ -54,6 +54,7 @@ describe('HU-026 · Consultar el detalle de una publicación (CA1, CA2, RF-034, 
         amenities: ['WIFI', 'WORKSPACE', 'KITCHEN'],
         rules: ['No fumar', 'No se admiten fiestas'],
         images: [expect.stringContaining('https://')],
+        bookingMode: 'INMEDIATA',
         cancellationPolicy: {
           code: 'FLEXIBLE',
           name: 'Flexible',

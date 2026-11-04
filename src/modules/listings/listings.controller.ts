@@ -21,6 +21,7 @@ import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, Ret
 import { MyListingDto } from './dto/my-listing.dto';
 import { CancellationPolicyDto, ListingDetailDto, UpdateCancellationPolicyDto } from './dto/listing-detail.dto';
 import { ListingCalendarDto } from './dto/calendar.dto';
+import { BookingModeResponseDto, UpdateBookingModeDto } from './dto/booking-mode.dto';
 import { ListingPricingResponseDto, UpdateListingPricingDto } from './dto/listing-pricing.dto';
 import { ActivationMissingFieldsErrorDto } from './dto/request-activation.dto';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
@@ -263,6 +264,28 @@ export class ListingsController {
     @CurrentUser() user?: ActiveSession,
   ): CancellationPolicyDto {
     return this.listingsService.updateCancellationPolicy(id, dto, user);
+  }
+
+  @Patch(':id/booking-mode')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Elegir la modalidad de reserva de mi publicación · HU-018 (CA1, CA2)',
+    description:
+      'El anfitrión elige si su publicación acepta reservas inmediatas (por defecto) o requiere su aprobación. Con CON_APROBACION las nuevas solicitudes quedan PENDIENTE_APROBACION, sin cobro ni bloqueo de fechas, hasta que el anfitrión decida (RF-022, RN-015).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la publicación del anfitrión' })
+  @ApiResponse({ status: 200, description: 'Modalidad actualizada', type: BookingModeResponseDto })
+  @ApiResponse({ status: 400, description: 'Modalidad inválida' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ANFITRION)' })
+  @ApiResponse({ status: 404, description: 'La publicación no existe o pertenece a otro anfitrión (RN-005)' })
+  updateBookingMode(
+    @Param('id') id: string,
+    @Body() dto: UpdateBookingModeDto,
+    @CurrentUser() user?: ActiveSession,
+  ): BookingModeResponseDto {
+    return this.listingsService.updateBookingMode(id, dto, user);
   }
 
   @Get(':id/pricing')

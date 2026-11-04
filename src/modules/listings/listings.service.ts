@@ -15,6 +15,8 @@ import {
 } from './dto/availability.dto';
 import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
+import { BookingModeResponseDto, BOOKING_MODE_MESSAGE, UpdateBookingModeDto } from './dto/booking-mode.dto';
+import { BookingMode, DEFAULT_BOOKING_MODE } from '../../common/enums/booking-mode.enum';
 import { CreateAdditionalServiceDto, MAX_ADDITIONAL_SERVICES, UpdateAdditionalServiceDto } from './dto/additional-service.dto';
 import {
   ListingPricingResponseDto,
@@ -75,6 +77,7 @@ export function toListingDetail(listing: ListingResponseDto): ListingDetailDto {
     rules: listing.rules,
     images: listing.images,
     cancellationPolicy: CANCELLATION_POLICIES[listing.cancellationPolicy ?? DEFAULT_CANCELLATION_POLICY],
+    bookingMode: listing.bookingMode ?? DEFAULT_BOOKING_MODE,
     additionalServices: listing.additionalServices ?? [],
     averageRating: listing.rating,
     reviewCount: listing.reviewCount,
@@ -192,6 +195,7 @@ export function toMyListing(listing: ListingResponseDto): MyListingDto {
     statusLabel: LISTING_STATUS_LABELS[status],
     ...adminReason,
     cancellationPolicy: listing.cancellationPolicy,
+    bookingMode: listing.bookingMode ?? DEFAULT_BOOKING_MODE,
     isComplete: listing.isComplete,
     missingFields: listing.missingFields,
     createdAt: listing.createdAt,
@@ -477,6 +481,8 @@ export class ListingsService implements OnModuleInit {
       hostName: host ? this.authService?.findById(host.userId)?.name : undefined,
       status: ListingStatus.BORRADOR,
       ...(createDto.cancellationPolicy ? { cancellationPolicy: createDto.cancellationPolicy } : {}),
+      // HU-018 CA1: la modalidad es «reserva inmediata» salvo que el anfitrión elija otra.
+      bookingMode: createDto.bookingMode ?? DEFAULT_BOOKING_MODE,
       createdAt: new Date(),
     });
 
@@ -505,6 +511,41 @@ export class ListingsService implements OnModuleInit {
     const listing = this.listingsStore.find((item) => item.id === listingId)!;
     listing.cancellationPolicy = dto.code;
     return policy;
+  }
+
+  /**
+   * HU-018 · Elegir la modalidad de reserva (CA1, CA2 · RF-022, RN-015).
+   * Solo el anfitrión propietario la cambia; aplica a las solicitudes nuevas y queda en la auditoría.
+   */
+  updateBookingMode(listingId: string, dto: UpdateBookingModeDto, host?: ActiveSession): BookingModeResponseDto {
+    this.findOwnListing(listingId, host);
+    if (!Object.values(BookingMode).includes(dto?.mode)) {
+      throw new BadRequestException(BOOKING_MODE_MESSAGE);
+    }
+    const listing = this.listingsStore.find((item) => item.id === listingId)!;
+    const previous = listing.bookingMode ?? DEFAULT_BOOKING_MODE;
+    listing.bookingMode = dto.mode;
+    this.auditService.record({
+      actor: host?.email,
+      action: AuditAction.LISTING_UPDATE,
+      entity: 'Listing',
+      entityId: listing.id,
+      result: AuditResult.EXITOSO,
+      detail: `Modalidad de reserva: ${previous} -> ${dto.mode}`,
+    });
+    return {
+      listingId: listing.id,
+      bookingMode: dto.mode,
+      message:
+        dto.mode === BookingMode.CON_APROBACION
+          ? 'Las nuevas solicitudes quedarán pendientes hasta que las apruebes.'
+          : 'Las nuevas reservas se confirmarán de inmediato al aprobarse el pago.',
+    };
+  }
+
+  /** HU-018 CA2: modalidad vigente de la publicación (inmediata si no se eligió otra). */
+  getBookingModeOf(listingId: string): BookingMode {
+    return this.listingsStore.find((item) => item.id === listingId)?.bookingMode ?? DEFAULT_BOOKING_MODE;
   }
 
   /**
@@ -564,6 +605,7 @@ export class ListingsService implements OnModuleInit {
       }
       listing.cancellationPolicy = dto.cancellationPolicy;
     }
+    if (dto.bookingMode !== undefined) listing.bookingMode = dto.bookingMode;
 
     const completeness = withCompleteness(listing);
     listing.isComplete = completeness.isComplete;

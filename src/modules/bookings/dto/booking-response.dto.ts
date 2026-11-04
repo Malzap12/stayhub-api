@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BookingStatus } from '../../../common/enums/booking-status.enum';
+import { BookingMode } from '../../../common/enums/booking-mode.enum';
 import { PaymentResponseDto } from '../../payments/dto/payment.dto';
 import { QuoteResponseDto } from './quote-booking.dto';
 
@@ -162,6 +163,9 @@ export class BookingResponseDto {
     description: 'Texto de la política de cancelación de la publicación (HU-033)',
   })
   cancellationPolicyDescription?: string;
+
+  @ApiPropertyOptional({ enum: BookingMode, example: BookingMode.INMEDIATA, description: 'Modalidad de la publicación al crear la solicitud (HU-018)' })
+  bookingMode?: BookingMode;
 
   @ApiPropertyOptional({ type: () => PaymentResponseDto, description: 'Último pago procesado para la reserva (HU-037)' })
   payment?: PaymentResponseDto;
