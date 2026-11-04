@@ -89,4 +89,10 @@ export class HostBookingDetailDto extends HostBookingSummaryDto {
     description: 'Contacto del huésped. Solo se incluye cuando la reserva está CONFIRMADA (privacidad).',
   })
   guestContact?: GuestContactDto;
+
+  @ApiPropertyOptional({ example: 'VISA ···· 4242', description: 'HU-036: tarjeta guardada con la solicitud; se cobra al aceptarla' })
+  paymentCard?: string;
+
+  @ApiPropertyOptional({ example: 'Esas fechas ya las tengo comprometidas.', description: 'HU-036: motivo con que se rechazó la solicitud' })
+  rejectionReason?: string;
 }

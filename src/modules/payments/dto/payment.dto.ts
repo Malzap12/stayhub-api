@@ -36,6 +36,31 @@ export class PaymentCardDto {
   cvc: string;
 }
 
+/**
+ * HU-036 · Tarjeta de prueba guardada con una solicitud de reserva para cobrarla cuando el anfitrión la acepte.
+ * No guarda el número completo ni el CVC: solo la referencia del proveedor, la marca, los últimos 4 dígitos,
+ * el titular y el vencimiento.
+ */
+export class SavedPaymentMethodDto {
+  @ApiProperty({ example: 'pm_test_visa_4242', description: 'Referencia de la tarjeta en el proveedor de pruebas' })
+  reference: string;
+
+  @ApiProperty({ example: 'VISA' })
+  cardBrand: string;
+
+  @ApiProperty({ example: '4242' })
+  cardLast4: string;
+
+  @ApiProperty({ example: 'Ana Pérez' })
+  cardHolder: string;
+
+  @ApiProperty({ example: 12 })
+  expMonth: number;
+
+  @ApiProperty({ example: 2030 })
+  expYear: number;
+}
+
 export class PaymentResponseDto {
   @ApiProperty({ example: 'pay-5f1c…', description: 'ID interno del pago' })
   id: string;

@@ -4,6 +4,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 export type NotificationType =
   | 'RESERVA_CONFIRMADA'
   | 'SOLICITUD_RESERVA'
+  | 'SOLICITUD_RECHAZADA'
+  | 'PAGO_RECHAZADO'
   | 'RESERVA_CANCELADA'
   | 'RESERVA_EN_REVISION'
   | 'RESERVA_MANTENIDA'
@@ -17,6 +19,8 @@ export type NotificationType =
 export const NOTIFICATION_TYPES: NotificationType[] = [
   'RESERVA_CONFIRMADA',
   'SOLICITUD_RESERVA',
+  'SOLICITUD_RECHAZADA',
+  'PAGO_RECHAZADO',
   'RESERVA_CANCELADA',
   'RESERVA_EN_REVISION',
   'RESERVA_MANTENIDA',

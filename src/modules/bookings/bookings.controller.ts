@@ -5,6 +5,7 @@ import { QuoteBookingDto, QuoteResponseDto, QuoteValidationErrorDto } from './dt
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { ResolveReviewDto } from './dto/resolve-review.dto';
+import { RejectRequestDto } from './dto/booking-request.dto';
 import { BookingPaymentResultDto, BookingResponseDto } from './dto/booking-response.dto';
 import { HostBookingDetailDto, HostListingBookingsDto } from './dto/host-booking.dto';
 import { PaymentCardDto } from '../payments/dto/payment.dto';
@@ -98,6 +99,48 @@ export class BookingsController {
     return this.bookingsService.findHostBooking(id, user);
   }
 
+  @Patch('host/:id/accept')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Aceptar una solicitud de reserva · HU-036 (CA1)',
+    description:
+      'Para solicitudes PENDIENTE_APROBACION de los alojamientos del anfitrión (RF-050). Verifica de nuevo la disponibilidad (RN-012, RN-015) y cobra en modo de pruebas con la tarjeta que el huésped guardó al enviar la solicitud. Si el pago se aprueba, la reserva queda CONFIRMADA y sus noches se bloquean; si se rechaza, la solicitud sigue PENDIENTE_APROBACION, las fechas no se bloquean y se avisa al huésped.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la solicitud' })
+  @ApiResponse({ status: 200, description: 'Resultado del pago y estado de la reserva', type: BookingPaymentResultDto })
+  @ApiResponse({ status: 400, description: 'Las fechas ya no están disponibles (PERIODO_NO_DISPONIBLE, con unavailableNights); no se cobra' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Solo para anfitriones' })
+  @ApiResponse({ status: 404, description: 'La solicitud no existe o es de un alojamiento de otro anfitrión' })
+  @ApiResponse({ status: 409, description: 'La solicitud ya no está pendiente (SOLICITUD_NO_PENDIENTE) o no tiene tarjeta guardada (SIN_MEDIO_DE_PAGO)' })
+  acceptRequest(@Param('id') id: string, @CurrentUser() user: ActiveSession): Promise<BookingPaymentResultDto> {
+    return this.bookingsService.acceptRequest(id, user);
+  }
+
+  @Patch('host/:id/reject')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Rechazar una solicitud de reserva · HU-036 (CA2)',
+    description:
+      'La solicitud PENDIENTE_APROBACION queda RECHAZADA con el motivo opcional del anfitrión, no se cobra, se descarta la tarjeta guardada, se registra en la auditoría y se notifica al huésped (RF-050).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la solicitud' })
+  @ApiResponse({ status: 200, description: 'Solicitud RECHAZADA', type: BookingResponseDto })
+  @ApiResponse({ status: 400, description: 'Motivo de más de 300 caracteres' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Solo para anfitriones' })
+  @ApiResponse({ status: 404, description: 'La solicitud no existe o es de un alojamiento de otro anfitrión' })
+  @ApiResponse({ status: 409, description: 'La solicitud ya no está pendiente (SOLICITUD_NO_PENDIENTE)' })
+  rejectRequest(
+    @Param('id') id: string,
+    @Body() dto: RejectRequestDto,
+    @CurrentUser() user: ActiveSession,
+  ): Promise<BookingResponseDto> {
+    return this.bookingsService.rejectRequest(id, dto, user);
+  }
+
   @Post('instant')
   // RF-041: solo el huésped reserva; el anfitrión gestiona sus fechas con bloqueos (RF-029), no con reservas.
   @Roles(Role.HUESPED)
@@ -108,7 +151,10 @@ export class BookingsController {
       'Crea una reserva garantizando idempotencia (idempotencyKey) para evitar cobros y reservas duplicadas (RF-044, RN-018): reenviar la misma clave por un reintento o un doble clic devuelve la reserva original sin crear otra ni repetir el cobro simulado, aunque la primera solicitud siga en proceso. Una clave nueva crea una reserva nueva.',
   })
   @ApiResponse({ status: 201, description: 'Reserva creada exitosamente', type: BookingResponseDto })
-  @ApiResponse({ status: 400, description: 'Alojamiento no disponible o datos inválidos' })
+  @ApiResponse({
+    status: 400,
+    description: 'Alojamiento no disponible o datos inválidos; HU-036: en una publicación con aprobación falta la tarjeta de prueba (TARJETA_REQUERIDA)',
+  })
   @ApiResponse({ status: 401, description: 'No autenticado (CA1)' })
   @ApiResponse({ status: 403, description: 'Solo una cuenta de huésped puede reservar (RF-041); anfitriones y administradores reciben 403' })
   @ApiResponse({
