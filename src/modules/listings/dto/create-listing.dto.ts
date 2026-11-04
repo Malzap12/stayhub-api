@@ -14,6 +14,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { PropertyType } from '../../../common/enums/property-type.enum';
+import { BookingMode } from '../../../common/enums/booking-mode.enum';
 import type { CancellationPolicyCode } from '../cancellation-policies';
 
 /**
@@ -108,4 +109,13 @@ export class CreateListingDto {
   @IsOptional()
   @IsIn(['FLEXIBLE'], { message: 'Selecciona una política de cancelación válida del catálogo' })
   cancellationPolicy?: CancellationPolicyCode;
+
+  @ApiPropertyOptional({
+    enum: BookingMode,
+    example: BookingMode.INMEDIATA,
+    description: 'Modalidad de reserva (HU-018): INMEDIATA por defecto o CON_APROBACION',
+  })
+  @IsOptional()
+  @IsEnum(BookingMode, { message: 'Elige una modalidad de reserva válida: inmediata o con aprobación' })
+  bookingMode?: BookingMode;
 }

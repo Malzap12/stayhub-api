@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ListingStatus } from '../../../common/enums/listing-status.enum';
 import { PropertyType } from '../../../common/enums/property-type.enum';
+import { BookingMode } from '../../../common/enums/booking-mode.enum';
 import { LongStayDiscountDto } from './listing-pricing.dto';
 
 /** HU-026: servicio adicional opcional que el anfitrión ofrece con costo por estancia. */
@@ -99,6 +100,9 @@ export class ListingResponseDto {
 
   @ApiPropertyOptional({ example: 'FLEXIBLE', description: 'Política de cancelación del catálogo (Flexible si no se eligió)' })
   cancellationPolicy?: 'FLEXIBLE';
+
+  @ApiPropertyOptional({ enum: BookingMode, example: BookingMode.INMEDIATA, description: 'Modalidad de reserva (HU-018, INMEDIATA por defecto)' })
+  bookingMode?: BookingMode;
 
   @ApiPropertyOptional({ type: [AdditionalServiceDto], description: 'Servicios adicionales opcionales (HU-026)' })
   additionalServices?: AdditionalServiceDto[];

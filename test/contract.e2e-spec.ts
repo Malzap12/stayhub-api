@@ -2449,7 +2449,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
       return { status: res.status, body: await res.json().catch(() => ({})) };
     };
-    const stay = { checkIn: '2026-12-05', checkOut: '2026-12-08', guests: 2 };
+    const stay = { checkIn: '2027-12-05', checkOut: '2027-12-08', guests: 2 };
     let host: string;
     let listing: string;
     let serviceId: string;
@@ -2473,7 +2473,7 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
         images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
       });
       listing = created.body.id;
-      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2026-11-01', endDate: '2026-12-31' });
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2027-11-01', endDate: '2027-12-31' });
       await call('PATCH', `/listings/${listing}/request-activation`, host);
       const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
       expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
@@ -2573,14 +2573,14 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
           images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
         })
       ).body.id;
-      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2026-11-01', endDate: '2026-12-31' });
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2027-11-01', endDate: '2027-12-31' });
       await call('PATCH', `/listings/${listing}/request-activation`, host);
       const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
       expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
       const booked = await call('POST', '/bookings/instant', guestBookingToken, {
         listingId: listing,
-        checkIn: '2026-12-10',
-        checkOut: '2026-12-12',
+        checkIn: '2027-12-10',
+        checkOut: '2027-12-12',
         guests: 2,
         idempotencyKey: randomUUID(),
       });
@@ -2606,8 +2606,8 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await call('GET', `/listings/${listing}`, null)).status).toBe(404);
       const newBooking = await call('POST', '/bookings/instant', guestBookingToken, {
         listingId: listing,
-        checkIn: '2026-12-20',
-        checkOut: '2026-12-22',
+        checkIn: '2027-12-20',
+        checkOut: '2027-12-22',
         guests: 2,
         idempotencyKey: randomUUID(),
       });
@@ -2977,6 +2977,100 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       const bookingAfter = await getBookingRes.json();
       expect(bookingAfter.nightlyRate).toBe(initialNightlyRate);
       expect(bookingAfter.totalAmount).toBe(initialTotal);
+    });
+  });
+
+  describe('HU-018 · Elegir la modalidad de reserva (CA1, CA2, RF-022, RN-015)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const call = async (method: string, path: string, token: string | null, body?: unknown) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const card = { cardNumber: '4242424242424242', cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' };
+    const suffix = randomUUID().slice(0, 8);
+    let host: string;
+    let otherHost: string;
+    let guest: string;
+    let listing: string;
+
+    beforeAll(async () => {
+      const register = async (who: string, role: string) => {
+        const email = `${who}.hu018.${suffix}@prueba.com`;
+        await call('POST', '/auth/register', null, { name: 'Persona HU-018', email, password: 'Password123', role });
+        return login(email, 'Password123');
+      };
+      host = await register('anfitrion', 'ANFITRION');
+      otherHost = await register('otro', 'ANFITRION');
+      guest = await register('huesped', 'HUESPED');
+      const created = await call('POST', '/listings', host, {
+        title: `Finca con aprobación ${suffix}`,
+        description: 'Finca de prueba para la modalidad de reserva',
+        city: 'Filandia',
+        department: 'Quindío',
+        address: 'Vereda La Castalia',
+        propertyType: 'FINCA',
+        maxGuests: 6,
+        pricePerNight: 210000,
+        amenities: ['WIFI'],
+        rules: ['No fumar'],
+        images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+      });
+      expect(created.status).toBe(201);
+      listing = created.body.id;
+      // CA1: la modalidad queda «reserva inmediata» al guardar.
+      expect(created.body.bookingMode).toBe('INMEDIATA');
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2027-03-01', endDate: '2027-03-31' });
+      await call('PATCH', `/listings/${listing}/request-activation`, host);
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
+    });
+
+    const book = (checkIn: string, checkOut: string) =>
+      call('POST', '/bookings/instant', guest, { listingId: listing, checkIn, checkOut, guests: 2, idempotencyKey: randomUUID(), card });
+
+    it('42.1 (CA1) la publicación nueva es de reserva inmediata y la reserva se confirma al pagar', async () => {
+      const mine = await call('GET', '/listings/mine', host);
+      expect(mine.body.find((item: { id: string }) => item.id === listing).bookingMode).toBe('INMEDIATA');
+      expect((await call('GET', `/listings/${listing}`, null)).body.bookingMode).toBe('INMEDIATA');
+
+      const booking = await book('2027-03-02', '2027-03-04');
+
+      expect(booking.status).toBe(201);
+      expect(booking.body.status).toBe('CONFIRMADA');
+    });
+
+    it('42.2 solo el anfitrión propietario cambia la modalidad y debe ser válida', async () => {
+      expect((await call('PATCH', `/listings/${listing}/booking-mode`, null, { mode: 'CON_APROBACION' })).status).toBe(401);
+      expect((await call('PATCH', `/listings/${listing}/booking-mode`, guest, { mode: 'CON_APROBACION' })).status).toBe(403);
+      expect((await call('PATCH', `/listings/${listing}/booking-mode`, otherHost, { mode: 'CON_APROBACION' })).status).toBe(404);
+      expect((await call('PATCH', `/listings/${listing}/booking-mode`, host, { mode: 'LIBRE' })).status).toBe(400);
+      expect((await call('GET', `/listings/${listing}`, null)).body.bookingMode).toBe('INMEDIATA');
+    });
+
+    it('42.3 (CA2) con aprobación la nueva solicitud queda PENDIENTE_APROBACION sin cobro y el anfitrión la ve', async () => {
+      const changed = await call('PATCH', `/listings/${listing}/booking-mode`, host, { mode: 'CON_APROBACION' });
+      expect(changed.status).toBe(200);
+      expect(changed.body).toMatchObject({ listingId: listing, bookingMode: 'CON_APROBACION' });
+
+      const request = await book('2027-03-10', '2027-03-13');
+
+      expect(request.status).toBe(201);
+      expect(request.body).toMatchObject({ status: 'PENDIENTE_APROBACION', bookingMode: 'CON_APROBACION' });
+      expect(request.body.payment).toBeUndefined();
+      const pay = await call('POST', `/bookings/${request.body.id}/pay`, guest, card);
+      expect(pay.status).toBe(409);
+      expect(pay.body.reason).toBe('ESPERA_APROBACION_ANFITRION');
+      const received = await call('GET', '/bookings/host?status=PENDIENTE_APROBACION', host);
+      expect(received.status).toBe(200);
+      expect(received.body[0].bookings.map((item: { id: string; status: string }) => [item.id, item.status])).toEqual([
+        [request.body.id, 'PENDIENTE_APROBACION'],
+      ]);
+      const calendar = await call('GET', `/listings/${listing}/reserved-periods`, host);
+      expect(calendar.body.some((period: { bookingId?: string }) => period.bookingId === request.body.id)).toBe(false);
     });
   });
 

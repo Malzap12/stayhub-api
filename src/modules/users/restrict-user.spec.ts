@@ -117,15 +117,15 @@ describe('HU-053 · Restringir a un usuario (CA1, CA2, CA3 · RF-070, RF-071, RN
     // Registrar periodo disponible y crear una reserva futura
     await listingsService.registerAvailabilityPeriod(
       activeListing.id,
-      { startDate: '2026-11-01', endDate: '2026-12-31' },
+      { startDate: '2027-11-01', endDate: '2027-12-31' },
       hostSession,
     );
 
     const booking = await bookingsService.createInstant(
       {
         listingId: activeListing.id,
-        checkIn: '2026-11-20',
-        checkOut: '2026-11-25',
+        checkIn: '2027-11-20',
+        checkOut: '2027-11-25',
         guests: 2,
         idempotencyKey: 'idemp-key-53',
       },

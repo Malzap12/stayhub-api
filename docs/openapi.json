@@ -1582,6 +1582,66 @@
         ]
       }
     },
+    "/api/listings/{id}/booking-mode": {
+      "patch": {
+        "operationId": "ListingsController_updateBookingMode",
+        "summary": "Elegir la modalidad de reserva de mi publicación · HU-018 (CA1, CA2)",
+        "description": "El anfitrión elige si su publicación acepta reservas inmediatas (por defecto) o requiere su aprobación. Con CON_APROBACION las nuevas solicitudes quedan PENDIENTE_APROBACION, sin cobro ni bloqueo de fechas, hasta que el anfitrión decida (RF-022, RN-015).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la publicación del anfitrión",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBookingModeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Modalidad actualizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingModeResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Modalidad inválida"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ANFITRION)"
+          },
+          "404": {
+            "description": "La publicación no existe o pertenece a otro anfitrión (RN-005)"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings/{id}/pricing": {
       "get": {
         "operationId": "ListingsController_getPricing",
@@ -2713,6 +2773,7 @@
             "schema": {
               "enum": [
                 "PENDIENTE",
+                "PENDIENTE_APROBACION",
                 "CONFIRMADA",
                 "CANCELADA",
                 "COMPLETADA",
@@ -2782,6 +2843,7 @@
             "schema": {
               "enum": [
                 "PENDIENTE",
+                "PENDIENTE_APROBACION",
                 "CONFIRMADA",
                 "CANCELADA",
                 "COMPLETADA",
@@ -2966,7 +3028,7 @@
             "description": "Reserva no encontrada"
           },
           "409": {
-            "description": "La reserva ya está confirmada y pagada"
+            "description": "La reserva ya está confirmada y pagada, o es una solicitud que espera la aprobación del anfitrión (HU-018, ESPERA_APROBACION_ANFITRION)"
           },
           "503": {
             "description": "El proveedor no está en modo de pruebas o hay claves de producción configuradas (CA3)"
@@ -4017,6 +4079,7 @@
             "type": "string",
             "enum": [
               "RESERVA_CONFIRMADA",
+              "SOLICITUD_RESERVA",
               "RESERVA_CANCELADA",
               "RESERVA_EN_REVISION",
               "RESERVA_MANTENIDA",
@@ -4990,6 +5053,15 @@
               "FLEXIBLE"
             ],
             "description": "Política de cancelación asociada del catálogo (HU-039, por defecto FLEXIBLE)"
+          },
+          "bookingMode": {
+            "type": "string",
+            "enum": [
+              "INMEDIATA",
+              "CON_APROBACION"
+            ],
+            "example": "INMEDIATA",
+            "description": "Modalidad de reserva (HU-018): INMEDIATA por defecto o CON_APROBACION"
           }
         },
         "required": [
@@ -5212,6 +5284,15 @@
             "example": "FLEXIBLE",
             "description": "Política de cancelación del catálogo (Flexible si no se eligió)"
           },
+          "bookingMode": {
+            "type": "string",
+            "enum": [
+              "INMEDIATA",
+              "CON_APROBACION"
+            ],
+            "example": "INMEDIATA",
+            "description": "Modalidad de reserva (HU-018, INMEDIATA por defecto)"
+          },
           "additionalServices": {
             "description": "Servicios adicionales opcionales (HU-026)",
             "type": "array",
@@ -5295,6 +5376,15 @@
             "example": "FLEXIBLE",
             "description": "Código de la política de cancelación asociada (HU-017 CA1)"
           },
+          "bookingMode": {
+            "type": "string",
+            "enum": [
+              "INMEDIATA",
+              "CON_APROBACION"
+            ],
+            "example": "INMEDIATA",
+            "description": "Modalidad de reserva (HU-018 CA1 y CA2)"
+          },
           "isComplete": {
             "type": "boolean",
             "example": true,
@@ -5319,6 +5409,7 @@
           "title",
           "status",
           "statusLabel",
+          "bookingMode",
           "isComplete",
           "missingFields",
           "createdAt"
@@ -5516,6 +5607,49 @@
         },
         "required": [
           "code"
+        ]
+      },
+      "UpdateBookingModeDto": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "INMEDIATA",
+              "CON_APROBACION"
+            ],
+            "example": "CON_APROBACION",
+            "description": "INMEDIATA confirma la reserva al aprobarse el pago; CON_APROBACION deja las nuevas solicitudes en PENDIENTE_APROBACION hasta que el anfitrión decida"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "BookingModeResponseDto": {
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "example": "listing-123"
+          },
+          "bookingMode": {
+            "type": "string",
+            "enum": [
+              "INMEDIATA",
+              "CON_APROBACION"
+            ],
+            "example": "CON_APROBACION"
+          },
+          "message": {
+            "type": "string",
+            "example": "Las nuevas solicitudes quedarán pendientes hasta que las apruebes."
+          }
+        },
+        "required": [
+          "listingId",
+          "bookingMode",
+          "message"
         ]
       },
       "ListingPricingResponseDto": {
@@ -6202,6 +6336,15 @@
               "FLEXIBLE"
             ],
             "description": "Política de cancelación asociada del catálogo (HU-039, por defecto FLEXIBLE)"
+          },
+          "bookingMode": {
+            "type": "string",
+            "enum": [
+              "INMEDIATA",
+              "CON_APROBACION"
+            ],
+            "example": "INMEDIATA",
+            "description": "Modalidad de reserva (HU-018): INMEDIATA por defecto o CON_APROBACION"
           }
         }
       },
@@ -6325,6 +6468,15 @@
               }
             ]
           },
+          "bookingMode": {
+            "type": "string",
+            "enum": [
+              "INMEDIATA",
+              "CON_APROBACION"
+            ],
+            "example": "INMEDIATA",
+            "description": "Modalidad de reserva (HU-018): con CON_APROBACION la solicitud espera la decisión del anfitrión"
+          },
           "additionalServices": {
             "description": "Servicios adicionales opcionales con costo por estancia",
             "type": "array",
@@ -6366,6 +6518,7 @@
           "rules",
           "images",
           "cancellationPolicy",
+          "bookingMode",
           "additionalServices",
           "averageRating",
           "reviewCount",
@@ -6860,6 +7013,7 @@
             "type": "string",
             "enum": [
               "PENDIENTE",
+              "PENDIENTE_APROBACION",
               "CONFIRMADA",
               "CANCELADA",
               "COMPLETADA",
@@ -6903,6 +7057,7 @@
             "type": "string",
             "enum": [
               "PENDIENTE",
+              "PENDIENTE_APROBACION",
               "CONFIRMADA",
               "CANCELADA",
               "COMPLETADA",
@@ -6964,6 +7119,15 @@
             "type": "string",
             "example": "Reembolso del 100 % si cancelas hasta 48 horas antes de la llegada y del 50 % después.",
             "description": "Texto de la política de cancelación de la publicación (HU-033)"
+          },
+          "bookingMode": {
+            "type": "string",
+            "enum": [
+              "INMEDIATA",
+              "CON_APROBACION"
+            ],
+            "example": "INMEDIATA",
+            "description": "Modalidad de la publicación al crear la solicitud (HU-018)"
           },
           "payment": {
             "description": "Último pago procesado para la reserva (HU-037)",
@@ -7076,6 +7240,7 @@
             "type": "string",
             "enum": [
               "PENDIENTE",
+              "PENDIENTE_APROBACION",
               "CONFIRMADA",
               "CANCELADA",
               "COMPLETADA",
@@ -7203,6 +7368,7 @@
             "type": "string",
             "enum": [
               "PENDIENTE",
+              "PENDIENTE_APROBACION",
               "CONFIRMADA",
               "CANCELADA",
               "COMPLETADA",

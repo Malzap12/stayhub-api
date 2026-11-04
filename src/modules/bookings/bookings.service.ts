@@ -17,6 +17,7 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { ResolveReviewDto, ReviewDecision } from './dto/resolve-review.dto';
 import { BookingPaymentResultDto, BookingResponseDto } from './dto/booking-response.dto';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
+import { BookingMode, DEFAULT_BOOKING_MODE } from '../../common/enums/booking-mode.enum';
 import { AuditService } from '../audit/audit.service';
 import { StatePersistenceService } from '../persistence/state-persistence.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
@@ -574,6 +575,9 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     }
 
     const initialPolicy = this.listingsService?.getCancellationPolicyOf(bookingDto.listingId);
+    // HU-018 CA2: en modalidad con aprobación la solicitud espera la decisión del anfitrión (RF-022, RN-015).
+    const bookingMode = this.listingsService?.getBookingModeOf(bookingDto.listingId) ?? DEFAULT_BOOKING_MODE;
+    const needsApproval = bookingMode === BookingMode.CON_APROBACION;
     const bookingCode = `RES-${randomBytes(4).toString('hex').toUpperCase()}`;
     const booking: BookingResponseDto = {
       id: `booking-${randomUUID()}`,
@@ -597,7 +601,8 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       totalAmount: quoteData?.totalAmount ?? 518.00,
       currency: quoteData?.currency ?? 'COP',
       breakdown: quoteData,
-      status: BookingStatus.PENDIENTE,
+      status: needsApproval ? BookingStatus.PENDIENTE_APROBACION : BookingStatus.PENDIENTE,
+      bookingMode,
       cancellationPolicy: (initialPolicy as any)?.code ?? (listing as any)?.cancellationPolicy,
       cancellationPolicyName: initialPolicy?.name,
       cancellationPolicyDescription: initialPolicy?.description,
@@ -614,8 +619,15 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       entity: 'Booking',
       entityId: booking.id,
       result: AuditResult.EXITOSO,
-      detail: `Reserva creada en estado ${booking.status}`,
+      detail: needsApproval
+        ? `Solicitud de reserva creada en estado ${booking.status}: espera la decisión del anfitrión, sin cobro ni bloqueo de fechas`
+        : `Reserva creada en estado ${booking.status}`,
     });
+
+    if (needsApproval) {
+      this.notificationsService?.bookingRequested(this.noticeOf(booking));
+      return booking;
+    }
 
     if (bookingDto.card) {
       const payResult = await this.payBooking(booking.id, bookingDto.card, actor);
@@ -699,6 +711,14 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     return this.withListingLock(booking.listingId, async () => {
       if (booking.status === BookingStatus.CONFIRMADA) {
         throw new ConflictException('La reserva ya está confirmada y pagada');
+      }
+      if (booking.status === BookingStatus.PENDIENTE_APROBACION) {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'Conflict',
+          reason: 'ESPERA_APROBACION_ANFITRION',
+          message: 'La solicitud espera la aprobación del anfitrión; no se cobra hasta que la acepte',
+        });
       }
       if (booking.status !== BookingStatus.PENDIENTE) {
         throw new BadRequestException(`Solo se pueden pagar reservas pendientes (estado actual: ${booking.status})`);
