@@ -3353,4 +3353,100 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(auditRes.body.data.some((item: { entityId: string }) => item.entityId === id)).toBe(true);
     });
   });
+
+  describe('HU-021 · Bloquear fechas manualmente (CA1, CA2, RF-027, RN-004)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const call = async (method: string, path: string, token: string | null, body?: unknown) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    // Fechas dentro del calendario de 12 meses, a partir de unos 60 días desde hoy.
+    const base = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`) + 60 * 86_400_000;
+    const day = (offset: number) => new Date(base + offset * 86_400_000).toISOString().slice(0, 10);
+    const suffix = randomUUID().slice(0, 8);
+    let host: string;
+    let otherHost: string;
+    let guest: string;
+    let listing: string;
+
+    beforeAll(async () => {
+      const register = async (who: string, role: string) => {
+        const email = `${who}.hu021.${suffix}@prueba.com`;
+        await call('POST', '/auth/register', null, { name: 'Persona HU-021', email, password: 'Password123', role });
+        return login(email, 'Password123');
+      };
+      host = await register('anfitrion', 'ANFITRION');
+      otherHost = await register('otro', 'ANFITRION');
+      guest = await register('huesped', 'HUESPED');
+      const created = await call('POST', '/listings', host, {
+        title: `Casa de campo ${suffix}`,
+        description: 'Casa de prueba para bloquear fechas',
+        city: 'Guatapé',
+        department: 'Antioquia',
+        address: 'Vereda El Roble',
+        propertyType: 'CASA',
+        maxGuests: 6,
+        pricePerNight: 250000,
+        amenities: ['WIFI'],
+        rules: ['No fumar'],
+        images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+      });
+      expect(created.status).toBe(201);
+      listing = created.body.id;
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: day(1), endDate: day(31) });
+      await call('PATCH', `/listings/${listing}/request-activation`, host);
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
+    });
+
+    it('45.1 solo el anfitrión dueño bloquea y las fechas deben ser válidas', async () => {
+      const range = { startDate: day(10), endDate: day(11) };
+      expect((await call('POST', `/listings/${listing}/blocked-dates`, null, range)).status).toBe(401);
+      expect((await call('POST', `/listings/${listing}/blocked-dates`, guest, range)).status).toBe(403);
+      expect((await call('POST', `/listings/${listing}/blocked-dates`, otherHost, range)).status).toBe(404);
+      expect((await call('POST', `/listings/${listing}/blocked-dates`, host, { startDate: day(11), endDate: day(10) })).body.reason).toBe('FECHAS_INVALIDAS');
+      expect((await call('POST', `/listings/${listing}/blocked-dates`, host, { startDate: day(30), endDate: day(32) })).body.reason).toBe(
+        'FUERA_DE_DISPONIBILIDAD',
+      );
+      expect((await call('GET', `/listings/${listing}/blocked-dates`, host)).body).toEqual([]);
+    });
+
+    it('45.2 (CA1) las fechas bloqueadas salen bloqueadas en el calendario y no se pueden reservar', async () => {
+      const blocked = await call('POST', `/listings/${listing}/blocked-dates`, host, { startDate: day(10), endDate: day(11), note: 'Uso propio' });
+
+      expect(blocked.status).toBe(201);
+      expect(blocked.body).toMatchObject({ type: 'BLOQUEO', blockedNights: [day(10), day(11)], note: 'Uso propio' });
+      const calendar = await call('GET', `/listings/${listing}/calendar`, host);
+      const nights = calendar.body.months.flatMap((month: { days: { date: string; status: string }[] }) => month.days);
+      expect(nights.filter((night: { date: string }) => [day(10), day(11)].includes(night.date)).map((night: { status: string }) => night.status)).toEqual([
+        'BLOQUEADA',
+        'BLOQUEADA',
+      ]);
+      const quote = await call('POST', '/bookings/quote', null, { listingId: listing, checkIn: day(9), checkOut: day(12), guests: 2 });
+      expect(quote.status).toBe(400);
+      expect(quote.body).toMatchObject({ reason: 'PERIODO_NO_DISPONIBLE', unavailableNights: [day(10), day(11)] });
+      const publicPeriods = await call('GET', `/listings/${listing}/reserved-periods`, null);
+      expect(publicPeriods.body[0].note).toBeUndefined();
+      expect((await call('POST', `/listings/${listing}/blocked-dates`, host, { startDate: day(11), endDate: day(12) })).body.reason).toBe('FECHAS_OCUPADAS');
+    });
+
+    it('45.3 (CA2) al desbloquear las fechas vuelven a estar disponibles', async () => {
+      const [block] = (await call('GET', `/listings/${listing}/blocked-dates`, host)).body;
+      expect((await call('DELETE', `/listings/${listing}/blocked-dates/${block.id}`, otherHost)).status).toBe(404);
+
+      const released = await call('DELETE', `/listings/${listing}/blocked-dates/${block.id}`, host);
+
+      expect(released.status).toBe(200);
+      expect(released.body).toMatchObject({ blockId: block.id, releasedNights: [day(10), day(11)] });
+      expect((await call('GET', `/listings/${listing}/blocked-dates`, host)).body).toEqual([]);
+      const quote = await call('POST', '/bookings/quote', null, { listingId: listing, checkIn: day(9), checkOut: day(12), guests: 2 });
+      expect(quote.status).toBe(200);
+      expect(quote.body.nights).toBe(3);
+      expect((await call('DELETE', `/listings/${listing}/blocked-dates/${block.id}`, host)).status).toBe(404);
+    });
+  });
 });
