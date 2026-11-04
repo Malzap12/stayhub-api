@@ -2931,6 +2931,66 @@
         ]
       }
     },
+    "/api/bookings/host/{id}/cancel": {
+      "patch": {
+        "operationId": "BookingsController_cancelHostBooking",
+        "summary": "Cancelar una reserva como anfitrión · HU-042 (CA1, CA2)",
+        "description": "El anfitrión dueño del alojamiento cancela una reserva CONFIRMADA antes de la llegada indicando el motivo (RF-057). La reserva pasa a CANCELADA con devolución simulada del 100 % del total (AMB-10), el periodo reservado se libera (RN-029), se notifica al huésped y la operación queda registrada en la auditoría (RN-017).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la reserva",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelBookingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reserva CANCELADA con devolución simulada del 100 % del total",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostBookingDetailDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "La reserva no está CONFIRMADA (ESTADO_NO_CANCELABLE), la llegada ya pasó (LLEGADA_PASADA) o falta el motivo"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Solo para anfitriones"
+          },
+          "404": {
+            "description": "La reserva no existe o es de un alojamiento de otro anfitrión"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/bookings/instant": {
       "post": {
         "operationId": "BookingsController_createInstant",
@@ -7330,6 +7390,77 @@
           "email"
         ]
       },
+      "HostBookingCancellationDto": {
+        "type": "object",
+        "properties": {
+          "cancelledAt": {
+            "type": "string",
+            "example": "2026-11-05T14:30:00.000Z",
+            "description": "Fecha y hora de la cancelación"
+          },
+          "reason": {
+            "type": "string",
+            "example": "Daño imprevisto en el sistema hidráulico del alojamiento"
+          },
+          "policy": {
+            "type": "string",
+            "example": "CANCELACION_ANFITRION",
+            "description": "Política o regla de cancelación aplicada"
+          },
+          "refundPercentage": {
+            "type": "number",
+            "example": 100,
+            "description": "Porcentaje de devolución simulada"
+          },
+          "refundableAmount": {
+            "type": "number",
+            "example": 900000,
+            "description": "Monto base reembolsable"
+          },
+          "refundAmount": {
+            "type": "number",
+            "example": 900000,
+            "description": "Valor de la devolución simulada al huésped"
+          },
+          "appliedRule": {
+            "type": "string",
+            "example": "Cancelación por el anfitrión: devolución del 100 % del total pagado, incluida la tarifa de servicio"
+          },
+          "currency": {
+            "type": "string",
+            "example": "COP"
+          },
+          "finalStatus": {
+            "type": "string",
+            "example": "CANCELADA",
+            "description": "Estado final de la reserva"
+          },
+          "releasedNights": {
+            "example": [
+              "2026-11-01",
+              "2026-11-02",
+              "2026-11-03"
+            ],
+            "description": "Noches liberadas (RN-029)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "cancelledAt",
+          "reason",
+          "policy",
+          "refundPercentage",
+          "refundableAmount",
+          "refundAmount",
+          "appliedRule",
+          "currency",
+          "finalStatus",
+          "releasedNights"
+        ]
+      },
       "HostBookingDetailDto": {
         "type": "object",
         "properties": {
@@ -7425,6 +7556,14 @@
                 "$ref": "#/components/schemas/GuestContactDto"
               }
             ]
+          },
+          "cancellation": {
+            "description": "Detalle de la cancelación cuando la reserva está CANCELADA (HU-042).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HostBookingCancellationDto"
+              }
+            ]
           }
         },
         "required": [
@@ -7441,6 +7580,21 @@
           "listingId",
           "listingTitle",
           "listingCity"
+        ]
+      },
+      "CancelBookingDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "Cambio imprevisto de itinerario",
+            "description": "Motivo de la cancelación",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "PaymentCardDto": {
@@ -7588,21 +7742,6 @@
         },
         "required": [
           "decision"
-        ]
-      },
-      "CancelBookingDto": {
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": "string",
-            "example": "Cambio imprevisto de itinerario",
-            "description": "Motivo de la cancelación",
-            "minLength": 3,
-            "maxLength": 500
-          }
-        },
-        "required": [
-          "reason"
         ]
       },
       "ServiceFeeResponseDto": {

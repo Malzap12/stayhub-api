@@ -2,7 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
 
-/** HU-040 · Cancelar mi reserva (CA1 · RF-053): el huésped indica el motivo. */
+/** HU-040 y HU-042 · Cancelar reserva (RF-053, RF-057): el huésped o el anfitrión indica el motivo obligatorio. */
 export class CancelBookingDto {
   @ApiProperty({ example: 'Cambio imprevisto de itinerario', description: 'Motivo de la cancelación', minLength: 3, maxLength: 500 })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))

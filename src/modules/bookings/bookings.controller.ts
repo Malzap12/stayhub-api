@@ -98,6 +98,33 @@ export class BookingsController {
     return this.bookingsService.findHostBooking(id, user);
   }
 
+  @Patch('host/:id/cancel')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Cancelar una reserva como anfitrión · HU-042 (CA1, CA2)',
+    description:
+      'El anfitrión dueño del alojamiento cancela una reserva CONFIRMADA antes de la llegada indicando el motivo (RF-057). ' +
+      'La reserva pasa a CANCELADA con devolución simulada del 100 % del total (AMB-10), el periodo reservado se libera (RN-029), ' +
+      'se notifica al huésped y la operación queda registrada en la auditoría (RN-017).',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la reserva' })
+  @ApiResponse({ status: 200, description: 'Reserva CANCELADA con devolución simulada del 100 % del total', type: HostBookingDetailDto })
+  @ApiResponse({
+    status: 400,
+    description: 'La reserva no está CONFIRMADA (ESTADO_NO_CANCELABLE), la llegada ya pasó (LLEGADA_PASADA) o falta el motivo',
+  })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Solo para anfitriones' })
+  @ApiResponse({ status: 404, description: 'La reserva no existe o es de un alojamiento de otro anfitrión' })
+  cancelHostBooking(
+    @Param('id') id: string,
+    @Body() dto: CancelBookingDto,
+    @CurrentUser() user: ActiveSession,
+  ): Promise<HostBookingDetailDto> {
+    return this.bookingsService.cancelHostBooking(id, dto, user);
+  }
+
   @Post('instant')
   // RF-041: solo el huésped reserva; el anfitrión gestiona sus fechas con bloqueos (RF-029), no con reservas.
   @Roles(Role.HUESPED)

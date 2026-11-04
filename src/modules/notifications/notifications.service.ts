@@ -140,6 +140,26 @@ export class NotificationsService implements OnModuleInit {
     });
   }
 
+  /** HU-042 CA2 (RF-057, RN-017): el anfitrión canceló la reserva con devolución del 100 %; se notifica al huésped. */
+  bookingCancelledByHost(
+    booking: BookingNotice,
+    reason: string,
+    refund: { amount: number; percentage: number; currency: string },
+  ): void {
+    const title = booking.listingTitle ? ` en "${booking.listingTitle}"` : '';
+    const stay = `del ${booking.checkIn.slice(0, 10)} al ${booking.checkOut.slice(0, 10)}`;
+    this.notify({
+      recipient: { email: booking.guestEmail },
+      type: 'RESERVA_CANCELADA',
+      message:
+        `El anfitrión canceló tu reserva ${booking.code ?? booking.id}${title} ${stay}. ` +
+        `Motivo: ${reason}. Devolución simulada del ${refund.percentage} % del total: ${refund.amount} ${refund.currency}.`,
+      entity: 'Booking',
+      entityId: booking.id,
+      bookingCode: booking.code,
+    });
+  }
+
   /** CA2: reserva que pasa a revisión manual al bloquear su publicación (RN-020); se notifica al huésped. */
   bookingUnderReview(booking: BookingNotice, reason: string): void {
     this.notify({

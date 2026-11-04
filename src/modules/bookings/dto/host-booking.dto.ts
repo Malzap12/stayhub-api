@@ -67,7 +67,42 @@ export class GuestContactDto {
   phone?: string;
 }
 
-/** HU-035 CA2 · Detalle de una reserva recibida. */
+/** HU-042 · Registro de la cancelación expuesto al anfitrión sin revelar el correo privado del huésped. */
+export class HostBookingCancellationDto {
+  @ApiProperty({ example: '2026-11-05T14:30:00.000Z', description: 'Fecha y hora de la cancelación' })
+  cancelledAt: string;
+
+  @ApiProperty({ example: 'Daño imprevisto en el sistema hidráulico del alojamiento' })
+  reason: string;
+
+  @ApiProperty({ example: 'CANCELACION_ANFITRION', description: 'Política o regla de cancelación aplicada' })
+  policy: string;
+
+  @ApiProperty({ example: 100, description: 'Porcentaje de devolución simulada' })
+  refundPercentage: number;
+
+  @ApiProperty({ example: 900000, description: 'Monto base reembolsable' })
+  refundableAmount: number;
+
+  @ApiProperty({ example: 900000, description: 'Valor de la devolución simulada al huésped' })
+  refundAmount: number;
+
+  @ApiProperty({
+    example: 'Cancelación por el anfitrión: devolución del 100 % del total pagado, incluida la tarifa de servicio',
+  })
+  appliedRule: string;
+
+  @ApiProperty({ example: 'COP' })
+  currency: string;
+
+  @ApiProperty({ example: 'CANCELADA', description: 'Estado final de la reserva' })
+  finalStatus: string;
+
+  @ApiProperty({ example: ['2026-11-01', '2026-11-02', '2026-11-03'], description: 'Noches liberadas (RN-029)' })
+  releasedNights: string[];
+}
+
+/** HU-035 CA2 y HU-042 · Detalle de una reserva recibida. */
 export class HostBookingDetailDto extends HostBookingSummaryDto {
   @ApiProperty({ example: 'demo-bogota-chapinero' })
   listingId: string;
@@ -89,4 +124,10 @@ export class HostBookingDetailDto extends HostBookingSummaryDto {
     description: 'Contacto del huésped. Solo se incluye cuando la reserva está CONFIRMADA (privacidad).',
   })
   guestContact?: GuestContactDto;
+
+  @ApiPropertyOptional({
+    type: HostBookingCancellationDto,
+    description: 'Detalle de la cancelación cuando la reserva está CANCELADA (HU-042).',
+  })
+  cancellation?: HostBookingCancellationDto;
 }
