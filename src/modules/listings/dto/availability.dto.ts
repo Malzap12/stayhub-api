@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateAvailabilityPeriodDto {
   @ApiProperty({ example: '2026-12-01', description: 'Fecha de inicio del periodo disponible (YYYY-MM-DD) · HU-019' })
@@ -175,8 +175,45 @@ export class BlockedPeriodResponseDto {
   })
   blockedNights: string[];
 
+  @ApiPropertyOptional({ example: 'Mantenimiento', description: 'HU-021: nota del anfitrión sobre el bloqueo (solo la ve el anfitrión)' })
+  note?: string;
+
   @ApiProperty({ example: '2026-10-21T22:00:00.000Z' })
   createdAt: Date;
+}
+
+/** HU-021 · Fechas que el anfitrión bloquea: desde startDate hasta endDate, ambas noches incluidas. */
+export class BlockDatesDto {
+  @ApiProperty({ example: '2027-03-10', description: 'Primera noche bloqueada (YYYY-MM-DD)' })
+  @IsNotEmpty({ message: 'Indica la primera fecha a bloquear' })
+  @IsDateString({}, { message: 'La primera fecha a bloquear no es válida' })
+  startDate: string;
+
+  @ApiProperty({ example: '2027-03-12', description: 'Última noche bloqueada (YYYY-MM-DD), incluida' })
+  @IsNotEmpty({ message: 'Indica la última fecha a bloquear' })
+  @IsDateString({}, { message: 'La última fecha a bloquear no es válida' })
+  endDate: string;
+
+  @ApiPropertyOptional({ example: 'Mantenimiento', maxLength: 80, description: 'Nota opcional: uso propio, mantenimiento…' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80, { message: 'La nota admite máximo 80 caracteres' })
+  note?: string;
+}
+
+/** HU-021 CA2 · Resultado de desbloquear fechas. */
+export class UnblockDatesResponseDto {
+  @ApiProperty({ example: 'uuid-1234-listing' })
+  listingId: string;
+
+  @ApiProperty({ example: 'block-uuid-1' })
+  blockId: string;
+
+  @ApiProperty({ example: ['2027-03-10', '2027-03-11', '2027-03-12'], description: 'Noches que vuelven a estar disponibles' })
+  releasedNights: string[];
+
+  @ApiProperty({ example: 'Las fechas volvieron a estar disponibles para reservar.' })
+  message: string;
 }
 
 export class CheckAvailabilityQueryDto {

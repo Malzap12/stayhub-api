@@ -10,8 +10,10 @@ import {
   AvailabilityPeriodResponseDto,
   UpdateAvailabilityPeriodDto,
   AffectedBookingDto,
+  BlockDatesDto,
   BlockReservedPeriodDto,
   BlockedPeriodResponseDto,
+  UnblockDatesResponseDto,
 } from './dto/availability.dto';
 import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
@@ -1467,6 +1469,134 @@ export class ListingsService implements OnModuleInit {
   getCancellationPolicyOf(listingId: string): CancellationPolicyDto {
     const listing = this.listingsStore.find((item) => item.id === listingId);
     return CANCELLATION_POLICIES[listing?.cancellationPolicy ?? DEFAULT_CANCELLATION_POLICY];
+  }
+
+  /**
+   * HU-021 · Bloquear fechas manualmente (CA1 · RF-027, RN-004).
+   * El anfitrión dueño bloquea noches concretas (de startDate a endDate, ambas incluidas) para uso propio o
+   * mantenimiento. Deben ser de hoy en adelante, estar dentro de sus periodos disponibles y no tener reservas ni
+   * otro bloqueo. Las noches bloqueadas aparecen como BLOQUEADA en el calendario y no se pueden reservar.
+   */
+  blockDates(listingId: string, dto: BlockDatesDto, host: ActiveSession): BlockedPeriodResponseDto {
+    const fail = (detail: string) =>
+      this.recordReservedBlockChange(host.email, listingId, AuditResult.FALLIDO, `Bloqueo de fechas rechazado: ${detail}`);
+    this.findOwnListing(listingId, host, fail);
+    const reject = (reason: string, message: string, extra: Record<string, unknown> = {}) => {
+      fail(message);
+      return new BadRequestException({ statusCode: 400, error: 'Bad Request', reason, message, ...extra });
+    };
+
+    let startDate: string;
+    let endDate: string;
+    try {
+      startDate = this.normalizeDateOnly(dto?.startDate ?? '');
+      endDate = this.normalizeDateOnly(dto?.endDate ?? '');
+    } catch {
+      throw reject('FECHAS_INVALIDAS', 'Las fechas a bloquear no son válidas.');
+    }
+    if (endDate < startDate) {
+      throw reject('FECHAS_INVALIDAS', 'La última fecha a bloquear no puede ser anterior a la primera.');
+    }
+    if (startDate < this.getTodayDateOnly()) {
+      throw reject('FECHA_PASADA', 'No se pueden bloquear fechas que ya pasaron.');
+    }
+
+    const checkOut = new Date(Date.parse(`${endDate}T00:00:00.000Z`) + MS_PER_DAY).toISOString().slice(0, 10);
+    const nights = nightsInInterval(startDate, checkOut);
+    const periods = this.periodsOf(listingId);
+    if (!this.areNightsCoveredByPeriods(nights, periods)) {
+      const covered = new Set(periods.flatMap((period) => nightsInInterval(period.startDate, period.endDate)));
+      throw reject(
+        'FUERA_DE_DISPONIBILIDAD',
+        'Solo puedes bloquear fechas dentro de tus periodos disponibles; las demás ya no se pueden reservar.',
+        { outsideDates: nights.filter((night) => !covered.has(night)) },
+      );
+    }
+
+    const taken = this.reservedPeriodsOf(listingId).filter((period) => period.blockedNights.some((night) => nights.includes(night)));
+    if (taken.length > 0) {
+      const takenNights = (type: 'RESERVA' | 'BLOQUEO') =>
+        taken
+          .filter((period) => (period.type ?? 'RESERVA') === type)
+          .flatMap((period) => period.blockedNights)
+          .filter((night) => nights.includes(night));
+      const reservedDates = takenNights('RESERVA');
+      const blockedDates = takenNights('BLOQUEO');
+      throw reject(
+        'FECHAS_OCUPADAS',
+        reservedDates.length > 0
+          ? 'Algunas de esas fechas ya tienen reservas; no se pueden bloquear.'
+          : 'Algunas de esas fechas ya están bloqueadas.',
+        { reservedDates, blockedDates },
+      );
+    }
+
+    const note = String(dto?.note ?? '').trim() || undefined;
+    const block: BlockedPeriodResponseDto = {
+      id: randomUUID(),
+      listingId,
+      type: 'BLOQUEO',
+      checkIn: startDate,
+      checkOut,
+      blockedNights: nights,
+      ...(note ? { note } : {}),
+      createdAt: new Date(),
+    };
+    this.reservedPeriodsStore.push(block);
+    this.recordReservedBlockChange(
+      host.email,
+      listingId,
+      AuditResult.EXITOSO,
+      `Fechas bloqueadas por el anfitrión: noches ${nights.join(', ')}${note ? ` (${note})` : ''}`,
+    );
+    return block;
+  }
+
+  /** HU-021 · Bloqueos manuales vigentes del anfitrión dueño (los de reservas no se incluyen). */
+  getBlockedDates(listingId: string, host: ActiveSession): BlockedPeriodResponseDto[] {
+    this.findOwnListing(listingId, host);
+    return this.reservedPeriodsOf(listingId).filter((period) => period.type === 'BLOQUEO');
+  }
+
+  /**
+   * HU-021 · Desbloquear fechas (CA2 · RF-027).
+   * Solo se quitan los bloqueos manuales del anfitrión dueño; las noches de una reserva no se desbloquean aquí.
+   * Las noches vuelven a estar disponibles para reservar.
+   */
+  unblockDates(listingId: string, blockId: string, host: ActiveSession): UnblockDatesResponseDto {
+    const fail = (detail: string) =>
+      this.auditService.record({
+        actor: host.email,
+        action: AuditAction.RESERVED_PERIOD_UNBLOCK,
+        entity: 'Listing',
+        entityId: listingId,
+        result: AuditResult.FALLIDO,
+        detail: `Desbloqueo rechazado: ${detail}`,
+      });
+    this.findOwnListing(listingId, host, fail);
+    const block = this.reservedPeriodsStore.find(
+      (period) => period.id === blockId && period.listingId === listingId && period.type === 'BLOQUEO',
+    );
+    if (!block) {
+      fail('el bloqueo no existe o no es un bloqueo manual');
+      throw new NotFoundException('El bloqueo no existe');
+    }
+
+    this.reservedPeriodsStore = this.reservedPeriodsStore.filter((period) => period !== block);
+    this.auditService.record({
+      actor: host.email,
+      action: AuditAction.RESERVED_PERIOD_UNBLOCK,
+      entity: 'Listing',
+      entityId: listingId,
+      result: AuditResult.EXITOSO,
+      detail: `Fechas desbloqueadas por el anfitrión: noches ${block.blockedNights.join(', ')}`,
+    });
+    return {
+      listingId,
+      blockId,
+      releasedNights: block.blockedNights,
+      message: 'Las fechas volvieron a estar disponibles para reservar.',
+    };
   }
 
   /** HU-023: lista los periodos reservados/bloqueados de un alojamiento. */

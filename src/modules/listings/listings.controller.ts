@@ -14,8 +14,10 @@ import {
   UpdateAvailabilityPeriodDto,
   PeriodHasBookingsErrorDto,
   AvailabilityOverlapErrorDto,
+  BlockDatesDto,
   BlockReservedPeriodDto,
   BlockedPeriodResponseDto,
+  UnblockDatesResponseDto,
 } from './dto/availability.dto';
 import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
@@ -520,7 +522,62 @@ export class ListingsController {
   @ApiParam({ name: 'id', description: 'ID del alojamiento' })
   @ApiResponse({ status: 200, description: 'Listado de periodos reservados/bloqueados', type: [BlockedPeriodResponseDto] })
   getReservedPeriods(@Param('id') id: string): BlockedPeriodResponseDto[] {
-    return this.listingsService.getReservedPeriods(id);
+    // HU-021: la nota de un bloqueo es privada del anfitrión.
+    return this.listingsService.getReservedPeriods(id).map(({ note: _note, ...period }) => period);
+  }
+
+  @Post(':id/blocked-dates')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Bloquear fechas manualmente · HU-021 (CA1)',
+    description:
+      'El anfitrión dueño bloquea noches concretas (de startDate a endDate, ambas incluidas) para uso propio o mantenimiento (RF-027, RN-004). Deben ser de hoy en adelante, estar dentro de sus periodos disponibles y no tener reservas ni otro bloqueo. Aparecen como BLOQUEADA en el calendario y no se pueden cotizar ni reservar.',
+  })
+  @ApiParam({ name: 'id', description: 'ID del alojamiento' })
+  @ApiResponse({ status: 201, description: 'Fechas bloqueadas', type: BlockedPeriodResponseDto })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Fechas inválidas (FECHAS_INVALIDAS), pasadas (FECHA_PASADA), fuera de los periodos disponibles (FUERA_DE_DISPONIBILIDAD, con outsideDates) o con reservas o bloqueos (FECHAS_OCUPADAS, con reservedDates y blockedDates)',
+  })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Solo para anfitriones' })
+  @ApiResponse({ status: 404, description: 'La publicación no existe o es de otro anfitrión' })
+  blockDates(@Param('id') id: string, @Body() dto: BlockDatesDto, @CurrentUser() user: ActiveSession): BlockedPeriodResponseDto {
+    return this.listingsService.blockDates(id, dto, user);
+  }
+
+  @Get(':id/blocked-dates')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Mis fechas bloqueadas · HU-021', description: 'Bloqueos manuales vigentes de la publicación del anfitrión, con su nota.' })
+  @ApiParam({ name: 'id', description: 'ID del alojamiento' })
+  @ApiResponse({ status: 200, description: 'Bloqueos manuales', type: [BlockedPeriodResponseDto] })
+  @ApiResponse({ status: 404, description: 'La publicación no existe o es de otro anfitrión' })
+  getBlockedDates(@Param('id') id: string, @CurrentUser() user: ActiveSession): BlockedPeriodResponseDto[] {
+    return this.listingsService.getBlockedDates(id, user);
+  }
+
+  @Delete(':id/blocked-dates/:blockId')
+  @Roles(Role.ANFITRION)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Desbloquear fechas · HU-021 (CA2)',
+    description: 'Quita un bloqueo manual del anfitrión dueño: sus noches vuelven a estar disponibles. Las noches de una reserva no se desbloquean aquí.',
+  })
+  @ApiParam({ name: 'id', description: 'ID del alojamiento' })
+  @ApiParam({ name: 'blockId', description: 'ID del bloqueo' })
+  @ApiResponse({ status: 200, description: 'Fechas desbloqueadas', type: UnblockDatesResponseDto })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Solo para anfitriones' })
+  @ApiResponse({ status: 404, description: 'La publicación es de otro anfitrión o el bloqueo no existe' })
+  unblockDates(
+    @Param('id') id: string,
+    @Param('blockId') blockId: string,
+    @CurrentUser() user: ActiveSession,
+  ): UnblockDatesResponseDto {
+    return this.listingsService.unblockDates(id, blockId, user);
   }
 
   @Get(':id/calendar')

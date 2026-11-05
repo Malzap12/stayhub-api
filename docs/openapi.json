@@ -2270,6 +2270,164 @@
         ]
       }
     },
+    "/api/listings/{id}/blocked-dates": {
+      "post": {
+        "operationId": "ListingsController_blockDates",
+        "summary": "Bloquear fechas manualmente · HU-021 (CA1)",
+        "description": "El anfitrión dueño bloquea noches concretas (de startDate a endDate, ambas incluidas) para uso propio o mantenimiento (RF-027, RN-004). Deben ser de hoy en adelante, estar dentro de sus periodos disponibles y no tener reservas ni otro bloqueo. Aparecen como BLOQUEADA en el calendario y no se pueden cotizar ni reservar.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockDatesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Fechas bloqueadas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlockedPeriodResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Fechas inválidas (FECHAS_INVALIDAS), pasadas (FECHA_PASADA), fuera de los periodos disponibles (FUERA_DE_DISPONIBILIDAD, con outsideDates) o con reservas o bloqueos (FECHAS_OCUPADAS, con reservedDates y blockedDates)"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Solo para anfitriones"
+          },
+          "404": {
+            "description": "La publicación no existe o es de otro anfitrión"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "ListingsController_getBlockedDates",
+        "summary": "Mis fechas bloqueadas · HU-021",
+        "description": "Bloqueos manuales vigentes de la publicación del anfitrión, con su nota.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bloqueos manuales",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BlockedPeriodResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "La publicación no existe o es de otro anfitrión"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/listings/{id}/blocked-dates/{blockId}": {
+      "delete": {
+        "operationId": "ListingsController_unblockDates",
+        "summary": "Desbloquear fechas · HU-021 (CA2)",
+        "description": "Quita un bloqueo manual del anfitrión dueño: sus noches vuelven a estar disponibles. Las noches de una reserva no se desbloquean aquí.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID del alojamiento",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "blockId",
+            "required": true,
+            "in": "path",
+            "description": "ID del bloqueo",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Fechas desbloqueadas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnblockDatesResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Solo para anfitriones"
+          },
+          "404": {
+            "description": "La publicación es de otro anfitrión o el bloqueo no existe"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings/{id}/calendar": {
       "get": {
         "operationId": "ListingsController_getCalendar",
@@ -3617,6 +3775,7 @@
                 "AVAILABILITY_PERIOD_UPDATE",
                 "AVAILABILITY_PERIOD_DELETE",
                 "RESERVED_PERIOD_BLOCK",
+                "RESERVED_PERIOD_UNBLOCK",
                 "BOOKING_STATUS_CHANGE",
                 "BOOKING_CANCELLATION",
                 "REVIEW_CREATED",
@@ -6213,6 +6372,11 @@
               "type": "string"
             }
           },
+          "note": {
+            "type": "string",
+            "example": "Mantenimiento",
+            "description": "HU-021: nota del anfitrión sobre el bloqueo (solo la ve el anfitrión)"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string",
@@ -6226,6 +6390,66 @@
           "checkOut",
           "blockedNights",
           "createdAt"
+        ]
+      },
+      "BlockDatesDto": {
+        "type": "object",
+        "properties": {
+          "startDate": {
+            "type": "string",
+            "example": "2027-03-10",
+            "description": "Primera noche bloqueada (YYYY-MM-DD)"
+          },
+          "endDate": {
+            "type": "string",
+            "example": "2027-03-12",
+            "description": "Última noche bloqueada (YYYY-MM-DD), incluida"
+          },
+          "note": {
+            "type": "string",
+            "example": "Mantenimiento",
+            "maxLength": 80,
+            "description": "Nota opcional: uso propio, mantenimiento…"
+          }
+        },
+        "required": [
+          "startDate",
+          "endDate"
+        ]
+      },
+      "UnblockDatesResponseDto": {
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "example": "uuid-1234-listing"
+          },
+          "blockId": {
+            "type": "string",
+            "example": "block-uuid-1"
+          },
+          "releasedNights": {
+            "example": [
+              "2027-03-10",
+              "2027-03-11",
+              "2027-03-12"
+            ],
+            "description": "Noches que vuelven a estar disponibles",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string",
+            "example": "Las fechas volvieron a estar disponibles para reservar."
+          }
+        },
+        "required": [
+          "listingId",
+          "blockId",
+          "releasedNights",
+          "message"
         ]
       },
       "CalendarDayDto": {
@@ -8052,6 +8276,7 @@
               "AVAILABILITY_PERIOD_UPDATE",
               "AVAILABILITY_PERIOD_DELETE",
               "RESERVED_PERIOD_BLOCK",
+              "RESERVED_PERIOD_UNBLOCK",
               "BOOKING_STATUS_CHANGE",
               "BOOKING_CANCELLATION",
               "REVIEW_CREATED",
