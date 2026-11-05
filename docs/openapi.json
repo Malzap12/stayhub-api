@@ -4,8 +4,8 @@
     "/api/notifications": {
       "get": {
         "operationId": "NotificationsController_findMine",
-        "summary": "Mis notificaciones · HU-043 (CA1, CA2, CA3) · HU-044 (CA1, CA2)",
-        "description": "Notificaciones dentro de la plataforma del usuario de la sesión, de la más reciente a la más antigua y paginadas, con el total sin leer (RF-059, RF-060, RNF-022).",
+        "summary": "Mis notificaciones · HU-043 (CA1, CA2, CA3) · HU-044 (CA1, CA2) · HU-045 (CA1)",
+        "description": "Notificaciones dentro de la plataforma del usuario de la sesión, de la más reciente a la más antigua y paginadas, con el total sin leer (RF-059, RF-060, RF-061, RNF-022).",
         "parameters": [
           {
             "name": "unread",
@@ -51,7 +51,82 @@
           }
         },
         "tags": [
-          "Notificaciones (HU-043, HU-044)"
+          "Notificaciones (HU-043, HU-044, HU-045)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/notifications/unread-count": {
+      "get": {
+        "operationId": "NotificationsController_getUnreadCount",
+        "summary": "Contador de notificaciones no leídas · HU-045 (CA1)",
+        "description": "Devuelve la cantidad de notificaciones sin leer del usuario autenticado al ingresar a la plataforma (RF-061).",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadNotificationsCountDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No autenticado"
+          }
+        },
+        "tags": [
+          "Notificaciones (HU-043, HU-044, HU-045)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/notifications/read": {
+      "patch": {
+        "operationId": "NotificationsController_markSelectedAsRead",
+        "summary": "Marcar una o varias notificaciones como leídas · HU-045 (CA2)",
+        "description": "Marca las notificaciones indicadas como leídas y devuelve el contador actualizado de no leídas (RF-061).",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkNotificationsReadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkNotificationsReadResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Lista de identificadores inválida o vacía"
+          },
+          "404": {
+            "description": "Alguna notificación no existe o pertenece a otro usuario"
+          }
+        },
+        "tags": [
+          "Notificaciones (HU-043, HU-044, HU-045)"
         ],
         "security": [
           {
@@ -63,15 +138,22 @@
     "/api/notifications/read-all": {
       "patch": {
         "operationId": "NotificationsController_markAllAsRead",
-        "summary": "Marcar todas mis notificaciones como leídas · HU-043 (CA3)",
+        "summary": "Marcar todas mis notificaciones como leídas · HU-043 (CA3) · HU-045 (CA2)",
         "parameters": [],
         "responses": {
           "200": {
-            "description": "Cantidad marcada como leída"
+            "description": "Cantidad marcada como leída y contador en cero",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkNotificationsReadResultDto"
+                }
+              }
+            }
           }
         },
         "tags": [
-          "Notificaciones (HU-043, HU-044)"
+          "Notificaciones (HU-043, HU-044, HU-045)"
         ],
         "security": [
           {
@@ -83,7 +165,7 @@
     "/api/notifications/{id}/read": {
       "patch": {
         "operationId": "NotificationsController_markAsRead",
-        "summary": "Marcar una notificación como leída · HU-043 (CA3) · HU-044 (CA2)",
+        "summary": "Marcar una notificación como leída · HU-043 (CA3) · HU-044 (CA2) · HU-045 (CA2)",
         "parameters": [
           {
             "name": "id",
@@ -111,7 +193,7 @@
           }
         },
         "tags": [
-          "Notificaciones (HU-043, HU-044)"
+          "Notificaciones (HU-043, HU-044, HU-045)"
         ],
         "security": [
           {
@@ -4493,7 +4575,7 @@
           "unread": {
             "type": "number",
             "example": 3,
-            "description": "Notificaciones sin leer"
+            "description": "Notificaciones sin leer (HU-045 CA1)"
           },
           "page": {
             "type": "number",
@@ -4523,6 +4605,57 @@
           "limit",
           "total",
           "totalPages"
+        ]
+      },
+      "UnreadNotificationsCountDto": {
+        "type": "object",
+        "properties": {
+          "unread": {
+            "type": "number",
+            "example": 3,
+            "description": "Cantidad de notificaciones no leídas (HU-045 CA1 · RF-061)"
+          }
+        },
+        "required": [
+          "unread"
+        ]
+      },
+      "MarkNotificationsReadDto": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "example": [
+              "notif-6f1c2a9e",
+              "notif-9a8b7c6d"
+            ],
+            "description": "IDs de una o varias notificaciones a marcar como leídas (HU-045 CA2 · RF-061)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      },
+      "MarkNotificationsReadResultDto": {
+        "type": "object",
+        "properties": {
+          "updated": {
+            "type": "number",
+            "example": 2,
+            "description": "Cantidad marcada como leída en esta operación (HU-045 CA2)"
+          },
+          "unread": {
+            "type": "number",
+            "example": 1,
+            "description": "Contador actualizado de notificaciones no leídas (HU-045 CA2)"
+          }
+        },
+        "required": [
+          "updated",
+          "unread"
         ]
       },
       "LoginDto": {

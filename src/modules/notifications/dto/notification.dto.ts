@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ArrayNotEmpty, IsArray, IsString } from 'class-validator';
 
 /** HU-043 · Eventos que generan una notificación dentro de la plataforma (RF-059, AMB-32). */
 export type NotificationType =
@@ -72,7 +73,7 @@ export class NotificationsSummaryDto {
   @ApiProperty({ type: [NotificationDto] })
   data: NotificationDto[];
 
-  @ApiProperty({ example: 3, description: 'Notificaciones sin leer' })
+  @ApiProperty({ example: 3, description: 'Notificaciones sin leer (HU-045 CA1)' })
   unread: number;
 
   @ApiProperty({ example: 1, description: 'Página actual (HU-044 CA1)' })
@@ -86,4 +87,29 @@ export class NotificationsSummaryDto {
 
   @ApiProperty({ example: 2, description: 'Total de páginas (HU-044 CA1)' })
   totalPages: number;
+}
+
+export class UnreadNotificationsCountDto {
+  @ApiProperty({ example: 3, description: 'Cantidad de notificaciones no leídas (HU-045 CA1 · RF-061)' })
+  unread: number;
+}
+
+export class MarkNotificationsReadDto {
+  @ApiProperty({
+    type: [String],
+    example: ['notif-6f1c2a9e', 'notif-9a8b7c6d'],
+    description: 'IDs de una o varias notificaciones a marcar como leídas (HU-045 CA2 · RF-061)',
+  })
+  @IsArray({ message: 'ids debe ser un arreglo de identificadores' })
+  @ArrayNotEmpty({ message: 'Debes enviar al menos una notificación para marcar como leída' })
+  @IsString({ each: true, message: 'Cada identificador debe ser texto' })
+  ids: string[];
+}
+
+export class MarkNotificationsReadResultDto {
+  @ApiProperty({ example: 2, description: 'Cantidad marcada como leída en esta operación (HU-045 CA2)' })
+  updated: number;
+
+  @ApiProperty({ example: 1, description: 'Contador actualizado de notificaciones no leídas (HU-045 CA2)' })
+  unread: number;
 }

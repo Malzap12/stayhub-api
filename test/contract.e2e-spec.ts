@@ -3568,4 +3568,79 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect((await call('DELETE', `/listings/${listing}/blocked-dates/${block.id}`, host)).status).toBe(404);
     });
   });
+
+  describe('HU-045 · Marcar notificaciones como leídas (CA1, CA2, RF-061)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const call = async (method: string, path: string, token: string | null, body?: unknown) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const suffix = randomUUID().slice(0, 8);
+    let host: string;
+    let other: string;
+
+    beforeAll(async () => {
+      const register = async (who: string, role: string) => {
+        const email = `${who}.hu045.${suffix}@prueba.com`;
+        await call('POST', '/auth/register', null, { name: 'Persona HU-045', email, password: 'Password123', role });
+        return login(email, 'Password123');
+      };
+      host = await register('anfitrion', 'ANFITRION');
+      other = await register('otro', 'HUESPED');
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+
+      for (let i = 1; i <= 3; i++) {
+        const created = await call('POST', '/listings', host, {
+          title: `Alojamiento HU045 ${i} ${suffix}`,
+          description: 'Alojamiento para probar contador y lectura de notificaciones',
+          city: 'Medellín',
+          department: 'Antioquia',
+          address: `Calle ${i}0 # 10-20`,
+          propertyType: 'APARTAMENTO',
+          maxGuests: 4,
+          pricePerNight: 200000,
+          amenities: ['WIFI'],
+          rules: ['No fiestas'],
+          images: ['https://images.unsplash.com/photo-1502672260266-1c1ef2d93688'],
+        });
+        expect(created.status).toBe(201);
+        await call('PATCH', `/listings/${created.body.id}/request-activation`, host);
+        expect((await call('PATCH', `/listings/${created.body.id}/approve`, admin)).status).toBe(200);
+      }
+    });
+
+    it('46.1 (CA1) expone el contador de no leídas al ingresar a la plataforma', async () => {
+      expect((await call('GET', '/notifications/unread-count', null)).status).toBe(401);
+
+      const countRes = await call('GET', '/notifications/unread-count', host);
+      expect(countRes.status).toBe(200);
+      expect(countRes.body).toEqual({ unread: 3 });
+
+      const summary = await call('GET', '/notifications', host);
+      expect(summary.status).toBe(200);
+      expect(summary.body.unread).toBe(3);
+    });
+
+    it('46.2 (CA2) marca una o varias notificaciones como leídas y actualiza el contador', async () => {
+      const list = (await call('GET', '/notifications', host)).body.data as { id: string }[];
+      expect(list).toHaveLength(3);
+
+      expect((await call('PATCH', '/notifications/read', host, { ids: [] })).status).toBe(400);
+      expect((await call('PATCH', '/notifications/read', other, { ids: [list[0].id] })).status).toBe(404);
+
+      const markBatch = await call('PATCH', '/notifications/read', host, { ids: [list[0].id, list[1].id] });
+      expect(markBatch.status).toBe(200);
+      expect(markBatch.body).toEqual({ updated: 2, unread: 1 });
+      expect((await call('GET', '/notifications/unread-count', host)).body).toEqual({ unread: 1 });
+
+      const markAll = await call('PATCH', '/notifications/read-all', host);
+      expect(markAll.status).toBe(200);
+      expect(markAll.body).toEqual({ updated: 1, unread: 0 });
+      expect((await call('GET', '/notifications/unread-count', host)).body).toEqual({ unread: 0 });
+    });
+  });
 });

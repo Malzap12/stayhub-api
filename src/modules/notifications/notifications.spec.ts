@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BookingsController } from '../bookings/bookings.controller';
 import { BookingsService } from '../bookings/bookings.service';
@@ -17,7 +17,7 @@ import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { NotificationDto } from './dto/notification.dto';
 import { BookingResponseDto } from '../bookings/dto/booking-response.dto';
 
-describe('HU-043 & HU-044 · Notificaciones (RF-059, RF-060, RN-021, RNF-022)', () => {
+describe('HU-043, HU-044 & HU-045 · Notificaciones (RF-059, RF-060, RF-061, RN-021, RNF-022)', () => {
   let bookings: BookingsController;
   let listings: ListingsController;
   let listingsService: ListingsService;
@@ -215,7 +215,7 @@ describe('HU-043 & HU-044 · Notificaciones (RF-059, RF-060, RN-021, RNF-022)', 
       expect(controller.findMine(host, 'true').data.map((n) => n.message)).toEqual(['b']);
       expect(() => controller.markAsRead(first.id, other)).toThrow(NotFoundException);
 
-      expect(controller.markAllAsRead(host)).toEqual({ updated: 1 });
+      expect(controller.markAllAsRead(host)).toEqual({ updated: 1, unread: 0 });
       expect(controller.findMine(host).unread).toBe(0);
     });
 
@@ -345,6 +345,46 @@ describe('HU-043 & HU-044 · Notificaciones (RF-059, RF-060, RN-021, RNF-022)', 
         unread: 1,
       });
       expect(summary.data).toHaveLength(1);
+    });
+  });
+
+  describe('HU-045 · Marcar notificaciones como leídas (CA1, CA2 · RF-061)', () => {
+    it('CA1: consulta el contador de notificaciones no leídas al ingresar a la plataforma', () => {
+      expect(controller.getUnreadCount(host)).toEqual({ unread: 0 });
+
+      notifications.notify({ recipient: { userId: host.userId }, type: 'PUBLICACION_APROBADA', message: 'n1', entity: 'Listing', entityId: 'l1' });
+      notifications.notify({ recipient: { userId: host.userId }, type: 'PUBLICACION_DEVUELTA', message: 'n2', entity: 'Listing', entityId: 'l2' });
+      notifications.notify({ recipient: { email: guest.email }, type: 'RESERVA_CONFIRMADA', message: 'n3', entity: 'Booking', entityId: 'b1' });
+
+      expect(controller.getUnreadCount(host)).toEqual({ unread: 2 });
+      expect(controller.getUnreadCount(guest)).toEqual({ unread: 1 });
+      expect(controller.getUnreadCount(other)).toEqual({ unread: 0 });
+    });
+
+    it('CA2: marca una o varias notificaciones seleccionadas como leídas y actualiza el contador', () => {
+      const n1 = notifications.notify({ recipient: { userId: host.userId }, type: 'PUBLICACION_APROBADA', message: 'n1', entity: 'Listing', entityId: 'l1' })!;
+      const n2 = notifications.notify({ recipient: { userId: host.userId }, type: 'PUBLICACION_APROBADA', message: 'n2', entity: 'Listing', entityId: 'l2' })!;
+      const n3 = notifications.notify({ recipient: { userId: host.userId }, type: 'PUBLICACION_APROBADA', message: 'n3', entity: 'Listing', entityId: 'l3' })!;
+
+      const firstBatch = controller.markSelectedAsRead({ ids: [n1.id, n2.id, n1.id] }, host);
+      expect(firstBatch).toEqual({ updated: 2, unread: 1 });
+      expect(controller.getUnreadCount(host)).toEqual({ unread: 1 });
+
+      const repeatedBatch = controller.markSelectedAsRead({ ids: [n1.id, n3.id] }, host);
+      expect(repeatedBatch).toEqual({ updated: 1, unread: 0 });
+      expect(controller.getUnreadCount(host)).toEqual({ unread: 0 });
+    });
+
+    it('CA2: rechaza arreglos vacíos o notificaciones ajenas/inexistentes sin alterar el contador', () => {
+      const own = notifications.notify({ recipient: { userId: host.userId }, type: 'PUBLICACION_APROBADA', message: 'propia', entity: 'Listing', entityId: 'l1' })!;
+      const foreign = notifications.notify({ recipient: { email: guest.email }, type: 'RESERVA_CONFIRMADA', message: 'ajena', entity: 'Booking', entityId: 'b1' })!;
+
+      expect(() => controller.markSelectedAsRead({ ids: [] }, host)).toThrow(BadRequestException);
+      expect(() => controller.markSelectedAsRead({ ids: ['   ', 123 as unknown as string] }, host)).toThrow(BadRequestException);
+      expect(() => notifications.markManyAsRead(undefined as unknown as string[], host)).toThrow(BadRequestException);
+      expect(() => controller.markSelectedAsRead({ ids: [own.id, foreign.id] }, host)).toThrow(NotFoundException);
+      expect(() => controller.markSelectedAsRead({ ids: ['notif-inexistente'] }, host)).toThrow(NotFoundException);
+      expect(controller.getUnreadCount(host)).toEqual({ unread: 1 });
     });
   });
 });

@@ -1,7 +1,12 @@
-import { Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { StatePersistenceService } from '../persistence/state-persistence.service';
-import { NotificationDto, NotificationsSummaryDto, NotificationType } from './dto/notification.dto';
+import {
+  MarkNotificationsReadResultDto,
+  NotificationDto,
+  NotificationsSummaryDto,
+  NotificationType,
+} from './dto/notification.dto';
 
 export const DEFAULT_NOTIFICATIONS_LIMIT = 10;
 export const MAX_NOTIFICATIONS_LIMIT = 50;
@@ -35,6 +40,7 @@ export interface BookingNotice {
 /**
  * HU-043 · Recibir notificaciones de los eventos (CA1, CA2, CA3 · RF-059, RN-021).
  * HU-044 · Consultar mis notificaciones (CA1, CA2 · RF-060, RNF-022).
+ * HU-045 · Marcar notificaciones como leídas (CA1, CA2 · RF-061).
  * Solo notificaciones dentro de la plataforma (AMB-32, SUP-11), guardadas en PostgreSQL.
  */
 @Injectable()
@@ -303,13 +309,18 @@ export class NotificationsService implements OnModuleInit {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
+  /** HU-045 CA1 (RF-061): contador de notificaciones no leídas del usuario. */
+  countUnread(user: NotificationRecipient): number {
+    return this.findMine(user, true).length;
+  }
+
   /** HU-044 CA1 (RF-060, RNF-022): notificaciones ordenadas de la más reciente a la más antigua y paginadas. */
   findMinePaginated(
     user: NotificationRecipient,
     options: { onlyUnread?: boolean; page?: number; limit?: number } = {},
   ): NotificationsSummaryDto {
     const allMatching = this.findMine(user, options.onlyUnread ?? false);
-    const unread = this.findMine(user, true).length;
+    const unread = this.countUnread(user);
     const rawPage = Number(options.page);
     const rawLimit = Number(options.limit);
     const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.trunc(rawPage) : 1;
@@ -340,6 +351,36 @@ export class NotificationsService implements OnModuleInit {
       notification.readAt = new Date();
     }
     return notification;
+  }
+
+  /** HU-045 CA2 (RF-061): marca una o varias notificaciones propias como leídas y actualiza el contador. */
+  markManyAsRead(ids: string[], user: NotificationRecipient): MarkNotificationsReadResultDto {
+    const normalizedIds = Array.from(
+      new Set((ids ?? []).map((id) => (typeof id === 'string' ? id.trim() : '')).filter(Boolean)),
+    );
+    if (normalizedIds.length === 0) {
+      throw new BadRequestException('Debes enviar al menos una notificación para marcar como leída');
+    }
+    const targets = normalizedIds.map((id) => {
+      const found = this.notifications.find((item) => item.id === id && this.belongsTo(item, user));
+      if (!found) {
+        throw new NotFoundException('Notificación no encontrada');
+      }
+      return found;
+    });
+    const now = new Date();
+    let updated = 0;
+    for (const item of targets) {
+      if (!item.read) {
+        item.read = true;
+        item.readAt = now;
+        updated += 1;
+      }
+    }
+    return {
+      updated,
+      unread: this.countUnread(user),
+    };
   }
 
   markAllAsRead(user: NotificationRecipient): number {
