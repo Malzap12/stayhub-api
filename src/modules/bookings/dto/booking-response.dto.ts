@@ -75,6 +75,12 @@ export class BookingCancellationDto {
 
   @ApiProperty({ example: ['2026-11-20', '2026-11-21'], description: 'Noches que volvieron a estar disponibles (RF-055)' })
   releasedNights: string[];
+
+  @ApiPropertyOptional({
+    example: 'REF-TEST-8A1C9E4B',
+    description: 'Referencia del reembolso en el proveedor de pruebas (HU-038 CA1 · RF-081, RN-030)',
+  })
+  refundReference?: string;
 }
 
 export class BookingResponseDto {

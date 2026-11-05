@@ -1,9 +1,9 @@
-import { Controller, Get } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Public, Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/role.enum';
 import { PaymentsService } from './payments.service';
-import { PaymentConfigDto, TestCardDto } from './dto/payment.dto';
+import { PaymentConfigDto, RefundRequestDto, RefundResponseDto, TestCardDto } from './dto/payment.dto';
 
 @ApiTags('Pagos (Payments)')
 @Controller('payments')
@@ -33,4 +33,17 @@ export class PaymentsController {
   getConfig(): PaymentConfigDto {
     return this.paymentsService.getConfig();
   }
+
+  @Post('refund')
+  @Roles(Role.ADMINISTRADOR, Role.HUESPED)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Registrar un reembolso de prueba · HU-038 (CA1 · RF-081, RN-030)',
+    description: 'Registra un reembolso en el proveedor de pruebas para una devolución mayor que cero.',
+  })
+  @ApiResponse({ status: 201, type: RefundResponseDto })
+  refund(@Body() dto: RefundRequestDto): RefundResponseDto {
+    return this.paymentsService.refund(dto);
+  }
+
 }

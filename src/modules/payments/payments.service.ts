@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, OnModuleInit, Optional, Servic
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { PaymentStatus } from '../../common/enums/payment-status.enum';
-import { PaymentCardDto, PaymentConfigDto, PaymentResponseDto, SavedPaymentMethodDto, TestCardDto } from './dto/payment.dto';
+import { PaymentCardDto, PaymentConfigDto, PaymentResponseDto, RefundRequestDto, RefundResponseDto, SavedPaymentMethodDto, TestCardDto } from './dto/payment.dto';
 
 export const PAYMENT_PROVIDER_NAME = 'StayHub Sandbox';
 export const PAYMENT_TEST_MODE = 'test';
@@ -51,6 +51,7 @@ export interface ChargeRequest {
 @Injectable()
 export class PaymentsService implements OnModuleInit {
   private readonly logger = new Logger(PaymentsService.name);
+  private readonly refundsStore = new Map<string, RefundResponseDto>();
 
   constructor(@Optional() private readonly config?: ConfigService) {}
 
@@ -200,6 +201,32 @@ export class PaymentsService implements OnModuleInit {
       message: 'Pago revertido: la reserva no se pudo confirmar',
       processedAt: new Date(),
     };
+  }
+
+  
+  /** HU-038 CA1 · Registra un reembolso de prueba para una devolución confirmada (RF-081, RN-030). */
+  refund(request: RefundRequestDto): RefundResponseDto {
+    this.assertTestMode();
+    if (!Number.isFinite(request.amount) || request.amount <= 0) {
+      throw new BadRequestException('El monto a reembolsar debe ser mayor que cero');
+    }
+    const refund: RefundResponseDto = {
+      id: `ref-${randomUUID()}`,
+      reference: `REF-TEST-${randomBytes(4).toString('hex').toUpperCase()}`,
+      bookingId: request.bookingId,
+      amount: request.amount,
+      currency: request.currency,
+      mode: 'TEST',
+      provider: PAYMENT_PROVIDER_NAME,
+      message: 'Reembolso de prueba registrado exitosamente',
+      processedAt: new Date(),
+    };
+    this.refundsStore.set(refund.reference, refund);
+    return refund;
+  }
+
+  getRefund(reference: string): RefundResponseDto | undefined {
+    return this.refundsStore.get(reference);
   }
 
   private isExpired(month: number, year: number, now = new Date()): boolean {

@@ -4112,6 +4112,44 @@
         ]
       }
     },
+    "/api/payments/refund": {
+      "post": {
+        "operationId": "PaymentsController_refund",
+        "summary": "Registrar un reembolso de prueba · HU-038 (CA1 · RF-081, RN-030)",
+        "description": "Registra un reembolso en el proveedor de pruebas para una devolución mayor que cero.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefundRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefundResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Pagos (Payments)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/reviews": {
       "post": {
         "operationId": "ReviewsController_create",
@@ -7396,6 +7434,11 @@
             "items": {
               "type": "string"
             }
+          },
+          "refundReference": {
+            "type": "string",
+            "example": "REF-TEST-8A1C9E4B",
+            "description": "Referencia del reembolso en el proveedor de pruebas (HU-038 CA1 · RF-081, RN-030)"
           }
         },
         "required": [
@@ -8584,6 +8627,92 @@
           "testMode",
           "liveKeysConfigured",
           "configuredKeys"
+        ]
+      },
+      "RefundRequestDto": {
+        "type": "object",
+        "properties": {
+          "bookingId": {
+            "type": "string",
+            "example": "uuid-reserva-789",
+            "description": "ID de la reserva a reembolsar"
+          },
+          "amount": {
+            "type": "number",
+            "example": 650000,
+            "description": "Monto a reembolsar (mayor que cero)"
+          },
+          "currency": {
+            "type": "string",
+            "example": "COP"
+          },
+          "reason": {
+            "type": "string",
+            "example": "Cancelación según política Flexible"
+          }
+        },
+        "required": [
+          "bookingId",
+          "amount",
+          "currency"
+        ]
+      },
+      "RefundResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ref-7e2a…",
+            "description": "ID interno del reembolso"
+          },
+          "reference": {
+            "type": "string",
+            "example": "REF-TEST-8A1C9E4B",
+            "description": "Referencia del reembolso generada por el proveedor de pruebas (CA1)"
+          },
+          "bookingId": {
+            "type": "string",
+            "example": "uuid-reserva-789",
+            "description": "ID de la reserva reembolsada"
+          },
+          "amount": {
+            "type": "number",
+            "example": 650000,
+            "description": "Valor reembolsado en el proveedor de pruebas"
+          },
+          "currency": {
+            "type": "string",
+            "example": "COP"
+          },
+          "mode": {
+            "type": "string",
+            "example": "TEST"
+          },
+          "provider": {
+            "type": "string",
+            "example": "StayHub Sandbox"
+          },
+          "message": {
+            "type": "string",
+            "example": "Reembolso de prueba registrado exitosamente"
+          },
+          "processedAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-04T22:00:00.000Z",
+            "description": "Fecha y hora en que se procesó el reembolso"
+          }
+        },
+        "required": [
+          "id",
+          "reference",
+          "bookingId",
+          "amount",
+          "currency",
+          "mode",
+          "provider",
+          "message",
+          "processedAt"
         ]
       },
       "CreateReviewDto": {

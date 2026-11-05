@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsNotEmpty, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { PaymentStatus } from '../../../common/enums/payment-status.enum';
 
 /**
@@ -134,4 +134,57 @@ export class PaymentConfigDto {
 
   @ApiProperty({ example: ['PAYMENT_SECRET_KEY'], description: 'Variables de clave configuradas (sin revelar su valor)' })
   configuredKeys: string[];
+}
+
+/** HU-038 · Solicitud de reembolso en el proveedor de pruebas (RF-081, RN-030). */
+export class RefundRequestDto {
+  @ApiProperty({ example: 'uuid-reserva-789', description: 'ID de la reserva a reembolsar' })
+  @IsString()
+  @IsNotEmpty()
+  bookingId: string;
+
+  @ApiProperty({ example: 650000, description: 'Monto a reembolsar (mayor que cero)' })
+  @IsNumber()
+  @IsPositive({ message: 'El monto a reembolsar debe ser mayor que cero' })
+  amount: number;
+
+  @ApiProperty({ example: 'COP' })
+  @IsString()
+  @IsNotEmpty()
+  currency: string;
+
+  @ApiPropertyOptional({ example: 'Cancelación según política Flexible' })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+/** HU-038 · Constancia de reembolso emitida por el proveedor de pruebas (CA1 · RF-081, RN-030). */
+export class RefundResponseDto {
+  @ApiProperty({ example: 'ref-7e2a…', description: 'ID interno del reembolso' })
+  id: string;
+
+  @ApiProperty({ example: 'REF-TEST-8A1C9E4B', description: 'Referencia del reembolso generada por el proveedor de pruebas (CA1)' })
+  reference: string;
+
+  @ApiProperty({ example: 'uuid-reserva-789', description: 'ID de la reserva reembolsada' })
+  bookingId: string;
+
+  @ApiProperty({ example: 650000, description: 'Valor reembolsado en el proveedor de pruebas' })
+  amount: number;
+
+  @ApiProperty({ example: 'COP' })
+  currency: string;
+
+  @ApiProperty({ example: 'TEST' })
+  mode: 'TEST';
+
+  @ApiProperty({ example: 'StayHub Sandbox' })
+  provider: string;
+
+  @ApiProperty({ example: 'Reembolso de prueba registrado exitosamente' })
+  message: string;
+
+  @ApiProperty({ example: '2026-11-04T22:00:00.000Z', description: 'Fecha y hora en que se procesó el reembolso' })
+  processedAt: Date;
 }
