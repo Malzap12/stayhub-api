@@ -2775,6 +2775,7 @@
                 "PENDIENTE",
                 "PENDIENTE_APROBACION",
                 "CONFIRMADA",
+                "RECHAZADA",
                 "CANCELADA",
                 "COMPLETADA",
                 "EN_REVISION"
@@ -2845,6 +2846,7 @@
                 "PENDIENTE",
                 "PENDIENTE_APROBACION",
                 "CONFIRMADA",
+                "RECHAZADA",
                 "CANCELADA",
                 "COMPLETADA",
                 "EN_REVISION"
@@ -2919,6 +2921,122 @@
           },
           "404": {
             "description": "La reserva no existe o es de un alojamiento de otro anfitrión"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/bookings/host/{id}/accept": {
+      "patch": {
+        "operationId": "BookingsController_acceptRequest",
+        "summary": "Aceptar una solicitud de reserva · HU-036 (CA1)",
+        "description": "Para solicitudes PENDIENTE_APROBACION de los alojamientos del anfitrión (RF-050). Verifica de nuevo la disponibilidad (RN-012, RN-015) y cobra en modo de pruebas con la tarjeta que el huésped guardó al enviar la solicitud. Si el pago se aprueba, la reserva queda CONFIRMADA y sus noches se bloquean; si se rechaza, la solicitud sigue PENDIENTE_APROBACION, las fechas no se bloquean y se avisa al huésped.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la solicitud",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resultado del pago y estado de la reserva",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingPaymentResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Las fechas ya no están disponibles (PERIODO_NO_DISPONIBLE, con unavailableNights); no se cobra"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Solo para anfitriones"
+          },
+          "404": {
+            "description": "La solicitud no existe o es de un alojamiento de otro anfitrión"
+          },
+          "409": {
+            "description": "La solicitud ya no está pendiente (SOLICITUD_NO_PENDIENTE) o no tiene tarjeta guardada (SIN_MEDIO_DE_PAGO)"
+          }
+        },
+        "tags": [
+          "Reservas y Cotizaciones (Bookings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/bookings/host/{id}/reject": {
+      "patch": {
+        "operationId": "BookingsController_rejectRequest",
+        "summary": "Rechazar una solicitud de reserva · HU-036 (CA2)",
+        "description": "La solicitud PENDIENTE_APROBACION queda RECHAZADA con el motivo opcional del anfitrión, no se cobra, se descarta la tarjeta guardada, se registra en la auditoría y se notifica al huésped (RF-050).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "ID de la solicitud",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Solicitud RECHAZADA",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Motivo de más de 300 caracteres"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Solo para anfitriones"
+          },
+          "404": {
+            "description": "La solicitud no existe o es de un alojamiento de otro anfitrión"
+          },
+          "409": {
+            "description": "La solicitud ya no está pendiente (SOLICITUD_NO_PENDIENTE)"
           }
         },
         "tags": [
@@ -3019,7 +3137,7 @@
             }
           },
           "400": {
-            "description": "Alojamiento no disponible o datos inválidos"
+            "description": "Alojamiento no disponible o datos inválidos; HU-036: en una publicación con aprobación falta la tarjeta de prueba (TARJETA_REQUERIDA)"
           },
           "401": {
             "description": "No autenticado (CA1)"
@@ -4140,6 +4258,8 @@
             "enum": [
               "RESERVA_CONFIRMADA",
               "SOLICITUD_RESERVA",
+              "SOLICITUD_RECHAZADA",
+              "PAGO_RECHAZADO",
               "RESERVA_CANCELADA",
               "RESERVA_EN_REVISION",
               "RESERVA_MANTENIDA",
@@ -7020,6 +7140,74 @@
           "processedAt"
         ]
       },
+      "SavedPaymentMethodDto": {
+        "type": "object",
+        "properties": {
+          "reference": {
+            "type": "string",
+            "example": "pm_test_visa_4242",
+            "description": "Referencia de la tarjeta en el proveedor de pruebas"
+          },
+          "cardBrand": {
+            "type": "string",
+            "example": "VISA"
+          },
+          "cardLast4": {
+            "type": "string",
+            "example": "4242"
+          },
+          "cardHolder": {
+            "type": "string",
+            "example": "Ana Pérez"
+          },
+          "expMonth": {
+            "type": "number",
+            "example": 12
+          },
+          "expYear": {
+            "type": "number",
+            "example": 2030
+          }
+        },
+        "required": [
+          "reference",
+          "cardBrand",
+          "cardLast4",
+          "cardHolder",
+          "expMonth",
+          "expYear"
+        ]
+      },
+      "HostDecisionDto": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "ACEPTADA",
+              "RECHAZADA"
+            ],
+            "example": "RECHAZADA"
+          },
+          "decidedBy": {
+            "type": "string",
+            "example": "anfitrion@stayhub.com"
+          },
+          "decidedAt": {
+            "type": "string",
+            "example": "2026-11-03T15:00:00.000Z"
+          },
+          "reason": {
+            "type": "string",
+            "example": "Esas fechas ya las tengo comprometidas."
+          }
+        },
+        "required": [
+          "decision",
+          "decidedBy",
+          "decidedAt"
+        ]
+      },
       "BookingResponseDto": {
         "type": "object",
         "properties": {
@@ -7075,6 +7263,7 @@
               "PENDIENTE",
               "PENDIENTE_APROBACION",
               "CONFIRMADA",
+              "RECHAZADA",
               "CANCELADA",
               "COMPLETADA",
               "EN_REVISION"
@@ -7119,6 +7308,7 @@
               "PENDIENTE",
               "PENDIENTE_APROBACION",
               "CONFIRMADA",
+              "RECHAZADA",
               "CANCELADA",
               "COMPLETADA",
               "EN_REVISION"
@@ -7194,6 +7384,22 @@
             "allOf": [
               {
                 "$ref": "#/components/schemas/PaymentResponseDto"
+              }
+            ]
+          },
+          "savedPaymentMethod": {
+            "description": "HU-036: tarjeta de prueba de una solicitud PENDIENTE_APROBACION; se cobra cuando el anfitrión la acepta",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SavedPaymentMethodDto"
+              }
+            ]
+          },
+          "hostDecision": {
+            "description": "HU-036: decisión del anfitrión sobre la solicitud",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HostDecisionDto"
               }
             ]
           },
@@ -7302,6 +7508,7 @@
               "PENDIENTE",
               "PENDIENTE_APROBACION",
               "CONFIRMADA",
+              "RECHAZADA",
               "CANCELADA",
               "COMPLETADA",
               "EN_REVISION"
@@ -7501,6 +7708,7 @@
               "PENDIENTE",
               "PENDIENTE_APROBACION",
               "CONFIRMADA",
+              "RECHAZADA",
               "CANCELADA",
               "COMPLETADA",
               "EN_REVISION"
@@ -7557,6 +7765,16 @@
               }
             ]
           },
+          "paymentCard": {
+            "type": "string",
+            "example": "VISA ···· 4242",
+            "description": "HU-036: tarjeta guardada con la solicitud; se cobra al aceptarla"
+          },
+          "rejectionReason": {
+            "type": "string",
+            "example": "Esas fechas ya las tengo comprometidas.",
+            "description": "HU-036: motivo con que se rechazó la solicitud"
+          },
           "cancellation": {
             "description": "Detalle de la cancelación cuando la reserva está CANCELADA (HU-042).",
             "allOf": [
@@ -7581,6 +7799,41 @@
           "listingTitle",
           "listingCity"
         ]
+      },
+      "BookingPaymentResultDto": {
+        "type": "object",
+        "properties": {
+          "booking": {
+            "description": "Reserva: CONFIRMADA si el pago se aprobó; si se rechazó sigue PENDIENTE (o PENDIENTE_APROBACION al aceptar una solicitud)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BookingResponseDto"
+              }
+            ]
+          },
+          "payment": {
+            "description": "Resultado del pago (APROBADO o RECHAZADO) con su referencia",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaymentResponseDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "booking",
+          "payment"
+        ]
+      },
+      "RejectRequestDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "Esas fechas ya las tengo comprometidas.",
+            "maxLength": 300
+          }
+        }
       },
       "CancelBookingDto": {
         "type": "object",
@@ -7695,31 +7948,6 @@
           "checkOut",
           "guests",
           "idempotencyKey"
-        ]
-      },
-      "BookingPaymentResultDto": {
-        "type": "object",
-        "properties": {
-          "booking": {
-            "description": "Reserva: CONFIRMADA si el pago se aprobó, PENDIENTE si se rechazó",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/BookingResponseDto"
-              }
-            ]
-          },
-          "payment": {
-            "description": "Resultado del pago (APROBADO o RECHAZADO) con su referencia",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/PaymentResponseDto"
-              }
-            ]
-          }
-        },
-        "required": [
-          "booking",
-          "payment"
         ]
       },
       "ResolveReviewDto": {

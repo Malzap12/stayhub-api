@@ -3353,4 +3353,123 @@ describe('HU-066 · Contratos OpenAPI y Flujo E2E por Servicio', () => {
       expect(auditRes.body.data.some((item: { entityId: string }) => item.entityId === id)).toBe(true);
     });
   });
+
+  describe('HU-036 · Aprobar o rechazar solicitudes de reserva (CA1, CA2, RF-050, RN-012, RN-015)', () => {
+    const json = { 'Content-Type': 'application/json' };
+    const auth = (token: string) => ({ ...json, Authorization: `Bearer ${token}` });
+    const login = async (email: string, password: string) =>
+      (await (await fetch(`${baseUrl}/auth/login`, { method: 'POST', headers: json, body: JSON.stringify({ email, password }) })).json())
+        .token as string;
+    const call = async (method: string, path: string, token: string | null, body?: unknown) => {
+      const res = await fetch(`${baseUrl}${path}`, { method, headers: token ? auth(token) : json, body: body ? JSON.stringify(body) : undefined });
+      return { status: res.status, body: await res.json().catch(() => ({})) };
+    };
+    const card = (cardNumber: string) => ({ cardNumber, cardHolder: 'Huésped E2E', expMonth: 12, expYear: new Date().getFullYear() + 3, cvc: '123' });
+    const suffix = randomUUID().slice(0, 8);
+    let host: string;
+    let otherHost: string;
+    let guest: string;
+    let listing: string;
+
+    beforeAll(async () => {
+      const register = async (who: string, role: string) => {
+        const email = `${who}.hu036.${suffix}@prueba.com`;
+        await call('POST', '/auth/register', null, { name: 'Persona HU-036', email, password: 'Password123', role });
+        return login(email, 'Password123');
+      };
+      host = await register('anfitrion', 'ANFITRION');
+      otherHost = await register('otro', 'ANFITRION');
+      guest = await register('huesped', 'HUESPED');
+      const created = await call('POST', '/listings', host, {
+        title: `Cabaña con aprobación ${suffix}`,
+        description: 'Cabaña de prueba para aprobar o rechazar solicitudes',
+        city: 'Salento',
+        department: 'Quindío',
+        address: 'Vereda Palestina',
+        propertyType: 'CABANA',
+        maxGuests: 4,
+        pricePerNight: 190000,
+        amenities: ['WIFI'],
+        rules: ['No fumar'],
+        images: ['https://images.unsplash.com/photo-1512917774080-9991f1c4c750'],
+        bookingMode: 'CON_APROBACION',
+      });
+      expect(created.status).toBe(201);
+      listing = created.body.id;
+      await call('POST', `/listings/${listing}/availability-periods`, host, { startDate: '2027-04-01', endDate: '2027-04-30' });
+      await call('PATCH', `/listings/${listing}/request-activation`, host);
+      const admin = await login(process.env.ADMIN_INITIAL_EMAIL ?? 'admin@inversioneslr.com', process.env.ADMIN_INITIAL_PASSWORD ?? 'AdminLr2026!');
+      expect((await call('PATCH', `/listings/${listing}/approve`, admin)).status).toBe(200);
+    });
+
+    const ask = (checkIn: string, checkOut: string, cardNumber = '4242424242424242') =>
+      call('POST', '/bookings/instant', guest, { listingId: listing, checkIn, checkOut, guests: 2, idempotencyKey: randomUUID(), card: card(cardNumber) });
+
+    it('44.1 la solicitud guarda la tarjeta sin cobrar y solo el anfitrión dueño decide', async () => {
+      const pending = await ask('2027-04-02', '2027-04-04');
+      expect(pending.status).toBe(201);
+      expect(pending.body).toMatchObject({ status: 'PENDIENTE_APROBACION', savedPaymentMethod: { cardBrand: 'VISA', cardLast4: '4242' } });
+      expect(JSON.stringify(pending.body)).not.toContain('4242424242424242');
+      const detail = await call('GET', `/bookings/host/${pending.body.id}`, host);
+      expect(detail.body.paymentCard).toBe('VISA ···· 4242');
+
+      expect((await call('PATCH', `/bookings/host/${pending.body.id}/accept`, null)).status).toBe(401);
+      expect((await call('PATCH', `/bookings/host/${pending.body.id}/accept`, guest)).status).toBe(403);
+      expect((await call('PATCH', `/bookings/host/${pending.body.id}/accept`, otherHost)).status).toBe(404);
+      expect((await call('PATCH', `/bookings/host/${pending.body.id}/reject`, otherHost, {})).status).toBe(404);
+      expect((await call('GET', `/bookings/${pending.body.id}`, guest)).body.status).toBe('PENDIENTE_APROBACION');
+    });
+
+    it('44.2 (CA1) al aceptar verifica la disponibilidad, cobra y la reserva queda CONFIRMADA con sus noches bloqueadas', async () => {
+      const pending = await ask('2027-04-10', '2027-04-13');
+      const overlapping = await ask('2027-04-12', '2027-04-14');
+
+      const accepted = await call('PATCH', `/bookings/host/${pending.body.id}/accept`, host);
+
+      expect(accepted.status).toBe(200);
+      expect(accepted.body.payment).toMatchObject({ status: 'APROBADO', amount: pending.body.totalAmount });
+      expect(accepted.body.booking).toMatchObject({ status: 'CONFIRMADA', hostDecision: { decision: 'ACEPTADA' } });
+      const calendar = await call('GET', `/listings/${listing}/reserved-periods`, host);
+      expect(calendar.body.some((period: { bookingId?: string }) => period.bookingId === pending.body.id)).toBe(true);
+      expect((await call('PATCH', `/bookings/host/${pending.body.id}/accept`, host)).body.reason).toBe('SOLICITUD_NO_PENDIENTE');
+
+      const late = await call('PATCH', `/bookings/host/${overlapping.body.id}/accept`, host);
+      expect(late.status).toBe(400);
+      expect(late.body).toMatchObject({ reason: 'PERIODO_NO_DISPONIBLE', unavailableNights: ['2027-04-12'] });
+      const stillPending = await call('GET', `/bookings/${overlapping.body.id}`, guest);
+      expect(stillPending.body.status).toBe('PENDIENTE_APROBACION');
+      expect(stillPending.body.payment).toBeUndefined();
+    });
+
+    it('44.3 (CA1) si el pago se rechaza la solicitud sigue pendiente y no bloquea fechas', async () => {
+      const pending = await ask('2027-04-20', '2027-04-22', '4000000000000002');
+
+      const result = await call('PATCH', `/bookings/host/${pending.body.id}/accept`, host);
+
+      expect(result.status).toBe(200);
+      expect(result.body.payment.status).toBe('RECHAZADO');
+      expect(result.body.booking.status).toBe('PENDIENTE_APROBACION');
+      const calendar = await call('GET', `/listings/${listing}/reserved-periods`, host);
+      expect(calendar.body.some((period: { bookingId?: string }) => period.bookingId === pending.body.id)).toBe(false);
+    });
+
+    it('44.4 (CA2) al rechazar queda RECHAZADA, no se cobra y se notifica al huésped', async () => {
+      const pending = await ask('2027-04-25', '2027-04-27');
+      expect((await call('PATCH', `/bookings/host/${pending.body.id}/reject`, host, { reason: 'x'.repeat(301) })).status).toBe(400);
+
+      const rejected = await call('PATCH', `/bookings/host/${pending.body.id}/reject`, host, { reason: 'Esas fechas no recibo huéspedes.' });
+
+      expect(rejected.status).toBe(200);
+      expect(rejected.body).toMatchObject({ status: 'RECHAZADA', hostDecision: { decision: 'RECHAZADA', reason: 'Esas fechas no recibo huéspedes.' } });
+      expect(rejected.body.payment).toBeUndefined();
+      expect(rejected.body.savedPaymentMethod).toBeUndefined();
+      const notices = await call('GET', '/notifications', guest);
+      const list = Array.isArray(notices.body) ? notices.body : notices.body.items ?? notices.body.data ?? [];
+      expect(list).toContainEqual(expect.objectContaining({ type: 'SOLICITUD_RECHAZADA', entityId: pending.body.id }));
+      expect((await call('GET', '/bookings/host?status=RECHAZADA', host)).body[0].bookings.map((item: { id: string }) => item.id)).toEqual([
+        pending.body.id,
+      ]);
+      expect((await call('PATCH', `/bookings/host/${pending.body.id}/accept`, host)).status).toBe(409);
+    });
+  });
 });

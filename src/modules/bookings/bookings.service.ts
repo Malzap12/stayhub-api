@@ -15,6 +15,7 @@ import { QuoteBookingDto, QuoteResponseDto } from './dto/quote-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { ResolveReviewDto, ReviewDecision } from './dto/resolve-review.dto';
+import { RejectRequestDto } from './dto/booking-request.dto';
 import { BookingPaymentResultDto, BookingResponseDto } from './dto/booking-response.dto';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
 import { BookingMode, DEFAULT_BOOKING_MODE } from '../../common/enums/booking-mode.enum';
@@ -28,7 +29,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { CANCELLATION_POLICIES, type CancellationPolicyCode } from '../listings/cancellation-policies';
 import { PaymentsService } from '../payments/payments.service';
-import { PaymentCardDto } from '../payments/dto/payment.dto';
+import { PaymentCardDto, SavedPaymentMethodDto } from '../payments/dto/payment.dto';
 import { PaymentStatus } from '../../common/enums/payment-status.enum';
 import { BookingNotice, NotificationsService } from '../notifications/notifications.service';
 import { AuthService, type ActiveSession } from '../auth/auth.service';
@@ -578,6 +579,8 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     // HU-018 CA2: en modalidad con aprobación la solicitud espera la decisión del anfitrión (RF-022, RN-015).
     const bookingMode = this.listingsService?.getBookingModeOf(bookingDto.listingId) ?? DEFAULT_BOOKING_MODE;
     const needsApproval = bookingMode === BookingMode.CON_APROBACION;
+    // HU-036 CA1: la solicitud guarda la tarjeta de prueba para cobrarla cuando el anfitrión la acepte.
+    const savedPaymentMethod = needsApproval ? this.savePaymentMethodFor(bookingDto.card) : undefined;
     const bookingCode = `RES-${randomBytes(4).toString('hex').toUpperCase()}`;
     const booking: BookingResponseDto = {
       id: `booking-${randomUUID()}`,
@@ -603,6 +606,7 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       breakdown: quoteData,
       status: needsApproval ? BookingStatus.PENDIENTE_APROBACION : BookingStatus.PENDIENTE,
       bookingMode,
+      ...(savedPaymentMethod ? { savedPaymentMethod } : {}),
       cancellationPolicy: (initialPolicy as any)?.code ?? (listing as any)?.cancellationPolicy,
       cancellationPolicyName: initialPolicy?.name,
       cancellationPolicyDescription: initialPolicy?.description,
@@ -635,6 +639,137 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     }
 
     return booking;
+  }
+
+  private savePaymentMethodFor(card?: PaymentCardDto): SavedPaymentMethodDto {
+    if (!card) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        reason: 'TARJETA_REQUERIDA',
+        message: 'Para enviar la solicitud agrega una tarjeta de prueba; solo se cobra si el anfitrión la acepta',
+      });
+    }
+    if (!this.paymentsService) {
+      throw new ServiceUnavailableException('El proveedor de pagos no está disponible');
+    }
+    return this.paymentsService.savePaymentMethod(card);
+  }
+
+  /**
+   * HU-036 · Aceptar una solicitud de reserva (CA1 · RF-050, RN-012, RN-015).
+   * En el turno del alojamiento verifica de nuevo la disponibilidad, cobra con la tarjeta guardada y, si el pago se
+   * aprueba, la reserva queda CONFIRMADA con sus noches bloqueadas. Si las fechas ya no están libres responde 400 sin
+   * cobrar; si el pago se rechaza, la solicitud sigue PENDIENTE_APROBACION, no se bloquean fechas y se avisa al huésped.
+   */
+  async acceptRequest(id: string, host: ActiveSession): Promise<BookingPaymentResultDto> {
+    const booking = this.findHostBookingOrFail(id, host, 'Aceptación');
+    return this.withListingLock(booking.listingId, async () => {
+      this.ensureAwaitingDecision(booking, host.email, 'Aceptación');
+      if (!this.paymentsService) {
+        throw new ServiceUnavailableException('El proveedor de pagos no está disponible');
+      }
+      const method = booking.savedPaymentMethod;
+      if (!method) {
+        this.recordDecisionFailure(booking, host.email, 'Aceptación rechazada: la solicitud no tiene una tarjeta guardada');
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'Conflict',
+          reason: 'SIN_MEDIO_DE_PAGO',
+          message: 'La solicitud no tiene una tarjeta guardada para cobrar; recházala para que el huésped la envíe de nuevo',
+        });
+      }
+      this.ensureStillAvailable(booking, host.email);
+
+      const payment = this.paymentsService.chargeSaved({
+        bookingId: booking.id,
+        amount: booking.totalAmount,
+        currency: booking.currency,
+        method,
+      });
+      booking.payment = payment;
+      const cardLabel = `${method.cardBrand} ···· ${method.cardLast4}`;
+
+      if (payment.status !== PaymentStatus.APROBADO) {
+        this.recordDecisionFailure(
+          booking,
+          host.email,
+          `Aceptación sin confirmar: pago ${payment.reference} rechazado (${payment.declineReason}); la solicitud sigue ${booking.status} y las fechas no se bloquean`,
+        );
+        this.notificationsService?.bookingRequestPaymentDeclined(this.noticeOf(booking), cardLabel);
+        return { booking, payment };
+      }
+
+      try {
+        this.confirmWithinLock(booking, host.email);
+      } catch (error) {
+        booking.payment = this.paymentsService.revert(payment);
+        this.recordConfirmationFailure(booking, host.email, `el pago ${payment.reference} se revirtió porque no se pudieron bloquear las noches`);
+        throw error;
+      }
+      booking.hostDecision = { decision: 'ACEPTADA', decidedBy: host.email, decidedAt: new Date().toISOString() };
+      delete booking.savedPaymentMethod;
+      this.auditService.record({
+        actor: host.email,
+        action: AuditAction.BOOKING_STATUS_CHANGE,
+        entity: 'Booking',
+        entityId: booking.id,
+        result: AuditResult.EXITOSO,
+        detail: `Solicitud ${booking.code ?? booking.id} aceptada por el anfitrión: disponibilidad verificada, pago ${payment.reference} aprobado con ${cardLabel} y reserva CONFIRMADA`,
+      });
+      return { booking, payment };
+    });
+  }
+
+  /**
+   * HU-036 · Rechazar una solicitud de reserva (CA2 · RF-050).
+   * La solicitud queda RECHAZADA con el motivo opcional del anfitrión, no se cobra, se descarta la tarjeta guardada,
+   * se registra en la auditoría y se notifica al huésped.
+   */
+  async rejectRequest(id: string, dto: RejectRequestDto, host: ActiveSession): Promise<BookingResponseDto> {
+    const booking = this.findHostBookingOrFail(id, host, 'Rechazo');
+    return this.withListingLock(booking.listingId, async () => {
+      this.ensureAwaitingDecision(booking, host.email, 'Rechazo');
+      const reason = String(dto?.reason ?? '').trim() || undefined;
+      booking.status = BookingStatus.RECHAZADA;
+      booking.hostDecision = { decision: 'RECHAZADA', decidedBy: host.email, decidedAt: new Date().toISOString(), ...(reason ? { reason } : {}) };
+      delete booking.savedPaymentMethod;
+      this.auditService.record({
+        actor: host.email,
+        action: AuditAction.BOOKING_STATUS_CHANGE,
+        entity: 'Booking',
+        entityId: booking.id,
+        result: AuditResult.EXITOSO,
+        detail: `Solicitud ${booking.code ?? booking.id} pasó de PENDIENTE_APROBACION a RECHAZADA: rechazada por el anfitrión, sin cobro${reason ? `. Motivo: ${reason}` : ''}`,
+      });
+      this.notificationsService?.bookingRequestRejected(this.noticeOf(booking), reason);
+      return booking;
+    });
+  }
+
+  private ensureAwaitingDecision(booking: BookingResponseDto, actor: string, action: string): void {
+    if (booking.status === BookingStatus.PENDIENTE_APROBACION) {
+      return;
+    }
+    this.recordDecisionFailure(booking, actor, `${action} rechazada: la solicitud está ${booking.status}`);
+    throw new ConflictException({
+      statusCode: 409,
+      error: 'Conflict',
+      reason: 'SOLICITUD_NO_PENDIENTE',
+      message: 'Esta solicitud ya no espera tu decisión',
+      currentStatus: booking.status,
+    });
+  }
+
+  private recordDecisionFailure(booking: BookingResponseDto, actor: string, detail: string): void {
+    this.auditService.record({
+      actor,
+      action: AuditAction.BOOKING_STATUS_CHANGE,
+      entity: 'Booking',
+      entityId: booking.id,
+      result: AuditResult.FALLIDO,
+      detail,
+    });
   }
 
   /**
@@ -1136,6 +1271,7 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
     booking: BookingResponseDto,
     listing: { id: string; title: string; city?: string },
   ): HostBookingDetailDto {
+    const method = booking.savedPaymentMethod;
     const guest = this.authService?.findByEmail(booking.guestId);
     const { cancelledBy: _cancelledBy, ...hostCancellation } =
       booking.cancellation ?? ({} as NonNullable<BookingResponseDto['cancellation']>);
@@ -1150,8 +1286,28 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
         booking.status === BookingStatus.CONFIRMADA
           ? { name: guest?.name ?? booking.guestId, email: booking.guestId, phone: guest?.phone }
           : undefined,
+      ...(method ? { paymentCard: `${method.cardBrand} ···· ${method.cardLast4}` } : {}),
+      ...(booking.hostDecision?.reason ? { rejectionReason: booking.hostDecision.reason } : {}),
       ...(booking.cancellation ? { cancellation: hostCancellation } : {}),
     };
+  }
+
+  /** Reserva de un alojamiento del anfitrión; si no existe o es de otro anfitrión responde 404 y lo registra. */
+  private findHostBookingOrFail(id: string, host: ActiveSession, action: string): BookingResponseDto {
+    const booking = this.bookingsStore.find((item) => item.id === id);
+    const listing = booking ? this.listingsService?.getListing(booking.listingId) : undefined;
+    if (!booking || !listing || listing.hostId !== host.userId) {
+      this.auditService.record({
+        actor: host.email,
+        action: AuditAction.BOOKING_STATUS_CHANGE,
+        entity: 'Booking',
+        entityId: id,
+        result: AuditResult.FALLIDO,
+        detail: `${action} rechazada: la reserva no es de un alojamiento del anfitrión`,
+      });
+      throw new NotFoundException(`Reserva con id ${id} no encontrada`);
+    }
+    return booking;
   }
 
   private toHostSummary(booking: BookingResponseDto): HostBookingSummaryDto {

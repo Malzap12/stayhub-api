@@ -3,6 +3,8 @@ export enum BookingStatus {
   /** HU-018 CA2: solicitud en una publicación con aprobación; espera la decisión del anfitrión (RN-015). */
   PENDIENTE_APROBACION = 'PENDIENTE_APROBACION',
   CONFIRMADA = 'CONFIRMADA',
+  /** HU-036 CA2: el anfitrión rechazó la solicitud; no se cobró ni se bloquearon fechas. */
+  RECHAZADA = 'RECHAZADA',
   CANCELADA = 'CANCELADA',
   COMPLETADA = 'COMPLETADA',
   /** Reserva en revisión manual (RN-020); el cierre diario no la cambia (HU-046 CA2). */

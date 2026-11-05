@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, OnModuleInit, Optional, Servic
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { PaymentStatus } from '../../common/enums/payment-status.enum';
-import { PaymentCardDto, PaymentConfigDto, PaymentResponseDto, TestCardDto } from './dto/payment.dto';
+import { PaymentCardDto, PaymentConfigDto, PaymentResponseDto, SavedPaymentMethodDto, TestCardDto } from './dto/payment.dto';
 
 export const PAYMENT_PROVIDER_NAME = 'StayHub Sandbox';
 export const PAYMENT_TEST_MODE = 'test';
@@ -110,15 +110,7 @@ export class PaymentsService implements OnModuleInit {
     }
 
     const number = String(request.card.cardNumber ?? '').replace(/\s+/g, '');
-    const testCard = TEST_CARDS.find((card) => card.number === number);
-    if (!testCard) {
-      throw new BadRequestException({
-        statusCode: 400,
-        error: 'Bad Request',
-        reason: 'TARJETA_NO_DE_PRUEBA',
-        message: 'Solo se aceptan tarjetas de prueba del proveedor; no se procesan pagos con dinero real',
-      });
-    }
+    const testCard = this.findTestCard(number);
 
     const expired = this.isExpired(Number(request.card.expMonth), Number(request.card.expYear));
     const status = expired ? PaymentStatus.RECHAZADO : testCard.outcome;
@@ -140,6 +132,64 @@ export class PaymentsService implements OnModuleInit {
       provider: PAYMENT_PROVIDER_NAME,
       processedAt: new Date(),
     };
+  }
+
+  /**
+   * HU-036 · Guarda la tarjeta de prueba de una solicitud de reserva sin cobrarla. Solo acepta tarjetas de prueba y
+   * no conserva el número completo ni el CVC.
+   */
+  savePaymentMethod(card: PaymentCardDto): SavedPaymentMethodDto {
+    this.assertTestMode();
+    const number = String(card.cardNumber ?? '').replace(/\s+/g, '');
+    const testCard = this.findTestCard(number);
+    return {
+      reference: `pm_test_${testCard.brand.toLowerCase()}_${number.slice(-4)}`,
+      cardBrand: testCard.brand,
+      cardLast4: number.slice(-4),
+      cardHolder: String(card.cardHolder ?? '').trim(),
+      expMonth: Number(card.expMonth),
+      expYear: Number(card.expYear),
+    };
+  }
+
+  /** HU-036 CA1 · Cobra con la tarjeta guardada en la solicitud cuando el anfitrión la acepta. */
+  chargeSaved(request: Omit<ChargeRequest, 'card'> & { method: SavedPaymentMethodDto }): PaymentResponseDto {
+    const testCard = TEST_CARDS.find(
+      (card) => card.brand === request.method.cardBrand && card.number.endsWith(request.method.cardLast4),
+    );
+    if (!testCard) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        reason: 'TARJETA_NO_DE_PRUEBA',
+        message: 'La tarjeta guardada no es una tarjeta de prueba del proveedor',
+      });
+    }
+    return this.charge({
+      bookingId: request.bookingId,
+      amount: request.amount,
+      currency: request.currency,
+      card: {
+        cardNumber: testCard.number,
+        cardHolder: request.method.cardHolder,
+        expMonth: request.method.expMonth,
+        expYear: request.method.expYear,
+        cvc: '000',
+      },
+    });
+  }
+
+  private findTestCard(number: string): TestCardDto {
+    const testCard = TEST_CARDS.find((card) => card.number === number);
+    if (!testCard) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        reason: 'TARJETA_NO_DE_PRUEBA',
+        message: 'Solo se aceptan tarjetas de prueba del proveedor; no se procesan pagos con dinero real',
+      });
+    }
+    return testCard;
   }
 
   /** HU-031 · Anula un pago aprobado cuando la reserva no se pudo confirmar, para no cobrar sin reserva (RNF-009). */
