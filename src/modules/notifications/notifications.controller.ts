@@ -1,13 +1,19 @@
-import { Controller, Get, HttpCode, HttpStatus, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Role } from '../../common/enums/role.enum';
 import type { ActiveSession } from '../auth/auth.service';
 import { NotificationsService } from './notifications.service';
-import { NotificationDto, NotificationsSummaryDto } from './dto/notification.dto';
+import {
+  MarkNotificationsReadDto,
+  MarkNotificationsReadResultDto,
+  NotificationDto,
+  NotificationsSummaryDto,
+  UnreadNotificationsCountDto,
+} from './dto/notification.dto';
 
-@ApiTags('Notificaciones (HU-043, HU-044)')
+@ApiTags('Notificaciones (HU-043, HU-044, HU-045)')
 @ApiBearerAuth()
 @Controller('notifications')
 export class NotificationsController {
@@ -16,9 +22,9 @@ export class NotificationsController {
   @Get()
   @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
   @ApiOperation({
-    summary: 'Mis notificaciones · HU-043 (CA1, CA2, CA3) · HU-044 (CA1, CA2)',
+    summary: 'Mis notificaciones · HU-043 (CA1, CA2, CA3) · HU-044 (CA1, CA2) · HU-045 (CA1)',
     description:
-      'Notificaciones dentro de la plataforma del usuario de la sesión, de la más reciente a la más antigua y paginadas, con el total sin leer (RF-059, RF-060, RNF-022).',
+      'Notificaciones dentro de la plataforma del usuario de la sesión, de la más reciente a la más antigua y paginadas, con el total sin leer (RF-059, RF-060, RF-061, RNF-022).',
   })
   @ApiQuery({ name: 'unread', required: false, description: 'true para ver solo las no leídas' })
   @ApiQuery({ name: 'page', required: false, description: 'Número de página (por defecto 1 · HU-044 CA1)' })
@@ -39,18 +45,48 @@ export class NotificationsController {
     });
   }
 
+  @Get('unread-count')
+  @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiOperation({
+    summary: 'Contador de notificaciones no leídas · HU-045 (CA1)',
+    description: 'Devuelve la cantidad de notificaciones sin leer del usuario autenticado al ingresar a la plataforma (RF-061).',
+  })
+  @ApiResponse({ status: 200, type: UnreadNotificationsCountDto })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  getUnreadCount(@CurrentUser() user: ActiveSession): UnreadNotificationsCountDto {
+    return { unread: this.notificationsService.countUnread({ userId: user?.userId, email: user?.email }) };
+  }
+
+  @Patch('read')
+  @HttpCode(HttpStatus.OK)
+  @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
+  @ApiOperation({
+    summary: 'Marcar una o varias notificaciones como leídas · HU-045 (CA2)',
+    description: 'Marca las notificaciones indicadas como leídas y devuelve el contador actualizado de no leídas (RF-061).',
+  })
+  @ApiResponse({ status: 200, type: MarkNotificationsReadResultDto })
+  @ApiResponse({ status: 400, description: 'Lista de identificadores inválida o vacía' })
+  @ApiResponse({ status: 404, description: 'Alguna notificación no existe o pertenece a otro usuario' })
+  markSelectedAsRead(
+    @Body() dto: MarkNotificationsReadDto,
+    @CurrentUser() user: ActiveSession,
+  ): MarkNotificationsReadResultDto {
+    return this.notificationsService.markManyAsRead(dto.ids, { userId: user?.userId, email: user?.email });
+  }
+
   @Patch('read-all')
   @HttpCode(HttpStatus.OK)
   @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
-  @ApiOperation({ summary: 'Marcar todas mis notificaciones como leídas · HU-043 (CA3)' })
-  @ApiResponse({ status: 200, description: 'Cantidad marcada como leída' })
-  markAllAsRead(@CurrentUser() user: ActiveSession): { updated: number } {
-    return { updated: this.notificationsService.markAllAsRead({ userId: user?.userId, email: user?.email }) };
+  @ApiOperation({ summary: 'Marcar todas mis notificaciones como leídas · HU-043 (CA3) · HU-045 (CA2)' })
+  @ApiResponse({ status: 200, type: MarkNotificationsReadResultDto, description: 'Cantidad marcada como leída y contador en cero' })
+  markAllAsRead(@CurrentUser() user: ActiveSession): MarkNotificationsReadResultDto {
+    const recipient = { userId: user?.userId, email: user?.email };
+    return { updated: this.notificationsService.markAllAsRead(recipient), unread: 0 };
   }
 
   @Patch(':id/read')
   @Roles(Role.HUESPED, Role.ANFITRION, Role.ADMINISTRADOR)
-  @ApiOperation({ summary: 'Marcar una notificación como leída · HU-043 (CA3) · HU-044 (CA2)' })
+  @ApiOperation({ summary: 'Marcar una notificación como leída · HU-043 (CA3) · HU-044 (CA2) · HU-045 (CA2)' })
   @ApiParam({ name: 'id', description: 'ID de la notificación' })
   @ApiResponse({ status: 200, type: NotificationDto })
   @ApiResponse({ status: 404, description: 'No existe o es de otro usuario' })
