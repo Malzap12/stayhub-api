@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { AuthService } from '../auth/auth.service';
-import { BookingsService } from '../bookings/bookings.service';
+import { BookingsService, bogotaDate } from '../bookings/bookings.service';
 import { ListingsService } from '../listings/listings.service';
 import { Role } from '../../common/enums/role.enum';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { BookingStatus } from '../../common/enums/booking-status.enum';
-import { BookingsByStatusDto, DashboardDto, TopCityDto, UsersByRoleDto } from './dto/dashboard.dto';
+import { BookingsByStatusDto, DashboardDto, DashboardPeriodDto, DashboardQueryDto, TopCityDto, UsersByRoleDto } from './dto/dashboard.dto';
 
 /** HU-056 · Reservas que cuentan como demanda e ingresos (AMB-24, AMB-25): las pagadas que no se cancelaron. */
 export const REVENUE_STATUSES: BookingStatus[] = [BookingStatus.CONFIRMADA, BookingStatus.COMPLETADA];
@@ -16,8 +16,9 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 
 /**
  * HU-056 · Ver los indicadores del negocio (CA1, CA2 · RF-074, RN-026).
- * Calcula los indicadores con los mismos datos que se guardan en PostgreSQL, así que coinciden con una consulta
- * directa a las tablas usuarios, publicaciones y reservas (CA2).
+ * HU-057 · Filtrar el dashboard por periodo (CA1 · RF-075).
+ * Calcula los indicadores con los mismos datos que se guardan en PostgreSQL, recalculando reservas,
+ * ingresos y demanda cuando se aplica un rango de fechas.
  */
 @Injectable()
 export class ReportsService {
@@ -27,7 +28,16 @@ export class ReportsService {
     private readonly bookingsService: BookingsService,
   ) {}
 
-  getDashboard(now: Date = new Date()): DashboardDto {
+  getDashboard(filters?: DashboardQueryDto, now: Date = new Date()): DashboardDto {
+    if (filters?.from && filters?.to && filters.from.slice(0, 10) > filters.to.slice(0, 10)) {
+      throw new BadRequestException('La fecha inicial no puede ser posterior a la fecha final');
+    }
+
+    const inRange = (created: unknown) => {
+      const day = created ? bogotaDate(new Date(created as string)) : undefined;
+      return (!filters?.from || (!!day && day >= filters.from.slice(0, 10))) && (!filters?.to || (!!day && day <= filters.to.slice(0, 10)));
+    };
+
     const usersByRole: UsersByRoleDto = { HUESPED: 0, ANFITRION: 0, ADMINISTRADOR: 0, total: 0 };
     for (const account of this.authService.listAccounts()) {
       if (account.role in usersByRole) usersByRole[account.role as Role] += 1;
@@ -45,6 +55,8 @@ export class ReportsService {
     const cities = new Map<string, TopCityDto>();
 
     for (const booking of this.bookingsService.getAllBookings()) {
+      if (!inRange(booking.createdAt)) continue;
+
       if (booking.status in bookingsByStatus) bookingsByStatus[booking.status as BookingStatus] += 1;
       bookingsByStatus.total += 1;
 
@@ -66,8 +78,17 @@ export class ReportsService {
       .sort((a, b) => b.bookings - a.bookings || b.grossBookingValue - a.grossBookingValue || a.city.localeCompare(b.city, 'es'))
       .slice(0, TOP_CITIES_LIMIT);
 
+    const period: DashboardPeriodDto | undefined =
+      filters?.from || filters?.to
+        ? {
+            from: filters?.from?.slice(0, 10),
+            to: filters?.to?.slice(0, 10),
+          }
+        : undefined;
+
     return {
       generatedAt: now,
+      period,
       usersByRole,
       activeListings,
       bookingsByStatus,

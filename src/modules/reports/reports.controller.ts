@@ -8,7 +8,7 @@ import { EXPORTABLE_REPORTS, ExportReportQueryDto } from './dto/export-report.dt
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/enums/role.enum';
 import { ReportsService } from './reports.service';
-import { DashboardDto } from './dto/dashboard.dto';
+import { DashboardDto, DashboardQueryDto } from './dto/dashboard.dto';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const PDF_MIME = 'application/pdf';
@@ -25,15 +25,16 @@ export class ReportsController {
 
   @Get('dashboard')
   @ApiOperation({
-    summary: 'Ver los indicadores del negocio · HU-056 (CA1, CA2, CA3)',
+    summary: 'Ver los indicadores del negocio · HU-056 (CA1, CA2, CA3) y filtrar por periodo · HU-057 (CA1)',
     description:
-      'Usuarios por rol, publicaciones ACTIVAS, reservas por estado, ingresos estimados (valor y tarifa de servicio de las reservas CONFIRMADAS y COMPLETADAS, en COP) y las 5 ciudades con más reservas CONFIRMADAS y COMPLETADAS (CA1). Los valores coinciden con una consulta directa a la base de datos (CA2). Exclusivo para ADMINISTRADOR (CA3). RF-074, RN-026.',
+      'Usuarios por rol, publicaciones ACTIVAS, reservas por estado, ingresos estimados (valor y tarifa de servicio de las reservas CONFIRMADAS y COMPLETADAS, en COP) y las 5 ciudades con más reservas CONFIRMADAS y COMPLETADAS (CA1). Admite filtros opcionales from y to para recalcular reservas, ingresos y demanda por periodo (HU-057 CA1). Los valores coinciden con una consulta directa a la base de datos (CA2). Exclusivo para ADMINISTRADOR (CA3). RF-074, RF-075, RN-026.',
   })
   @ApiResponse({ status: 200, description: 'Indicadores del marketplace (CA1)', type: DashboardDto })
+  @ApiResponse({ status: 400, description: 'Filtros inválidos (fechas mal formadas o la inicial posterior a la final)' })
   @ApiResponse({ status: 401, description: 'No autenticado' })
   @ApiResponse({ status: 403, description: 'Acceso denegado: requiere rol ADMINISTRADOR (CA3)' })
-  getDashboard(): DashboardDto {
-    return this.reportsService.getDashboard();
+  getDashboard(@Query() query?: DashboardQueryDto): DashboardDto {
+    return this.reportsService.getDashboard(query);
   }
 
   @Get('export/:report')
