@@ -1,4 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsDateString, IsOptional } from 'class-validator';
 
 export class UsersByRoleDto {
   @ApiProperty({ example: 31 })
@@ -60,10 +61,34 @@ export class TopCityDto {
   grossBookingValue: number;
 }
 
-/** HU-056 · Indicadores básicos del marketplace (CA1 · RF-074, RN-026). */
+/** HU-057 · Filtro de periodo para el dashboard (CA1 · RF-075). */
+export class DashboardQueryDto {
+  @ApiPropertyOptional({ example: '2026-10-01', description: 'Desde esta fecha de creación (AAAA-MM-DD, hora de Colombia), incluida' })
+  @IsOptional()
+  @IsDateString({}, { message: 'La fecha inicial debe tener el formato AAAA-MM-DD' })
+  from?: string;
+
+  @ApiPropertyOptional({ example: '2026-10-31', description: 'Hasta esta fecha de creación (AAAA-MM-DD, hora de Colombia), incluida' })
+  @IsOptional()
+  @IsDateString({}, { message: 'La fecha final debe tener el formato AAAA-MM-DD' })
+  to?: string;
+}
+
+export class DashboardPeriodDto {
+  @ApiPropertyOptional({ example: '2026-10-01' })
+  from?: string;
+
+  @ApiPropertyOptional({ example: '2026-10-31' })
+  to?: string;
+}
+
+/** HU-056 · Indicadores básicos del marketplace (CA1 · RF-074, RN-026). HU-057 · Periodo filtrado (CA1 · RF-075). */
 export class DashboardDto {
   @ApiProperty({ example: '2026-10-28T15:00:00.000Z', description: 'Momento en que se calcularon los indicadores' })
   generatedAt: Date;
+
+  @ApiPropertyOptional({ type: DashboardPeriodDto, description: 'Periodo aplicado para los indicadores de reservas, ingresos y demanda (HU-057)' })
+  period?: DashboardPeriodDto;
 
   @ApiProperty({ type: UsersByRoleDto })
   usersByRole: UsersByRoleDto;

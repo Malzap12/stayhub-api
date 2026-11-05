@@ -4354,9 +4354,30 @@
     "/api/reports/dashboard": {
       "get": {
         "operationId": "ReportsController_getDashboard",
-        "summary": "Ver los indicadores del negocio · HU-056 (CA1, CA2, CA3)",
-        "description": "Usuarios por rol, publicaciones ACTIVAS, reservas por estado, ingresos estimados (valor y tarifa de servicio de las reservas CONFIRMADAS y COMPLETADAS, en COP) y las 5 ciudades con más reservas CONFIRMADAS y COMPLETADAS (CA1). Los valores coinciden con una consulta directa a la base de datos (CA2). Exclusivo para ADMINISTRADOR (CA3). RF-074, RN-026.",
-        "parameters": [],
+        "summary": "Ver los indicadores del negocio · HU-056 (CA1, CA2, CA3) y filtrar por periodo · HU-057 (CA1)",
+        "description": "Usuarios por rol, publicaciones ACTIVAS, reservas por estado, ingresos estimados (valor y tarifa de servicio de las reservas CONFIRMADAS y COMPLETADAS, en COP) y las 5 ciudades con más reservas CONFIRMADAS y COMPLETADAS (CA1). Admite filtros opcionales from y to para recalcular reservas, ingresos y demanda por periodo (HU-057 CA1). Los valores coinciden con una consulta directa a la base de datos (CA2). Exclusivo para ADMINISTRADOR (CA3). RF-074, RF-075, RN-026.",
+        "parameters": [
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "Desde esta fecha de creación (AAAA-MM-DD, hora de Colombia), incluida",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "Hasta esta fecha de creación (AAAA-MM-DD, hora de Colombia), incluida",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Indicadores del marketplace (CA1)",
@@ -4367,6 +4388,9 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Filtros inválidos (fechas mal formadas o la inicial posterior a la final)"
           },
           "401": {
             "description": "No autenticado"
@@ -8903,6 +8927,19 @@
           "reason"
         ]
       },
+      "DashboardPeriodDto": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "example": "2026-10-01"
+          },
+          "to": {
+            "type": "string",
+            "example": "2026-10-31"
+          }
+        }
+      },
       "UsersByRoleDto": {
         "type": "object",
         "properties": {
@@ -9031,6 +9068,14 @@
             "type": "string",
             "example": "2026-10-28T15:00:00.000Z",
             "description": "Momento en que se calcularon los indicadores"
+          },
+          "period": {
+            "description": "Periodo aplicado para los indicadores de reservas, ingresos y demanda (HU-057)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DashboardPeriodDto"
+              }
+            ]
           },
           "usersByRole": {
             "$ref": "#/components/schemas/UsersByRoleDto"
