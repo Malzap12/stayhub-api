@@ -1013,6 +1013,17 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
         appliedRule,
       } = calculatePolicyRefund(booking.totalAmount, booking.serviceFee, hoursBeforeArrival, policy);
 
+      let refundReference: string | undefined;
+      if (refundAmount > 0) {
+        const refundResult = this.paymentsService?.refund({
+          bookingId: booking.id,
+          amount: refundAmount,
+          currency: booking.currency,
+          reason,
+        });
+        refundReference = refundResult?.reference;
+      }
+
       const releasedNights = this.listingsService?.releaseReservedPeriod(booking.listingId, booking.id, actor) ?? [];
       booking.status = BookingStatus.CANCELADA;
       booking.cancellation = {
@@ -1027,6 +1038,7 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
         currency: booking.currency,
         finalStatus: BookingStatus.CANCELADA,
         releasedNights,
+        ...(refundReference ? { refundReference } : {}),
       };
 
       this.auditService.record({
