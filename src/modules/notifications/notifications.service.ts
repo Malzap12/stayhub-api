@@ -280,13 +280,14 @@ export class NotificationsService implements OnModuleInit {
   /** CA2: publicación aprobada, devuelta o bloqueada; se notifica a su anfitrión. */
   listingModerated(
     listing: { id: string; title: string; hostId: string },
-    type: 'PUBLICACION_APROBADA' | 'PUBLICACION_DEVUELTA' | 'PUBLICACION_BLOQUEADA',
+    type: 'PUBLICACION_APROBADA' | 'PUBLICACION_DEVUELTA' | 'PUBLICACION_BLOQUEADA' | 'PUBLICACION_PAUSADA',
     reason?: string,
   ): void {
     const messages = {
       PUBLICACION_APROBADA: `Tu publicación "${listing.title}" fue aprobada y ya está ACTIVA en las búsquedas.`,
       PUBLICACION_DEVUELTA: `Tu publicación "${listing.title}" fue devuelta a BORRADOR. Motivo: ${reason}`,
       PUBLICACION_BLOQUEADA: `Tu publicación "${listing.title}" fue bloqueada. Motivo: ${reason}`,
+      PUBLICACION_PAUSADA: `Tu publicación "${listing.title}" fue pausada por moderación. Motivo: ${reason}`,
     };
     this.notify({ recipient: { userId: listing.hostId }, type, message: messages[type], entity: 'Listing', entityId: listing.id });
   }

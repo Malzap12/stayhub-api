@@ -98,6 +98,9 @@ export class ListingResponseDto {
   @ApiPropertyOptional({ example: 'Fotografías que no corresponden al inmueble', description: 'Motivo de bloqueo indicado por el administrador (HU-012 CA2)' })
   blockReason?: string;
 
+  @ApiPropertyOptional({ example: 'Revisión preventiva.', description: 'Motivo de pausa por moderación (HU-055)' })
+  pauseReason?: string;
+
   @ApiPropertyOptional({ example: 'FLEXIBLE', description: 'Política de cancelación del catálogo (Flexible si no se eligió)' })
   cancellationPolicy?: 'FLEXIBLE';
 

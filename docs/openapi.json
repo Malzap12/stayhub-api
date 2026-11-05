@@ -1249,6 +1249,65 @@
         ]
       }
     },
+    "/api/listings/{id}/pause-moderation": {
+      "patch": {
+        "operationId": "ListingsController_pauseListingByAdmin",
+        "summary": "Pausar una publicación por moderación · HU-055 (CA1 · RF-073, RN-031)",
+        "description": "Pausa una publicación ACTIVA indicando el motivo; pasa a PAUSADA, sale de las búsquedas y notifica al anfitrión.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PauseListingDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Publicación PAUSADA por moderación",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListingModerationResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Motivo inválido o la publicación no está ACTIVA"
+          },
+          "401": {
+            "description": "No autenticado"
+          },
+          "403": {
+            "description": "Acceso denegado (requiere rol ADMINISTRADOR)"
+          },
+          "404": {
+            "description": "Publicación no encontrada"
+          }
+        },
+        "tags": [
+          "Alojamientos (Listings)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/listings/{id}/block": {
       "patch": {
         "operationId": "ListingsController_blockListing",
@@ -4508,6 +4567,7 @@
               "PUBLICACION_APROBADA",
               "PUBLICACION_DEVUELTA",
               "PUBLICACION_BLOQUEADA",
+              "PUBLICACION_PAUSADA",
               "CUENTA_RESTRINGIDA",
               "RESENA_OCULTADA"
             ],
@@ -5751,6 +5811,11 @@
             "example": "Fotografías que no corresponden al inmueble",
             "description": "Motivo de bloqueo indicado por el administrador (HU-012 CA2)"
           },
+          "pauseReason": {
+            "type": "string",
+            "example": "Revisión preventiva.",
+            "description": "Motivo de pausa por moderación (HU-055)"
+          },
           "cancellationPolicy": {
             "type": "string",
             "example": "FLEXIBLE",
@@ -5887,13 +5952,13 @@
           "createdAt"
         ]
       },
-      "BlockListingDto": {
+      "PauseListingDto": {
         "type": "object",
         "properties": {
           "reason": {
             "type": "string",
-            "example": "Las fotografías no corresponden al inmueble y la dirección publicada es falsa.",
-            "description": "Motivo del bloqueo que verán el anfitrión y la auditoría (HU-051 CA1)"
+            "example": "Revisión preventiva por reporte de inconsistencia en los servicios ofrecidos.",
+            "description": "Motivo de la pausa que verán el anfitrión y la auditoría (HU-055 CA1)"
           }
         },
         "required": [
@@ -5921,7 +5986,8 @@
             "enum": [
               "APROBADA",
               "DEVUELTA",
-              "BLOQUEADA"
+              "BLOQUEADA",
+              "PAUSADA"
             ]
           },
           "message": {
@@ -5996,6 +6062,15 @@
               "type": "string"
             }
           },
+          "pauseReason": {
+            "example": "Revisión preventiva.",
+            "description": "Motivo de la pausa por moderación (HU-055)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HostNotificationDto"
+              }
+            ]
+          },
           "notification": {
             "$ref": "#/components/schemas/HostNotificationDto"
           }
@@ -6004,6 +6079,19 @@
           "listingId",
           "status",
           "notification"
+        ]
+      },
+      "BlockListingDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "Las fotografías no corresponden al inmueble y la dirección publicada es falsa.",
+            "description": "Motivo del bloqueo que verán el anfitrión y la auditoría (HU-051 CA1)"
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "ActivationMissingFieldsErrorDto": {

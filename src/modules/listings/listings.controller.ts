@@ -19,7 +19,7 @@ import {
   BlockedPeriodResponseDto,
   UnblockDatesResponseDto,
 } from './dto/availability.dto';
-import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
+import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, PauseListingDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
 import { CancellationPolicyDto, ListingDetailDto, UpdateCancellationPolicyDto } from './dto/listing-detail.dto';
 import { ListingCalendarDto } from './dto/calendar.dto';
@@ -108,6 +108,27 @@ export class ListingsController {
   @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ADMINISTRADOR)' })
   findAllForAdmin(): ListingResponseDto[] {
     return this.listingsService.findAllForAdmin();
+  }
+
+  
+  @Patch(':id/pause-moderation')
+  @Roles(Role.ADMINISTRADOR)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Pausar una publicación por moderación · HU-055 (CA1 · RF-073, RN-031)',
+    description: 'Pausa una publicación ACTIVA indicando el motivo; pasa a PAUSADA, sale de las búsquedas y notifica al anfitrión.',
+  })
+  @ApiResponse({ status: 200, description: 'Publicación PAUSADA por moderación', type: ListingModerationResponseDto })
+  @ApiResponse({ status: 400, description: 'Motivo inválido o la publicación no está ACTIVA' })
+  @ApiResponse({ status: 401, description: 'No autenticado' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado (requiere rol ADMINISTRADOR)' })
+  @ApiResponse({ status: 404, description: 'Publicación no encontrada' })
+  pauseListingByAdmin(
+    @Param('id') id: string,
+    @Body() dto: PauseListingDto,
+    @CurrentUser() user?: ActiveSession,
+  ): ListingModerationResponseDto {
+    return this.listingsService.pauseListingByAdmin(id, dto, user?.email);
   }
 
   @Patch(':id/block')

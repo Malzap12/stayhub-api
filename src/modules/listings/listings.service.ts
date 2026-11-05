@@ -15,7 +15,7 @@ import {
   BlockedPeriodResponseDto,
   UnblockDatesResponseDto,
 } from './dto/availability.dto';
-import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, ReturnListingDto } from './dto/review-listing.dto';
+import { BlockListingDto, HostNotificationDto, ListingModerationResponseDto, PauseListingDto, ReturnListingDto } from './dto/review-listing.dto';
 import { MyListingDto } from './dto/my-listing.dto';
 import { BookingModeResponseDto, BOOKING_MODE_MESSAGE, UpdateBookingModeDto } from './dto/booking-mode.dto';
 import { BookingMode, DEFAULT_BOOKING_MODE } from '../../common/enums/booking-mode.enum';
@@ -651,6 +651,51 @@ export class ListingsService implements OnModuleInit {
    * búsquedas (CA1). Sus reservas futuras pasan a EN_REVISION y se conservan (CA2). Se notifica al anfitrión y a
    * los huéspedes afectados y la acción queda en la auditoría (CA3).
    */
+  
+  /**
+   * HU-055 · Pausar una publicación por moderación (CA1 · RF-073, RN-031).
+   * Un administrador pausa una publicación ACTIVA mientras revisa un reporte.
+   * Pasa a PAUSADA, sale de las búsquedas y se notifica al anfitrión.
+   */
+  pauseListingByAdmin(id: string, dto: PauseListingDto, actor?: string, now: Date = new Date()): ListingModerationResponseDto {
+    const reason = dto?.reason?.trim();
+    if (!reason || reason.length < 5) {
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, 'Pausa rechazada: motivo obligatorio (mínimo 5 caracteres)');
+      throw new BadRequestException('El motivo de la pausa es obligatorio (al menos 5 caracteres)');
+    }
+
+    const listing = this.listingsStore.find((item) => item.id === id);
+    if (!listing) {
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, 'Pausa rechazada: publicación no encontrada');
+      throw new NotFoundException(`Publicación con id ${id} no encontrada`);
+    }
+
+    const previousStatus = listing.status ?? ListingStatus.BORRADOR;
+    if (previousStatus !== ListingStatus.ACTIVA) {
+      const message = `Solo se pueden pausar por moderación publicaciones activas (estado actual: ${LISTING_STATUS_LABELS[previousStatus]})`;
+      this.recordStatusChange(actor, id, AuditResult.FALLIDO, `Pausa rechazada: ${message}`);
+      throw new BadRequestException(message);
+    }
+
+    listing.status = ListingStatus.PAUSADA;
+    listing.pauseReason = reason;
+    this.recordStatusChange(actor, id, AuditResult.EXITOSO, `${ListingStatus.ACTIVA} -> ${ListingStatus.PAUSADA} (pausa por moderación: ${reason})`);
+
+    const notification: HostNotificationDto = {
+      id: `notif-${Date.now()}`,
+      hostId: listing.hostId,
+      listingId: listing.id,
+      type: 'PAUSADA',
+      message: `Tu publicación "${listing.title}" fue pausada por moderación. Motivo: ${reason}`,
+      reason,
+      createdAt: now,
+    };
+    this.hostNotifications.push(notification);
+    this.notificationsService?.listingModerated(listing, 'PUBLICACION_PAUSADA', reason);
+
+    return { listingId: listing.id, status: listing.status, previousStatus, pauseReason: reason, notification };
+  }
+
   blockListing(id: string, dto: BlockListingDto, actor?: string, now: Date = new Date()): ListingModerationResponseDto {
     const reason = dto?.reason?.trim();
     if (!reason) {
