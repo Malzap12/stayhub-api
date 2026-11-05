@@ -125,6 +125,12 @@ export class HostBookingDetailDto extends HostBookingSummaryDto {
   })
   guestContact?: GuestContactDto;
 
+  @ApiPropertyOptional({ example: 'VISA ···· 4242', description: 'HU-036: tarjeta guardada con la solicitud; se cobra al aceptarla' })
+  paymentCard?: string;
+
+  @ApiPropertyOptional({ example: 'Esas fechas ya las tengo comprometidas.', description: 'HU-036: motivo con que se rechazó la solicitud' })
+  rejectionReason?: string;
+
   @ApiPropertyOptional({
     type: HostBookingCancellationDto,
     description: 'Detalle de la cancelación cuando la reserva está CANCELADA (HU-042).',

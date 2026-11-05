@@ -118,6 +118,33 @@ export class NotificationsService implements OnModuleInit {
     });
   }
 
+  /** HU-036 CA2: el anfitrión rechazó la solicitud; se avisa al huésped, sin cobro. */
+  bookingRequestRejected(booking: BookingNotice, reason?: string): void {
+    const title = booking.listingTitle ? ` en "${booking.listingTitle}"` : '';
+    const stay = `del ${booking.checkIn.slice(0, 10)} al ${booking.checkOut.slice(0, 10)}`;
+    this.notify({
+      recipient: { email: booking.guestEmail },
+      type: 'SOLICITUD_RECHAZADA',
+      message: `El anfitrión rechazó tu solicitud ${booking.code}${title} ${stay}. No se te cobró nada.${reason ? ` Motivo: ${reason}` : ''}`,
+      entity: 'Booking',
+      entityId: booking.id,
+      bookingCode: booking.code,
+    });
+  }
+
+  /** HU-036 CA1: el anfitrión aceptó la solicitud pero el pago con la tarjeta guardada fue rechazado. */
+  bookingRequestPaymentDeclined(booking: BookingNotice, cardLabel: string): void {
+    const title = booking.listingTitle ? ` en "${booking.listingTitle}"` : '';
+    this.notify({
+      recipient: { email: booking.guestEmail },
+      type: 'PAGO_RECHAZADO',
+      message: `El anfitrión quiso aceptar tu solicitud ${booking.code}${title}, pero el pago con la tarjeta ${cardLabel} fue rechazado. La reserva no se confirmó.`,
+      entity: 'Booking',
+      entityId: booking.id,
+      bookingCode: booking.code,
+    });
+  }
+
   /** CA2: al cancelarse una reserva se notifica al huésped y al anfitrión. */
   bookingCancelled(booking: BookingNotice, refund: { amount: number; percentage: number; currency: string }): void {
     const title = booking.listingTitle ? ` en "${booking.listingTitle}"` : '';

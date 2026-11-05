@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BookingStatus } from '../../../common/enums/booking-status.enum';
 import { BookingMode } from '../../../common/enums/booking-mode.enum';
-import { PaymentResponseDto } from '../../payments/dto/payment.dto';
+import { PaymentResponseDto, SavedPaymentMethodDto } from '../../payments/dto/payment.dto';
+import { HostDecisionDto } from './booking-request.dto';
 import { QuoteResponseDto } from './quote-booking.dto';
 
 /** HU-040 y HU-041 · Registro de la cancelación y cálculo de devolución según la política (CA3 · RF-054, RF-056, RN-016, RN-017, RN-030). */
@@ -170,6 +171,15 @@ export class BookingResponseDto {
   @ApiPropertyOptional({ type: () => PaymentResponseDto, description: 'Último pago procesado para la reserva (HU-037)' })
   payment?: PaymentResponseDto;
 
+  @ApiPropertyOptional({
+    type: () => SavedPaymentMethodDto,
+    description: 'HU-036: tarjeta de prueba de una solicitud PENDIENTE_APROBACION; se cobra cuando el anfitrión la acepta',
+  })
+  savedPaymentMethod?: SavedPaymentMethodDto;
+
+  @ApiPropertyOptional({ type: () => HostDecisionDto, description: 'HU-036: decisión del anfitrión sobre la solicitud' })
+  hostDecision?: HostDecisionDto;
+
   @ApiPropertyOptional({ description: 'Desglose detallado de precios y tarifas vigente al confirmar (HU-030 CA2)' })
   breakdown?: QuoteResponseDto;
 
@@ -205,7 +215,10 @@ export class BookingResponseDto {
 }
 
 export class BookingPaymentResultDto {
-  @ApiProperty({ type: () => BookingResponseDto, description: 'Reserva: CONFIRMADA si el pago se aprobó, PENDIENTE si se rechazó' })
+  @ApiProperty({
+    type: () => BookingResponseDto,
+    description: 'Reserva: CONFIRMADA si el pago se aprobó; si se rechazó sigue PENDIENTE (o PENDIENTE_APROBACION al aceptar una solicitud)',
+  })
   booking: BookingResponseDto;
 
   @ApiProperty({ type: () => PaymentResponseDto, description: 'Resultado del pago (APROBADO o RECHAZADO) con su referencia' })
