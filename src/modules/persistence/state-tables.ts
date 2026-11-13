@@ -121,6 +121,24 @@ export const TABLE_DEFINITIONS: Record<string, TableDefinition> = {
     columns: ['clave', 'valor', 'actualizado_en', 'actualizado_por', 'extra'],
     jsonbColumns: ['valor', 'extra'],
   },
+  conversaciones: {
+    tableName: 'conversaciones',
+    primaryKey: ['id'],
+    columns: [
+      'id', 'orden', 'publicacion_id', 'publicacion_titulo', 'huesped_id', 'huesped_correo', 'huesped_nombre',
+      'anfitrion_id', 'anfitrion_correo', 'anfitrion_nombre', 'creado_en', 'actualizado_en', 'extra',
+    ],
+    jsonbColumns: ['extra'],
+  },
+  mensajes: {
+    tableName: 'mensajes',
+    primaryKey: ['id'],
+    columns: [
+      'id', 'orden', 'conversacion_id', 'remitente_id', 'remitente_rol', 'remitente_nombre',
+      'contenido', 'creado_en', 'leido_en', 'extra',
+    ],
+    jsonbColumns: ['extra'],
+  },
 };
 
 export const REGISTERED_SOURCE_TABLES: Record<string, string[]> = {
@@ -132,6 +150,7 @@ export const REGISTERED_SOURCE_TABLES: Record<string, string[]> = {
   'platform-config': ['configuracion_plataforma'],
   notifications: ['notificaciones'],
   reviews: ['resenas'],
+  messages: ['conversaciones', 'mensajes'],
 };
 
 export function toIso(date: unknown): string | null {
@@ -507,6 +526,55 @@ export function sourceToRows(sourceKey: string, dump: unknown): Record<string, R
       break;
     }
 
+    case 'messages': {
+      const { conversations, messages } = (dump as {
+        conversations: Record<string, unknown>[];
+        messages: Record<string, unknown>[];
+      }) ?? { conversations: [], messages: [] };
+
+      result.conversaciones = (conversations ?? []).map((c: any, index) => {
+        const {
+          id, listingId, listingTitle, guestId, guestEmail, guestName,
+          hostId, hostEmail, hostName, createdAt, updatedAt, ...rest
+        } = c;
+        return {
+          id: String(id),
+          orden: index,
+          publicacion_id: String(listingId),
+          publicacion_titulo: String(listingTitle ?? ''),
+          huesped_id: String(guestId),
+          huesped_correo: String(guestEmail ?? ''),
+          huesped_nombre: String(guestName ?? ''),
+          anfitrion_id: String(hostId),
+          anfitrion_correo: hostEmail ?? null,
+          anfitrion_nombre: String(hostName ?? ''),
+          creado_en: toIso(createdAt) ?? new Date().toISOString(),
+          actualizado_en: toIso(updatedAt) ?? new Date().toISOString(),
+          extra: rest ?? {},
+        };
+      });
+
+      result.mensajes = (messages ?? []).map((m: any, index) => {
+        const {
+          id, conversationId, senderId, senderRole, senderName,
+          content, createdAt, readAt, ...rest
+        } = m;
+        return {
+          id: String(id),
+          orden: index,
+          conversacion_id: String(conversationId),
+          remitente_id: String(senderId),
+          remitente_rol: String(senderRole),
+          remitente_nombre: String(senderName ?? ''),
+          contenido: String(content ?? ''),
+          creado_en: toIso(createdAt) ?? new Date().toISOString(),
+          leido_en: toIso(readAt),
+          extra: rest ?? {},
+        };
+      });
+      break;
+    }
+
     default:
       break;
   }
@@ -775,6 +843,40 @@ export function rowsToSource(sourceKey: string, tablesData: Record<string, Recor
         updatedAt: serviceFeeRow.actualizado_en ? new Date(serviceFeeRow.actualizado_en as string) : new Date(),
         updatedBy: serviceFeeRow.actualizado_por ?? 'sistema',
       };
+    }
+
+    case 'messages': {
+      const convRows = [...(tablesData.conversaciones ?? [])].sort((a: any, b: any) => (a.orden ?? 0) - (b.orden ?? 0));
+      const msgRows = [...(tablesData.mensajes ?? [])].sort((a: any, b: any) => (a.orden ?? 0) - (b.orden ?? 0));
+
+      const conversations = convRows.map((row: any) => ({
+        id: row.id,
+        listingId: row.publicacion_id,
+        listingTitle: row.publicacion_titulo,
+        guestId: row.huesped_id,
+        guestEmail: row.huesped_correo,
+        guestName: row.huesped_nombre,
+        hostId: row.anfitrion_id,
+        ...(row.anfitrion_correo ? { hostEmail: row.anfitrion_correo } : {}),
+        hostName: row.anfitrion_nombre,
+        createdAt: new Date(row.creado_en),
+        updatedAt: new Date(row.actualizado_en),
+        ...(row.extra ?? {}),
+      }));
+
+      const messages = msgRows.map((row: any) => ({
+        id: row.id,
+        conversationId: row.conversacion_id,
+        senderId: row.remitente_id,
+        senderRole: row.remitente_rol,
+        senderName: row.remitente_nombre,
+        content: row.contenido,
+        createdAt: new Date(row.creado_en),
+        ...(row.leido_en ? { readAt: new Date(row.leido_en) } : {}),
+        ...(row.extra ?? {}),
+      }));
+
+      return { conversations, messages };
     }
 
     default:
