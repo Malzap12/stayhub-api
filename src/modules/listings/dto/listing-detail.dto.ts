@@ -57,6 +57,15 @@ export class ListingLocationDto {
     description: 'Ubicación textual completa (HU-026 CA1)',
   })
   text: string;
+
+  @ApiPropertyOptional({ example: 4.6486, description: 'Latitud geográfica del alojamiento (HU-069 CA4)' })
+  latitude?: number;
+
+  @ApiPropertyOptional({ example: -74.0628, description: 'Longitud geográfica del alojamiento (HU-069 CA4)' })
+  longitude?: number;
+
+  @ApiPropertyOptional({ example: '© OpenStreetMap contributors', description: 'Atribución del proveedor de mapas (HU-069 CA4)' })
+  mapAttribution?: string;
 }
 
 /** HU-026 · Detalle público de una publicación (CA1, RF-034). */
