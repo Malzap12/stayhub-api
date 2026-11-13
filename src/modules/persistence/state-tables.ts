@@ -139,6 +139,12 @@ export const TABLE_DEFINITIONS: Record<string, TableDefinition> = {
     ],
     jsonbColumns: ['extra'],
   },
+  favoritos_huesped: {
+    tableName: 'favoritos_huesped',
+    primaryKey: ['id'],
+    columns: ['id', 'orden', 'huesped_id', 'huesped_correo', 'publicacion_id', 'creado_en', 'extra'],
+    jsonbColumns: ['extra'],
+  },
 };
 
 export const REGISTERED_SOURCE_TABLES: Record<string, string[]> = {
@@ -151,6 +157,7 @@ export const REGISTERED_SOURCE_TABLES: Record<string, string[]> = {
   notifications: ['notificaciones'],
   reviews: ['resenas'],
   messages: ['conversaciones', 'mensajes'],
+  favorites: ['favoritos_huesped'],
 };
 
 export function toIso(date: unknown): string | null {
@@ -575,6 +582,23 @@ export function sourceToRows(sourceKey: string, dump: unknown): Record<string, R
       break;
     }
 
+    case 'favorites': {
+      const { favorites } = (dump as { favorites: Record<string, unknown>[] }) ?? { favorites: [] };
+      result.favoritos_huesped = (favorites ?? []).map((f: any, index) => {
+        const { id, guestId, guestEmail, listingId, savedAt, ...rest } = f;
+        return {
+          id: String(id),
+          orden: index,
+          huesped_id: String(guestId),
+          huesped_correo: String(guestEmail ?? ''),
+          publicacion_id: String(listingId),
+          creado_en: toIso(savedAt) ?? new Date().toISOString(),
+          extra: rest ?? {},
+        };
+      });
+      break;
+    }
+
     default:
       break;
   }
@@ -877,6 +901,19 @@ export function rowsToSource(sourceKey: string, tablesData: Record<string, Recor
       }));
 
       return { conversations, messages };
+    }
+
+    case 'favorites': {
+      const rows = [...(tablesData.favoritos_huesped ?? [])].sort((a: any, b: any) => (a.orden ?? 0) - (b.orden ?? 0));
+      const favorites = rows.map((row: any) => ({
+        id: row.id,
+        guestId: row.huesped_id,
+        guestEmail: row.huesped_correo,
+        listingId: row.publicacion_id,
+        savedAt: new Date(row.creado_en),
+        ...(row.extra ?? {}),
+      }));
+      return { favorites };
     }
 
     default:

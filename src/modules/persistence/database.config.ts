@@ -5,6 +5,7 @@ import { ConfiguracionPlataforma1729640001000 } from '../../migrations/172964000
 import { Notificaciones1729640002000 } from '../../migrations/1729640002000-notificaciones';
 import { Resenas1729640003000 } from '../../migrations/1729640003000-resenas';
 import { ConversacionesMensajes1729640005000 } from '../../migrations/1729640005000-conversaciones-mensajes';
+import { FavoritosHuesped1729640006000 } from '../../migrations/1729640006000-favoritos-huesped';
 
 // Parser para DATE (OID 1082) -> string 'AAAA-MM-DD'
 types.setTypeParser(1082, (val: string) => val);
@@ -54,6 +55,7 @@ export function createDataSourceOptions(customSchema?: string): DataSourceOption
       Notificaciones1729640002000,
       Resenas1729640003000,
       ConversacionesMensajes1729640005000,
+      FavoritosHuesped1729640006000,
     ],
   };
 }
