@@ -434,6 +434,25 @@ export class ListingsService implements OnModuleInit {
     };
   }
 
+  private applyGeocodingSync(
+    listingId: string,
+    query: GeocodingQuery,
+  ): { latitude?: number; longitude?: number; coordinatesManual?: boolean; geocodingWarning?: string } {
+    const geoResult = this.geocoding.geocodeSync(query);
+    if (geoResult.coordinates) {
+      return {
+        latitude: geoResult.coordinates.latitude,
+        longitude: geoResult.coordinates.longitude,
+        coordinatesManual: false,
+      };
+    }
+    if (geoResult.pendingAsync) {
+      this.pendingGeocoding.set(listingId, query);
+      return {};
+    }
+    return geoResult.warning ? { geocodingWarning: geoResult.warning } : {};
+  }
+
   async resolvePendingGeocoding(listingId: string): Promise<ListingResponseDto | undefined> {
     const query = this.pendingGeocoding.get(listingId);
     if (!query) {
@@ -553,28 +572,22 @@ export class ListingsService implements OnModuleInit {
     const address = trimmed(createDto.address);
     const country = trimmed(createDto.country) ?? 'Colombia';
 
+    const newId = `listing-${randomUUID()}`;
     let latitude = coords.hasPair ? coords.latitude : undefined;
     let longitude = coords.hasPair ? coords.longitude : undefined;
     let coordinatesManual = coords.hasPair ? true : undefined;
     let geocodingWarning: string | undefined;
-    let pendingQuery: GeocodingQuery | undefined;
 
     if (!coords.hasPair) {
-      const query: GeocodingQuery = { address, city, department, country };
-      const geoResult = this.geocoding.geocodeSync(query);
-      if (geoResult.coordinates) {
-        latitude = geoResult.coordinates.latitude;
-        longitude = geoResult.coordinates.longitude;
-        coordinatesManual = false;
-      } else if (geoResult.pendingAsync) {
-        pendingQuery = query;
-      } else if (geoResult.warning) {
-        geocodingWarning = geoResult.warning;
-      }
+      const geoApplied = this.applyGeocodingSync(newId, { address, city, department, country });
+      latitude = geoApplied.latitude;
+      longitude = geoApplied.longitude;
+      coordinatesManual = geoApplied.coordinatesManual;
+      geocodingWarning = geoApplied.geocodingWarning;
     }
 
     const created = withCompleteness({
-      id: `listing-${randomUUID()}`,
+      id: newId,
       title: createDto.title.trim(),
       description: trimmed(createDto.description),
       city,
@@ -603,9 +616,6 @@ export class ListingsService implements OnModuleInit {
     });
 
     this.listingsStore.push(created);
-    if (pendingQuery) {
-      this.pendingGeocoding.set(created.id, pendingQuery);
-    }
     this.recordStatusChange(
       host?.email,
       created.id,
@@ -757,21 +767,15 @@ export class ListingsService implements OnModuleInit {
       listing.longitude = undefined;
       listing.coordinatesManual = false;
       delete listing.geocodingWarning;
-      const query: GeocodingQuery = {
+      const geoApplied = this.applyGeocodingSync(listing.id, {
         address: listing.address,
         city: listing.city,
         department: listing.department,
         country: listing.country,
-      };
-      const geoResult = this.geocoding.geocodeSync(query);
-      if (geoResult.coordinates) {
-        listing.latitude = geoResult.coordinates.latitude;
-        listing.longitude = geoResult.coordinates.longitude;
-      } else if (geoResult.pendingAsync) {
-        this.pendingGeocoding.set(listing.id, query);
-      } else if (geoResult.warning) {
-        geocodingWarning = geoResult.warning;
-      }
+      });
+      listing.latitude = geoApplied.latitude;
+      listing.longitude = geoApplied.longitude;
+      geocodingWarning = geoApplied.geocodingWarning;
     } else if (coords?.explicitClear) {
       listing.latitude = undefined;
       listing.longitude = undefined;

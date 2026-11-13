@@ -288,4 +288,115 @@ describe('HU-069 · Ver la ubicación del alojamiento en un mapa (CA1-CA6)', () 
       ).rejects.toThrow(BadRequestException);
     });
   });
+
+  describe('Cobertura adicional · Caché, modo mock/live, limpieza y rate-limit', () => {
+    it('expone configuración por entorno y respeta modo mock explícito en geocodeAsync', async () => {
+      process.env.GEOCODING_MODE = 'mock';
+      expect(geocodingService.provider).toBe('nominatim');
+      expect(geocodingService.isMockMode()).toBe(true);
+
+      const incomplete = await geocodingService.geocodeAsync({ city: 'Bogotá' });
+      expect(incomplete.coordinates).toBeNull();
+
+      const mockFound = await geocodingService.geocodeAsync({
+        department: 'Boyacá',
+        city: 'Villa de Leyva',
+        address: 'Plaza Mayor # 1-10',
+      });
+      expect(mockFound.coordinates).not.toBeNull();
+
+      const mockCached = await geocodingService.geocodeAsync({
+        department: 'Boyacá',
+        city: 'Villa de Leyva',
+        address: 'Plaza Mayor # 1-10',
+      });
+      expect(mockCached.coordinates).toEqual(mockFound.coordinates);
+
+      const mockNotFound = await geocodingService.geocodeAsync({
+        department: 'Boyacá',
+        city: 'Villa de Leyva',
+        address: 'SIN_RESULTADO',
+      });
+      expect(mockNotFound.coordinates).toBeNull();
+      expect(mockNotFound.warning).toBe(GEOCODING_NOT_FOUND_WARNING);
+
+      const mockNotFoundCached = await geocodingService.geocodeAsync({
+        department: 'Boyacá',
+        city: 'Villa de Leyva',
+        address: 'SIN_RESULTADO',
+      });
+      expect(mockNotFoundCached.warning).toBe(GEOCODING_NOT_FOUND_WARNING);
+    });
+
+    it('maneja respuestas HTTP no-ok, vacías y el interceptor sin id o con fallo en vivo', async () => {
+      process.env.GEOCODING_MODE = 'live';
+      const fetchSpy = jest
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce({ ok: false, json: async () => [] } as Response)
+        .mockResolvedValueOnce({ ok: true, json: async () => [] } as Response);
+
+      const httpError = await geocodingService.geocodeAsync({
+        department: 'Antioquia',
+        city: 'Medellín',
+        address: 'Calle 50 # 20-10',
+      });
+      expect(httpError.coordinates).toBeNull();
+      expect(httpError.warning).toBe(GEOCODING_NOT_FOUND_WARNING);
+
+      const emptyResult = await geocodingService.geocodeAsync({
+        department: 'Antioquia',
+        city: 'Medellín',
+        address: 'Calle 51 # 20-11',
+      });
+      expect(emptyResult.coordinates).toBeNull();
+      expect(emptyResult.warning).toBe(GEOCODING_NOT_FOUND_WARNING);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+      const noIdResult = await lastValueFrom(
+        interceptor.intercept({} as ExecutionContext, { handle: () => of({ ok: true }) }),
+      );
+      expect(noIdResult).toEqual({ ok: true });
+
+      const created = controller.create(
+        {
+          title: 'Apartamento con fallo en vivo',
+          department: 'Cundinamarca',
+          city: 'Bogotá',
+          address: 'Calle 80 # 10-20',
+        },
+        host,
+      );
+      fetchSpy.mockResolvedValueOnce({ ok: true, json: async () => [] } as Response);
+      const intercepted = (await lastValueFrom(
+        interceptor.intercept({} as ExecutionContext, { handle: () => of(created) }),
+      )) as typeof created;
+      expect(intercepted.latitude).toBeUndefined();
+      expect(intercepted.geocodingWarning).toBe(GEOCODING_NOT_FOUND_WARNING);
+    });
+
+    it('permite limpiar coordenadas explícitamente con null y devolver aviso al editar con dirección sin resultado', () => {
+      const created = controller.create(
+        {
+          title: 'Casa con coordenadas iniciales',
+          department: 'Antioquia',
+          city: 'Medellín',
+          address: 'Calle 10 # 20-30',
+        },
+        host,
+      );
+      expect(created.latitude).toBeDefined();
+
+      const cleared = controller.update(created.id, { latitude: null, longitude: null }, host);
+      expect(cleared.latitude).toBeUndefined();
+      expect(cleared.longitude).toBeUndefined();
+
+      const failedUpdate = controller.update(
+        created.id,
+        { department: 'Antioquia', city: 'Medellín', address: 'NO_ENCONTRADA 999' },
+        host,
+      );
+      expect(failedUpdate.latitude).toBeUndefined();
+      expect(failedUpdate.geocodingWarning).toBe(GEOCODING_NOT_FOUND_WARNING);
+    });
+  });
 });
