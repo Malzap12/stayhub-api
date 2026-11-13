@@ -46,7 +46,14 @@ describe('HU-070 · Conversar por mensajes entre huésped y anfitrión (EP-18)',
       authService,
     );
 
-    messagesService = new MessagesService(listingsService, bookingsService, authService, notificationsService);
+    messagesService = new MessagesService(
+      listingsService,
+      bookingsService,
+      authService,
+      notificationsService,
+      undefined,
+      auditService,
+    );
     messagesService.onModuleInit();
     controller = new MessagesController(messagesService);
 
@@ -289,8 +296,8 @@ describe('HU-070 · Conversar por mensajes entre huésped y anfitrión (EP-18)',
     // Otro anfitrión
     expect(() => controller.getConversation(created.conversation.id, host2Session)).toThrow(NotFoundException);
 
-    // Administrador tampoco puede leer ni escribir
-    expect(() => controller.listMine(adminSession)).toThrow(NotFoundException);
+    // Administrador tampoco puede leer ni escribir conversaciones huésped-anfitrión
+    expect(controller.listMine(adminSession).data).toEqual([]);
     expect(() => controller.getConversation(created.conversation.id, adminSession)).toThrow(NotFoundException);
     expect(() =>
       controller.sendMessage(created.conversation.id, { content: 'Admin leyendo' }, adminSession),
@@ -339,5 +346,141 @@ describe('HU-070 · Conversar por mensajes entre huésped y anfitrión (EP-18)',
     const restored = rowsToSource('messages', rows) as { conversations: any[]; messages: any[] };
     expect(restored.conversations[0].id).toBe(created.conversation.id);
     expect(restored.messages[0].content).toBe('Persistido en BD');
+  });
+
+  describe('HU-071 · Conversar por mensajes entre anfitrión y administrador (EP-18)', () => {
+    it('CA1: anfitrión crea conversación con administración sin vínculo, por publicación o por reserva propia', () => {
+      const general = controller.startOrSend(
+        { channel: 'ANFITRION_ADMIN', content: 'Tengo una duda general sobre pagos.' },
+        hostSession,
+      );
+      expect(general.conversation.channel).toBe('ANFITRION_ADMIN');
+      expect(general.conversation.counterpartName).toBe('Administración');
+      expect(general.conversation.listingId).toBe('ADMIN_GENERAL');
+
+      const byListing = controller.startOrSend(
+        { channel: 'ANFITRION_ADMIN', listingId: draftListingId, content: 'Necesito ayuda con la revisión.' },
+        hostSession,
+      );
+      expect(byListing.conversation.listingId).toBe(draftListingId);
+      expect(byListing.conversation.id).not.toBe(general.conversation.id);
+
+      const bookingList = (bookingsService as any).bookingsStore as any[];
+      bookingList.push({
+        id: 'booking-hu071-1',
+        listingId: activeListingId,
+        guestId: guestSession.email,
+        checkIn: '2027-03-10',
+        checkOut: '2027-03-12',
+        guests: 2,
+        totalAmount: 560000,
+        currency: 'COP',
+        status: 'CONFIRMADA',
+        createdAt: new Date(),
+      });
+
+      const byBooking = controller.startOrSend(
+        { channel: 'ANFITRION_ADMIN', bookingId: 'booking-hu071-1', content: 'Consulta sobre esta reserva.' },
+        hostSession,
+      );
+      expect(byBooking.conversation.bookingId).toBe('booking-hu071-1');
+      expect(byBooking.conversation.listingId).toBe(activeListingId);
+    });
+
+    it('CA2, CA3 & CA7: admin ve todas las conversaciones, responde como Administración, notifica al anfitrión y audita sin texto', async () => {
+      // Crear una conversación huésped-anfitrión para confirmar que el admin NO la ve en su bandeja
+      controller.startOrSend({ listingId: activeListingId, content: 'Mensaje privado huésped' }, guestSession);
+
+      const c1 = controller.startOrSend(
+        { channel: 'ANFITRION_ADMIN', listingId: activeListingId, content: 'Solicitud de soporte 1' },
+        hostSession,
+      );
+      await new Promise((res) => setTimeout(res, 15));
+      const host2Listing = listingsService.create(
+        {
+          title: 'Casa Host 2',
+          city: 'Cali',
+          department: 'Valle del Cauca',
+          address: 'Calle 5 # 10-20',
+          pricePerNight: 180000,
+          maxGuests: 4,
+        },
+        host2Session,
+      );
+      const c2 = controller.startOrSend(
+        { channel: 'ANFITRION_ADMIN', listingId: host2Listing.id, content: 'Solicitud de soporte 2' },
+        host2Session,
+      );
+
+      const adminInbox = controller.listMine(adminSession);
+      expect(adminInbox.total).toBe(2);
+      expect(adminInbox.unreadConversations).toBe(2);
+      // Lo más reciente primero
+      expect(adminInbox.data[0].id).toBe(c2.conversation.id);
+      expect(adminInbox.data.every((item) => item.channel === 'ANFITRION_ADMIN')).toBe(true);
+      expect(controller.getUnreadCount(adminSession)).toEqual({ unreadConversations: 2, unreadMessages: 2 });
+
+      // Admin abre c1 (marca como leído) y responde
+      controller.getConversation(c1.conversation.id, adminSession);
+      expect(controller.getUnreadCount(adminSession)).toEqual({ unreadConversations: 1, unreadMessages: 1 });
+
+      const replyText = 'Revisamos tu publicación y ya puedes solicitar activación nuevamente.';
+      const reply = controller.sendMessage(c1.conversation.id, { content: replyText }, adminSession);
+      expect(reply.messages.data[0].senderRole).toBe('ADMINISTRADOR');
+      expect(reply.messages.data[0].senderName).toBe('Administración');
+
+      // CA3: anfitrión recibe notificación interna
+      const hostNotifs = notificationsService
+        .findMine({ userId: hostSession.userId, email: hostSession.email })
+        .filter((n) => n.type === 'MENSAJE_NUEVO' && n.entityId === c1.conversation.id);
+      expect(hostNotifs).toHaveLength(1);
+      expect(hostNotifs[0].message).toContain('Administración');
+
+      // CA7: evento de auditoría con admin, conversación y fecha, SIN el texto del mensaje
+      const events = auditService.findAll();
+      const chatAudit = events.find((e) => e.entity === 'Conversation' && e.entityId === c1.conversation.id);
+      expect(chatAudit).toBeDefined();
+      expect(chatAudit?.actor).toBe(adminSession.email);
+      expect(chatAudit?.occurredAt).toBeDefined();
+      expect(JSON.stringify(chatAudit)).not.toContain(replyText);
+    });
+
+    it('CA4: anfitrión ve sus conversaciones con administración y huéspedes, pero otro anfitrión recibe 404', () => {
+      const adminConv = controller.startOrSend(
+        { channel: 'ANFITRION_ADMIN', content: 'Duda privada del anfitrión 1' },
+        hostSession,
+      );
+      controller.startOrSend({ listingId: activeListingId, content: 'Duda de huésped' }, guestSession);
+
+      const hostInbox = controller.listMine(hostSession);
+      expect(hostInbox.total).toBe(2);
+
+      expect(() => controller.getConversation(adminConv.conversation.id, host2Session)).toThrow(NotFoundException);
+      expect(() =>
+        controller.sendMessage(adminConv.conversation.id, { content: 'Intento ajeno' }, host2Session),
+      ).toThrow(NotFoundException);
+    });
+
+    it('CA5 & CA6: huésped es rechazado al intentar usar canal admin y se validan 1-1000 caracteres', () => {
+      const adminConv = controller.startOrSend(
+        { channel: 'ANFITRION_ADMIN', content: 'Consulta anfitrión' },
+        hostSession,
+      );
+
+      expect(() =>
+        controller.startOrSend({ channel: 'ANFITRION_ADMIN', content: 'Hola admin' }, guestSession),
+      ).toThrow(ForbiddenException);
+      expect(() => controller.getConversation(adminConv.conversation.id, guestSession)).toThrow(ForbiddenException);
+      expect(() =>
+        controller.sendMessage(adminConv.conversation.id, { content: 'Intento huésped' }, guestSession),
+      ).toThrow(ForbiddenException);
+
+      expect(() =>
+        controller.startOrSend({ channel: 'ANFITRION_ADMIN', content: '   ' }, hostSession),
+      ).toThrow(BadRequestException);
+      expect(() =>
+        controller.sendMessage(adminConv.conversation.id, { content: 'x'.repeat(1001) }, adminSession),
+      ).toThrow(BadRequestException);
+    });
   });
 });
