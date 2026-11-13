@@ -175,25 +175,12 @@ export class GeocodingService {
   }
 
   async geocodeAsync(query: GeocodingQuery): Promise<GeocodingResult> {
-    if (!this.hasFullLocation(query)) {
-      return { coordinates: null };
+    const syncResult = this.geocodeSync(query);
+    if (!syncResult.pendingAsync) {
+      return syncResult;
     }
 
     const cacheKey = this.buildCacheKey(query);
-    if (this.cache.has(cacheKey)) {
-      const cached = this.cache.get(cacheKey) ?? null;
-      return cached
-        ? { coordinates: { ...cached } }
-        : { coordinates: null, warning: GEOCODING_NOT_FOUND_WARNING };
-    }
-
-    if (this.isMockMode()) {
-      const coordinates = this.resolveMockCoordinates(query);
-      this.cache.set(cacheKey, coordinates);
-      return coordinates
-        ? { coordinates: { ...coordinates } }
-        : { coordinates: null, warning: GEOCODING_NOT_FOUND_WARNING };
-    }
 
     try {
       await this.enforceRateLimit();
