@@ -340,4 +340,104 @@ describe('HU-070 · Conversar por mensajes entre huésped y anfitrión (EP-18)',
     expect(restored.conversations[0].id).toBe(created.conversation.id);
     expect(restored.messages[0].content).toBe('Persistido en BD');
   });
+
+  it('Cobertura adicional HU-070: búsqueda por contexto, validaciones de entrada, bookingId y persistencia en memoria', () => {
+    // Registro en StatePersistenceService (dump / restore null y con datos)
+    let capturedHandlers: { dump: () => unknown; restore: (d: unknown) => void } | undefined;
+    const persistenceMock = {
+      register: (_name: string, handlers: { dump: () => unknown; restore: (d: unknown) => void }) => {
+        capturedHandlers = handlers;
+      },
+    };
+    const standalone = new MessagesService(undefined, undefined, undefined, undefined, persistenceMock as any);
+    standalone.onModuleInit();
+    expect(capturedHandlers?.dump()).toEqual({ conversations: [], messages: [] });
+    capturedHandlers?.restore(null);
+    capturedHandlers?.restore({ conversations: [], messages: [] });
+
+    // Validación de tipo no string y rol inválido
+    expect(() => controller.startOrSend({ listingId: activeListingId, content: 123 as any }, guestSession)).toThrow(
+      BadRequestException,
+    );
+    expect(() =>
+      messagesService.startOrSendMessage({ listingId: activeListingId, content: 'hola' }, { ...guestSession, role: 'OTRO' as any }),
+    ).toThrow(NotFoundException);
+
+    // Huésped sin listingId ni bookingId, listing inexistente, propia publicación y bookingId ajeno
+    expect(() => controller.startOrSend({ content: 'sin destino' }, guestSession)).toThrow(BadRequestException);
+    expect(() => controller.startOrSend({ listingId: 'list-no-existe', content: 'hola' }, guestSession)).toThrow(
+      NotFoundException,
+    );
+    expect(() => controller.startOrSend({ bookingId: 'bk-no-existe', content: 'hola' }, guestSession)).toThrow(
+      NotFoundException,
+    );
+    expect(() =>
+      messagesService.startOrSendMessage(
+        { listingId: activeListingId, content: 'Auto mensaje' },
+        { ...guestSession, userId: hostSession.userId },
+      ),
+    ).toThrow(BadRequestException);
+
+    // Huésped inicia conversación mediante bookingId válido
+    const bookingId = 'booking-hu070-guest2';
+    ((bookingsService as any).bookingsStore as any[]).push({
+      id: bookingId,
+      listingId: activeListingId,
+      guestId: guest2Session.email,
+      checkIn: '2027-03-10',
+      checkOut: '2027-03-12',
+      guests: 2,
+      totalAmount: 560000,
+      currency: 'COP',
+      status: 'CONFIRMADA',
+      createdAt: new Date(),
+    });
+    const byBooking = controller.startOrSend({ bookingId, content: 'Duda desde mi reserva' }, guest2Session);
+    expect(byBooking.conversation.listingId).toBe(activeListingId);
+
+    // lookup: por bookingId (huésped, anfitrión, tercero, inexistente), listingId y vacío
+    expect(controller.lookup(guest2Session, undefined, bookingId)).toEqual({
+      conversationId: byBooking.conversation.id,
+    });
+    expect(controller.lookup(hostSession, undefined, bookingId)).toEqual({
+      conversationId: byBooking.conversation.id,
+    });
+    expect(controller.lookup(host2Session, undefined, bookingId)).toEqual({ conversationId: null });
+    expect(controller.lookup(guest2Session, undefined, 'bk-no-existe')).toEqual({ conversationId: null });
+    expect(controller.lookup(guest2Session, activeListingId)).toEqual({
+      conversationId: byBooking.conversation.id,
+    });
+    expect(controller.lookup(guest2Session, draftListingId)).toEqual({ conversationId: null });
+    expect(controller.lookup(guest2Session)).toEqual({ conversationId: null });
+
+    // Validaciones de destino para anfitrión y rama listingId distinto en BookingsService
+    expect(() => controller.startOrSend({ bookingId: 'bk-no-existe', content: 'Hola' }, hostSession)).toThrow(
+      NotFoundException,
+    );
+    expect(() => controller.startOrSend({ listingId: activeListingId, content: 'Falta guestId' }, hostSession)).toThrow(
+      BadRequestException,
+    );
+    expect(() =>
+      controller.startOrSend({ listingId: 'list-no-existe', guestId: guest2Session.userId, content: 'Hola' }, hostSession),
+    ).toThrow(NotFoundException);
+    expect(() =>
+      controller.startOrSend({ listingId: activeListingId, guestId: guest2Session.userId, content: 'Hola' }, host2Session),
+    ).toThrow(NotFoundException);
+
+    // Usuario sin cuenta registrada en AuthService -> resolveAccount retorna undefined pero funciona para reserva externa
+    expect(bookingsService.hasGuestBookingWithHostListing(draftListingId, { email: guest2Session.email })).toBe(false);
+    expect(bookingsService.getBookingForMessaging('bk-no-existe')).toBeUndefined();
+    const externalGuestConv = controller.startOrSend(
+      { listingId: activeListingId, guestId: guest2Session.email, content: 'Confirmado' },
+      hostSession,
+    );
+    expect(externalGuestConv.conversation.id).toBe(byBooking.conversation.id);
+    controller.sendMessage(externalGuestConv.conversation.id, { content: 'Otra pregunta' }, guest2Session);
+
+    // markAsRead explícito y consulta con paginación
+    const readRes = controller.markAsRead(byBooking.conversation.id, hostSession);
+    expect(readRes.updated).toBeGreaterThanOrEqual(1);
+    const paged = controller.getConversation(byBooking.conversation.id, hostSession, '1', '5');
+    expect(paged.messages.limit).toBe(5);
+  });
 });
