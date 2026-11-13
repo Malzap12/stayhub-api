@@ -16,7 +16,8 @@ export type NotificationType =
   | 'PUBLICACION_BLOQUEADA'
   | 'PUBLICACION_PAUSADA'
   | 'CUENTA_RESTRINGIDA'
-  | 'RESENA_OCULTADA';
+  | 'RESENA_OCULTADA'
+  | 'MENSAJE_NUEVO';
 
 export const NOTIFICATION_TYPES: NotificationType[] = [
   'RESERVA_CONFIRMADA',
@@ -33,6 +34,7 @@ export const NOTIFICATION_TYPES: NotificationType[] = [
   'PUBLICACION_PAUSADA',
   'CUENTA_RESTRINGIDA',
   'RESENA_OCULTADA',
+  'MENSAJE_NUEVO',
 ];
 
 /** HU-043 CA3: destinatario, tipo, mensaje, entidad relacionada, fecha y estado de lectura. */
@@ -52,8 +54,8 @@ export class NotificationDto {
   @ApiProperty({ example: 'Tu reserva RES-8D17F0D7 en "Cabaña del Bosque" del 2026-11-16 al 2026-11-19 está confirmada.' })
   message: string;
 
-  @ApiProperty({ enum: ['Booking', 'Listing', 'UserAccount'], example: 'Booking', description: 'Tipo de entidad relacionada' })
-  entity: 'Booking' | 'Listing' | 'UserAccount' | 'Review';
+  @ApiProperty({ enum: ['Booking', 'Listing', 'UserAccount', 'Review', 'Conversation'], example: 'Booking', description: 'Tipo de entidad relacionada' })
+  entity: 'Booking' | 'Listing' | 'UserAccount' | 'Review' | 'Conversation';
 
   @ApiProperty({ example: 'booking-uuid-789', description: 'ID de la entidad relacionada' })
   entityId: string;
