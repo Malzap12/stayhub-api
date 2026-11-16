@@ -1,11 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString } from 'class-validator';
 
-export type MessageSenderRole = 'HUESPED' | 'ANFITRION';
+export type MessageSenderRole = 'HUESPED' | 'ANFITRION' | 'ADMINISTRADOR';
+export type ConversationChannel = 'HUESPED_ANFITRION' | 'ANFITRION_ADMIN';
 
-/** Registro interno de una conversación única por (guest, listing). */
+/** Registro interno de una conversación única por (guest, listing) o (host, admin, vínculo opcional). */
 export interface StoredConversation {
   id: string;
+  channel?: ConversationChannel;
+  bookingId?: string;
   listingId: string;
   listingTitle: string;
   listingCity?: string;
@@ -20,6 +23,11 @@ export interface StoredConversation {
 }
 
 export class StartConversationDto {
+  @ApiPropertyOptional({ enum: ['HUESPED_ANFITRION', 'ANFITRION_ADMIN'], example: 'HUESPED_ANFITRION' })
+  @IsOptional()
+  @IsString()
+  channel?: ConversationChannel;
+
   @ApiPropertyOptional({ example: 'demo-bogota-chapinero', description: 'ID del alojamiento (requerido para huésped)' })
   @IsOptional()
   @IsString()
@@ -56,7 +64,7 @@ export class MessageDto {
   @ApiProperty({ example: 'user-uuid-123' })
   senderId: string;
 
-  @ApiProperty({ enum: ['HUESPED', 'ANFITRION'], example: 'HUESPED' })
+  @ApiProperty({ enum: ['HUESPED', 'ANFITRION', 'ADMINISTRADOR'], example: 'HUESPED' })
   senderRole: MessageSenderRole;
 
   @ApiProperty({ example: 'Laura Gómez' })
@@ -79,7 +87,7 @@ export class LastMessagePreviewDto {
   @ApiProperty({ example: '2026-11-12T18:30:00.000Z' })
   createdAt: Date;
 
-  @ApiProperty({ enum: ['HUESPED', 'ANFITRION'], example: 'HUESPED' })
+  @ApiProperty({ enum: ['HUESPED', 'ANFITRION', 'ADMINISTRADOR'], example: 'HUESPED' })
   senderRole: MessageSenderRole;
 }
 
@@ -87,6 +95,12 @@ export class LastMessagePreviewDto {
 export class ConversationSummaryDto {
   @ApiProperty({ example: 'conv-6f1c2a9e' })
   id: string;
+
+  @ApiProperty({ enum: ['HUESPED_ANFITRION', 'ANFITRION_ADMIN'], example: 'HUESPED_ANFITRION' })
+  channel: ConversationChannel;
+
+  @ApiPropertyOptional({ example: 'booking-uuid-1' })
+  bookingId?: string;
 
   @ApiProperty({ example: 'demo-bogota-chapinero' })
   listingId: string;

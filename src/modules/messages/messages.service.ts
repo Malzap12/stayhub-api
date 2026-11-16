@@ -7,14 +7,17 @@ import {
   Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { ListingStatus } from '../../common/enums/listing-status.enum';
 import { Role } from '../../common/enums/role.enum';
+import { AuditService } from '../audit/audit.service';
 import { AuthService, type ActiveSession, type UserAccount } from '../auth/auth.service';
 import { BookingsService } from '../bookings/bookings.service';
 import { ListingsService } from '../listings/listings.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StatePersistenceService } from '../persistence/state-persistence.service';
 import {
+  ConversationChannel,
   ConversationDetailDto,
   ConversationSummaryDto,
   ConversationsPageDto,
@@ -30,6 +33,10 @@ export const MAX_MESSAGE_LENGTH = 1000;
 export const DEFAULT_CONVERSATIONS_LIMIT = 10;
 export const DEFAULT_MESSAGES_LIMIT = 20;
 export const MAX_PAGE_LIMIT = 50;
+export const ADMIN_PARTICIPANT_ID = 'ADMINISTRACION';
+export const ADMIN_LABEL = 'Administración';
+export const ADMIN_GENERAL_LISTING_ID = 'ADMIN_GENERAL';
+export const ADMIN_GENERAL_TITLE = 'Soporte y moderación general';
 
 /**
  * HU-070 · Conversar por mensajes entre huésped y anfitrión (EP-18).
@@ -48,6 +55,7 @@ export class MessagesService implements OnModuleInit {
     @Optional() private readonly authService?: AuthService,
     @Optional() private readonly notificationsService?: NotificationsService,
     @Optional() private readonly persistence?: StatePersistenceService,
+    @Optional() private readonly auditService?: AuditService,
   ) {}
 
   onModuleInit(): void {
@@ -76,8 +84,19 @@ export class MessagesService implements OnModuleInit {
     return trimmed;
   }
 
-  /** CA1/CA2: inicia o reutiliza la conversación única por (huésped, publicación) y guarda el mensaje. */
+  /** CA1/CA2: inicia o reutiliza la conversación y guarda el mensaje. */
   startOrSendMessage(dto: StartConversationDto, user: ActiveSession): ConversationDetailDto {
+    if (dto?.channel === 'ANFITRION_ADMIN') {
+      if (user?.role === Role.HUESPED) {
+        throw new ForbiddenException('El canal con la administración está habilitado únicamente para anfitriones.');
+      }
+      if (user?.role !== Role.ANFITRION) {
+        throw new ForbiddenException('Solo un anfitrión puede iniciar una conversación con la administración.');
+      }
+      const content = this.validateContent(dto?.content);
+      return this.sendAsHostToAdmin(dto, content, user);
+    }
+
     this.assertNotAdmin(user);
     const content = this.validateContent(dto?.content);
 
@@ -100,7 +119,9 @@ export class MessagesService implements OnModuleInit {
     const content = this.validateContent(dto?.content);
     const callerRole = this.callerRoleOf(conversation, user);
 
-    this.assertCounterpartCanReceiveForCaller(conversation, callerRole);
+    if (this.channelOf(conversation) === 'HUESPED_ANFITRION') {
+      this.assertCounterpartCanReceiveForCaller(conversation, callerRole);
+    }
     this.appendMessage(conversation, callerRole, user, content);
     return this.buildDetail(conversation, callerRole, { page: 1, limit: DEFAULT_MESSAGES_LIMIT });
   }
@@ -131,15 +152,14 @@ export class MessagesService implements OnModuleInit {
     };
   }
 
-  /** CA3/CA4/CA7: bandeja del huésped o anfitrión ordenada por actividad más reciente y paginada. */
+  /** Bandeja del huésped, anfitrión o administración ordenada por actividad más reciente y paginada. */
   listMyConversations(
     user: ActiveSession,
     options: { page?: number; limit?: number } = {},
   ): ConversationsPageDto {
-    this.assertNotAdmin(user);
-    const mine = this.conversations
-      .filter((conv) => this.isParticipant(conv, user))
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    const mine = this.filterInboxConversations(user).sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    );
 
     const { page, limit } = this.normalizePagination(options.page, options.limit, DEFAULT_CONVERSATIONS_LIMIT);
     const total = mine.length;
@@ -160,12 +180,12 @@ export class MessagesService implements OnModuleInit {
     };
   }
 
-  /** CA4: contador de conversaciones y mensajes sin leer del usuario autenticado. */
+  /** Contador de conversaciones y mensajes sin leer del usuario autenticado. */
   getUnreadCount(user: ActiveSession): UnreadConversationsCountDto {
-    if (!user || user.role === Role.ADMINISTRADOR) {
+    if (!user) {
       return { unreadConversations: 0, unreadMessages: 0 };
     }
-    const mine = this.conversations.filter((conv) => this.isParticipant(conv, user));
+    const mine = this.filterInboxConversations(user);
     let unreadConversations = 0;
     let unreadMessages = 0;
     for (const conv of mine) {
@@ -333,6 +353,71 @@ export class MessagesService implements OnModuleInit {
     return this.buildDetail(conversation, 'ANFITRION', { page: 1, limit: DEFAULT_MESSAGES_LIMIT });
   }
 
+  /** HU-071 CA1: anfitrión crea o reutiliza una conversación con la administración (con vínculo opcional). */
+  private sendAsHostToAdmin(
+    dto: StartConversationDto,
+    content: string,
+    user: ActiveSession,
+  ): ConversationDetailDto {
+    let listingId = ADMIN_GENERAL_LISTING_ID;
+    let listingTitle = ADMIN_GENERAL_TITLE;
+    let listingCity: string | undefined;
+    let bookingId: string | undefined;
+
+    if (dto?.bookingId?.trim()) {
+      const booking = this.bookingsService?.getBookingForMessaging(dto.bookingId.trim());
+      const listing = booking ? this.listingsService?.getListing(booking.listingId) : undefined;
+      if (!booking || !listing || listing.hostId !== user.userId) {
+        throw new NotFoundException('Reserva no encontrada');
+      }
+      bookingId = booking.id;
+      listingId = listing.id;
+      listingTitle = listing.title;
+      listingCity = listing.city;
+    } else if (dto?.listingId?.trim()) {
+      const listing = this.listingsService?.getListing(dto.listingId.trim());
+      if (!listing || listing.hostId !== user.userId) {
+        throw new NotFoundException('Publicación no encontrada');
+      }
+      listingId = listing.id;
+      listingTitle = listing.title;
+      listingCity = listing.city;
+    }
+
+    let conversation = this.conversations.find(
+      (conv) =>
+        this.channelOf(conv) === 'ANFITRION_ADMIN' &&
+        conv.hostId === user.userId &&
+        conv.listingId === listingId &&
+        (conv.bookingId ?? '') === (bookingId ?? ''),
+    );
+
+    if (!conversation) {
+      const hostAccount = this.resolveAccount(user.userId, user.email);
+      const now = new Date();
+      conversation = {
+        id: `conv-${randomUUID()}`,
+        channel: 'ANFITRION_ADMIN',
+        ...(bookingId ? { bookingId } : {}),
+        listingId,
+        listingTitle,
+        ...(listingCity ? { listingCity } : {}),
+        guestId: ADMIN_PARTICIPANT_ID,
+        guestEmail: '',
+        guestName: ADMIN_LABEL,
+        hostId: user.userId,
+        hostEmail: user.email.trim().toLowerCase(),
+        hostName: hostAccount?.name ?? user.email,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.conversations.push(conversation);
+    }
+
+    this.appendMessage(conversation, 'ANFITRION', user, content);
+    return this.buildDetail(conversation, 'ANFITRION', { page: 1, limit: DEFAULT_MESSAGES_LIMIT });
+  }
+
   private resolveHostTarget(
     dto: StartConversationDto,
     user: ActiveSession,
@@ -371,12 +456,15 @@ export class MessagesService implements OnModuleInit {
     user: ActiveSession,
     content: string,
   ): MessageDto {
+    const channel = this.channelOf(conversation);
     const senderAccount = this.resolveAccount(user.userId, user.email);
     const senderName =
-      senderAccount?.name ??
-      (senderRole === 'HUESPED' ? conversation.guestName : conversation.hostName);
+      senderRole === 'ADMINISTRADOR'
+        ? ADMIN_LABEL
+        : senderAccount?.name ??
+          (senderRole === 'HUESPED' ? conversation.guestName : conversation.hostName);
 
-    // CA5: verificar ANTES de insertar si ya hay mensajes sin leer de este remitente para el destinatario.
+    // Verificar ANTES de insertar si ya hay mensajes sin leer de este remitente para el destinatario.
     const alreadyHasUnreadForRecipient = this.messages.some(
       (m) => m.conversationId === conversation.id && m.senderRole === senderRole && !m.readAt,
     );
@@ -395,19 +483,68 @@ export class MessagesService implements OnModuleInit {
     conversation.updatedAt = now;
 
     if (!alreadyHasUnreadForRecipient) {
-      const recipient =
-        senderRole === 'HUESPED'
-          ? { userId: conversation.hostId, email: conversation.hostEmail }
-          : { userId: conversation.guestId, email: conversation.guestEmail };
-      this.notificationsService?.messageReceived({
-        conversationId: conversation.id,
-        listingTitle: conversation.listingTitle,
-        senderName,
-        recipient,
+      this.notifyRecipient(conversation, channel, senderRole, senderName);
+    }
+
+    // HU-071 CA7 (RNF-020): evento de auditoría cuando un administrador responde al anfitrión, sin el texto del mensaje.
+    if (senderRole === 'ADMINISTRADOR' && channel === 'ANFITRION_ADMIN') {
+      this.auditService?.record({
+        actor: user.email,
+        action: AuditAction.ADMIN_ACTION,
+        entity: 'Conversation',
+        entityId: conversation.id,
+        result: AuditResult.EXITOSO,
+        detail: `Respuesta de la administración en conversación ${conversation.id}`,
+        metadata: {
+          conversationId: conversation.id,
+          hostId: conversation.hostId,
+          ...(conversation.listingId !== ADMIN_GENERAL_LISTING_ID ? { listingId: conversation.listingId } : {}),
+          ...(conversation.bookingId ? { bookingId: conversation.bookingId } : {}),
+        },
       });
     }
 
     return message;
+  }
+
+  private notifyRecipient(
+    conversation: StoredConversation,
+    channel: ConversationChannel,
+    senderRole: MessageSenderRole,
+    senderName: string,
+  ): void {
+    if (channel === 'ANFITRION_ADMIN') {
+      if (senderRole === 'ADMINISTRADOR') {
+        this.notificationsService?.messageReceived({
+          conversationId: conversation.id,
+          listingTitle: conversation.listingTitle,
+          senderName: ADMIN_LABEL,
+          recipient: { userId: conversation.hostId, email: conversation.hostEmail },
+        });
+      } else {
+        const admins = this.authService?.listAccounts().filter((acc) => acc.role === Role.ADMINISTRADOR) ?? [];
+        for (const admin of admins) {
+          this.notificationsService?.messageReceived({
+            conversationId: conversation.id,
+            listingTitle: conversation.listingTitle,
+            senderName,
+            recipient: { userId: admin.id, email: admin.email },
+          });
+        }
+      }
+      return;
+    }
+
+    const recipient =
+      senderRole === 'HUESPED'
+        ? { userId: conversation.hostId, email: conversation.hostEmail }
+        : { userId: conversation.guestId, email: conversation.guestEmail };
+    this.notificationsService?.messageReceived({
+      conversationId: conversation.id,
+      listingTitle: conversation.listingTitle,
+      senderName,
+      recipient,
+    });
   }
 
   private markIncomingAsRead(conversationId: string, callerRole: MessageSenderRole): number {
@@ -422,10 +559,44 @@ export class MessagesService implements OnModuleInit {
     return updated;
   }
 
+  private channelOf(conv: StoredConversation): ConversationChannel {
+    return conv.channel ?? 'HUESPED_ANFITRION';
+  }
+
+  private filterInboxConversations(user: ActiveSession): StoredConversation[] {
+    if (!user) return [];
+    if (user.role === Role.ADMINISTRADOR) {
+      return this.conversations.filter((conv) => this.channelOf(conv) === 'ANFITRION_ADMIN');
+    }
+    if (user.role === Role.HUESPED) {
+      return this.conversations.filter(
+        (conv) => this.channelOf(conv) === 'HUESPED_ANFITRION' && this.matchesGuest(conv, user),
+      );
+    }
+    return this.conversations.filter((conv) => this.isParticipant(conv, user));
+  }
+
   private findAuthorizedConversation(conversationId: string, user: ActiveSession): StoredConversation {
-    this.assertNotAdmin(user);
     const conversation = this.conversations.find((item) => item.id === conversationId);
-    if (!conversation || !this.isParticipant(conversation, user)) {
+    if (!conversation) {
+      throw new NotFoundException('Conversación no encontrada');
+    }
+
+    if (this.channelOf(conversation) === 'ANFITRION_ADMIN') {
+      if (user?.role === Role.HUESPED) {
+        throw new ForbiddenException('El canal con la administración está habilitado únicamente para anfitriones.');
+      }
+      if (user?.role === Role.ADMINISTRADOR) {
+        return conversation;
+      }
+      if (user?.role === Role.ANFITRION && this.matchesHost(conversation, user)) {
+        return conversation;
+      }
+      throw new NotFoundException('Conversación no encontrada');
+    }
+
+    this.assertNotAdmin(user);
+    if (!this.isParticipant(conversation, user)) {
       throw new NotFoundException('Conversación no encontrada');
     }
     return conversation;
@@ -437,19 +608,20 @@ export class MessagesService implements OnModuleInit {
     }
   }
 
-  private isParticipant(conv: StoredConversation, user: ActiveSession): boolean {
+  private matchesHost(conv: StoredConversation, user: ActiveSession): boolean {
     const email = user.email?.trim().toLowerCase();
-    const isGuest =
-      conv.guestId === user.userId || (Boolean(email) && conv.guestEmail?.toLowerCase() === email);
-    const isHost =
-      conv.hostId === user.userId || (Boolean(email) && conv.hostEmail?.toLowerCase() === email);
-    return isGuest || isHost;
+    return conv.hostId === user.userId || (Boolean(email) && conv.hostEmail?.toLowerCase() === email);
+  }
+
+  private isParticipant(conv: StoredConversation, user: ActiveSession): boolean {
+    return this.matchesGuest(conv, user) || this.matchesHost(conv, user);
   }
 
   private callerRoleOf(conv: StoredConversation, user: ActiveSession): MessageSenderRole {
-    const email = user.email?.trim().toLowerCase();
-    const isHost =
-      conv.hostId === user.userId || (Boolean(email) && conv.hostEmail?.toLowerCase() === email);
+    if (this.channelOf(conv) === 'ANFITRION_ADMIN') {
+      return user.role === Role.ADMINISTRADOR ? 'ADMINISTRADOR' : 'ANFITRION';
+    }
+    const isHost = this.matchesHost(conv, user);
     return isHost && user.role === Role.ANFITRION ? 'ANFITRION' : isHost && !this.matchesGuest(conv, user) ? 'ANFITRION' : 'HUESPED';
   }
 
@@ -465,6 +637,7 @@ export class MessagesService implements OnModuleInit {
     const normalizedEmail = guest.email?.trim().toLowerCase();
     return this.conversations.find(
       (conv) =>
+        this.channelOf(conv) === 'HUESPED_ANFITRION' &&
         conv.listingId === listingId &&
         ((Boolean(guest.userId) && conv.guestId === guest.userId) ||
           (Boolean(normalizedEmail) && conv.guestEmail?.toLowerCase() === normalizedEmail) ||
@@ -527,13 +700,24 @@ export class MessagesService implements OnModuleInit {
   }
 
   private toSummary(conv: StoredConversation, callerRole: MessageSenderRole): ConversationSummaryDto {
+    const channel = this.channelOf(conv);
     const convMessages = this.messages
       .filter((m) => m.conversationId === conv.id)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     const last = convMessages[0];
+    const counterpartName =
+      channel === 'ANFITRION_ADMIN'
+        ? callerRole === 'ADMINISTRADOR'
+          ? conv.hostName
+          : ADMIN_LABEL
+        : callerRole === 'HUESPED'
+          ? conv.hostName
+          : conv.guestName;
 
     return {
       id: conv.id,
+      channel,
+      ...(conv.bookingId ? { bookingId: conv.bookingId } : {}),
       listingId: conv.listingId,
       listingTitle: conv.listingTitle,
       ...(conv.listingCity ? { listingCity: conv.listingCity } : {}),
@@ -541,7 +725,7 @@ export class MessagesService implements OnModuleInit {
       guestName: conv.guestName,
       hostId: conv.hostId,
       hostName: conv.hostName,
-      counterpartName: callerRole === 'HUESPED' ? conv.hostName : conv.guestName,
+      counterpartName,
       ...(last
         ? {
             lastMessage: {
