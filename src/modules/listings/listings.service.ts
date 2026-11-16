@@ -40,6 +40,12 @@ import { CancellationPolicyDto, ListingDetailDto, UpdateCancellationPolicyDto } 
 import { CalendarDayStatus, CalendarMonthDto, ListingCalendarDto } from './dto/calendar.dto';
 import { CANCELLATION_POLICIES, DEFAULT_CANCELLATION_POLICY, getCancellationPoliciesCatalog, type CancellationPolicyCode } from './cancellation-policies';
 import { Role } from '../../common/enums/role.enum';
+import {
+  DEFAULT_MAP_ATTRIBUTION,
+  GeocodingQuery,
+  GeocodingService,
+  isValidCoordinatePair,
+} from './geocoding.service';
 
 /** HU-026 CA2: mismo mensaje si no existe o no se puede ver, para no revelar publicaciones no activas. */
 export const LISTING_NOT_AVAILABLE = 'Esta publicación no está disponible';
@@ -53,7 +59,7 @@ const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
   [PropertyType.OTRO]: 'Otro',
 };
 
-/** HU-026 CA1: detalle público con ubicación textual, política de cancelación y servicios adicionales. */
+/** HU-026 CA1 y HU-069 CA4/CA5: detalle público con ubicación textual y coordenadas para mapa cuando existan. */
 export function toListingDetail(listing: ListingResponseDto): ListingDetailDto {
   const location = {
     address: listing.address,
@@ -61,6 +67,7 @@ export function toListingDetail(listing: ListingResponseDto): ListingDetailDto {
     department: listing.department,
     country: listing.country,
   };
+  const hasCoordinates = isValidCoordinatePair(listing.latitude, listing.longitude);
   return {
     id: listing.id,
     title: listing.title,
@@ -68,6 +75,13 @@ export function toListingDetail(listing: ListingResponseDto): ListingDetailDto {
     location: {
       ...location,
       text: [location.address, location.city, location.department, location.country].filter(Boolean).join(', '),
+      ...(hasCoordinates
+        ? {
+            latitude: listing.latitude,
+            longitude: listing.longitude,
+            mapAttribution: DEFAULT_MAP_ATTRIBUTION,
+          }
+        : {}),
     },
     propertyType: listing.propertyType,
     propertyTypeLabel: listing.propertyType ? PROPERTY_TYPE_LABELS[listing.propertyType] : undefined,
@@ -373,15 +387,99 @@ export class ListingsService implements OnModuleInit {
   private readonly guestsWithReservations = new Set<string>();
   private readonly seedListings: ListingResponseDto[];
   private readonly seedAvailabilityPeriods: AvailabilityPeriodResponseDto[];
+  private readonly fallbackGeocodingService = new GeocodingService();
+  private readonly pendingGeocoding = new Map<string, GeocodingQuery>();
 
   constructor(
     private readonly auditService: AuditService,
     @Optional() private readonly authService?: AuthService,
     @Optional() private readonly persistence?: StatePersistenceService,
     @Optional() private readonly notificationsService?: NotificationsService,
+    @Optional() private readonly geocodingService?: GeocodingService,
   ) {
     this.seedListings = structuredClone(this.listingsStore);
     this.seedAvailabilityPeriods = structuredClone(this.availabilityPeriodsStore);
+  }
+
+  private get geocoding(): GeocodingService {
+    return this.geocodingService ?? this.fallbackGeocodingService;
+  }
+
+  /**
+   * HU-069 CA6: valida que ambas coordenadas se envíen juntas o ninguna,
+   * y que estén dentro de rango (-90..90 para latitud, -180..180 para longitud).
+   */
+  validateCoordinates(
+    latitude: unknown,
+    longitude: unknown,
+  ): { hasPair: boolean; explicitClear: boolean; latitude?: number; longitude?: number } {
+    const hasLat = latitude !== undefined && latitude !== null;
+    const hasLng = longitude !== undefined && longitude !== null;
+    if (hasLat !== hasLng) {
+      throw new BadRequestException('Debe enviar tanto la latitud como la longitud, o ninguna de las dos.');
+    }
+    if (!hasLat && !hasLng) {
+      return { hasPair: false, explicitClear: latitude === null && longitude === null };
+    }
+    if (!isValidCoordinatePair(latitude, longitude)) {
+      throw new BadRequestException(
+        'Las coordenadas están fuera de rango: la latitud debe estar entre -90 y 90 y la longitud entre -180 y 180.',
+      );
+    }
+    return {
+      hasPair: true,
+      explicitClear: false,
+      latitude: Number((latitude as number).toFixed(6)),
+      longitude: Number((longitude as number).toFixed(6)),
+    };
+  }
+
+  private applyGeocodingSync(
+    listingId: string,
+    query: GeocodingQuery,
+  ): { latitude?: number; longitude?: number; coordinatesManual?: boolean; geocodingWarning?: string } {
+    const geoResult = this.geocoding.geocodeSync(query);
+    if (geoResult.coordinates) {
+      return {
+        latitude: geoResult.coordinates.latitude,
+        longitude: geoResult.coordinates.longitude,
+        coordinatesManual: false,
+      };
+    }
+    if (geoResult.pendingAsync) {
+      this.pendingGeocoding.set(listingId, query);
+      return {};
+    }
+    return geoResult.warning ? { geocodingWarning: geoResult.warning } : {};
+  }
+
+  async resolvePendingGeocoding(listingId: string): Promise<ListingResponseDto | undefined> {
+    const query = this.pendingGeocoding.get(listingId);
+    if (!query) {
+      return undefined;
+    }
+    this.pendingGeocoding.delete(listingId);
+    const listing = this.listingsStore.find((item) => item.id === listingId);
+    if (!listing) {
+      return undefined;
+    }
+
+    const result = await this.geocoding.geocodeAsync(query);
+    if (result.coordinates) {
+      listing.latitude = result.coordinates.latitude;
+      listing.longitude = result.coordinates.longitude;
+      listing.coordinatesManual = false;
+      delete listing.geocodingWarning;
+      return { ...listing };
+    }
+
+    listing.latitude = undefined;
+    listing.longitude = undefined;
+    listing.coordinatesManual = false;
+    return {
+      ...listing,
+      ...(result.warning ? { geocodingWarning: result.warning } : {}),
+    };
   }
 
   onModuleInit(): void {
@@ -408,7 +506,15 @@ export class ListingsService implements OnModuleInit {
       ...saved,
       ...structuredClone(seeds).filter((seed) => !saved.some((item) => item.id === seed.id)),
     ];
-    this.listingsStore = withSeeds(state.listings ?? [], this.seedListings);
+    this.listingsStore = withSeeds(state.listings ?? [], this.seedListings).map((item) => {
+      if (item.latitude === undefined && item.longitude === undefined && !item.coordinatesManual) {
+        const seedMatch = this.seedListings.find((seed) => seed.id === item.id);
+        if (seedMatch && isValidCoordinatePair(seedMatch.latitude, seedMatch.longitude)) {
+          return { ...item, latitude: seedMatch.latitude, longitude: seedMatch.longitude };
+        }
+      }
+      return item;
+    });
     this.availabilityPeriodsStore = withSeeds(state.availabilityPeriods ?? [], this.seedAvailabilityPeriods);
     this.hostNotifications = state.hostNotifications ?? [];
     this.reservedPeriodsStore = state.reservedPeriods ?? [];
@@ -456,18 +562,39 @@ export class ListingsService implements OnModuleInit {
    * autenticado e indica si le falta información básica.
    */
   create(createDto: CreateListingDto, host?: ActiveSession): ListingResponseDto {
+    const coords = this.validateCoordinates(createDto.latitude, createDto.longitude);
     const trimmed = (value?: string) => value?.trim() || undefined;
     const cleanList = (values?: string[]) =>
       (values ?? []).map((value) => value.trim()).filter((value) => value.length > 0);
 
+    const city = trimmed(createDto.city);
+    const department = trimmed(createDto.department);
+    const address = trimmed(createDto.address);
+    const country = trimmed(createDto.country) ?? 'Colombia';
+
+    const newId = `listing-${randomUUID()}`;
+    let latitude = coords.hasPair ? coords.latitude : undefined;
+    let longitude = coords.hasPair ? coords.longitude : undefined;
+    let coordinatesManual = coords.hasPair ? true : undefined;
+    let geocodingWarning: string | undefined;
+
+    if (!coords.hasPair) {
+      const geoApplied = this.applyGeocodingSync(newId, { address, city, department, country });
+      latitude = geoApplied.latitude;
+      longitude = geoApplied.longitude;
+      coordinatesManual = geoApplied.coordinatesManual;
+      geocodingWarning = geoApplied.geocodingWarning;
+    }
+
     const created = withCompleteness({
-      id: `listing-${randomUUID()}`,
+      id: newId,
       title: createDto.title.trim(),
       description: trimmed(createDto.description),
-      city: trimmed(createDto.city),
-      department: trimmed(createDto.department),
-      address: trimmed(createDto.address),
-      country: trimmed(createDto.country) ?? 'Colombia',
+      city,
+      department,
+      address,
+      country,
+      ...(latitude !== undefined && longitude !== undefined ? { latitude, longitude, coordinatesManual } : {}),
       propertyType: createDto.propertyType,
       maxGuests: createDto.maxGuests,
       pricePerNight: createDto.pricePerNight,
@@ -495,7 +622,7 @@ export class ListingsService implements OnModuleInit {
       AuditResult.EXITOSO,
       `Publicación creada en estado ${created.status}${created.isComplete ? '' : ' (incompleta)'}`,
     );
-    return created;
+    return geocodingWarning ? { ...created, geocodingWarning } : created;
   }
 
   /** HU-039 CA1: catálogo de políticas de cancelación disponibles (RF-058). */
@@ -562,8 +689,18 @@ export class ListingsService implements OnModuleInit {
    * Registra el evento en auditoría (CA1, RN-021).
    */
   updateListing(listingId: string, dto: UpdateListingDto, host?: ActiveSession): ListingResponseDto {
+    const hasCoordinateInput = dto.latitude !== undefined || dto.longitude !== undefined;
+    const coords = hasCoordinateInput ? this.validateCoordinates(dto.latitude, dto.longitude) : undefined;
+
     this.findOwnListing(listingId, host);
     const listing = this.listingsStore.find((item) => item.id === listingId)!;
+
+    const prevCity = listing.city;
+    const prevDepartment = listing.department;
+    const prevAddress = listing.address;
+    const prevCountry = listing.country;
+    const prevLatitude = listing.latitude;
+    const prevLongitude = listing.longitude;
 
     const trimmed = (value?: string) => (value !== undefined ? (value?.trim() || undefined) : undefined);
     const cleanList = (values?: string[]) =>
@@ -609,6 +746,43 @@ export class ListingsService implements OnModuleInit {
     }
     if (dto.bookingMode !== undefined) listing.bookingMode = dto.bookingMode;
 
+    const addressChanged =
+      listing.city !== prevCity ||
+      listing.department !== prevDepartment ||
+      listing.address !== prevAddress ||
+      listing.country !== prevCountry;
+    const manualCoordsUpdated =
+      Boolean(coords?.hasPair) &&
+      (!addressChanged || coords?.latitude !== prevLatitude || coords?.longitude !== prevLongitude);
+
+    let geocodingWarning: string | undefined;
+    if (manualCoordsUpdated && coords?.hasPair) {
+      listing.latitude = coords.latitude;
+      listing.longitude = coords.longitude;
+      listing.coordinatesManual = true;
+      delete listing.geocodingWarning;
+      this.pendingGeocoding.delete(listing.id);
+    } else if (addressChanged) {
+      listing.latitude = undefined;
+      listing.longitude = undefined;
+      listing.coordinatesManual = false;
+      delete listing.geocodingWarning;
+      const geoApplied = this.applyGeocodingSync(listing.id, {
+        address: listing.address,
+        city: listing.city,
+        department: listing.department,
+        country: listing.country,
+      });
+      listing.latitude = geoApplied.latitude;
+      listing.longitude = geoApplied.longitude;
+      geocodingWarning = geoApplied.geocodingWarning;
+    } else if (coords?.explicitClear) {
+      listing.latitude = undefined;
+      listing.longitude = undefined;
+      listing.coordinatesManual = false;
+      delete listing.geocodingWarning;
+    }
+
     const completeness = withCompleteness(listing);
     listing.isComplete = completeness.isComplete;
     listing.missingFields = completeness.missingFields;
@@ -622,7 +796,7 @@ export class ListingsService implements OnModuleInit {
       detail: `Publicación actualizada: ${listing.title}`,
     });
 
-    return { ...listing };
+    return geocodingWarning ? { ...listing, geocodingWarning } : { ...listing };
   }
 
   findMine(hostId: string): MyListingDto[] {

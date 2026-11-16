@@ -38,6 +38,21 @@ export class ListingResponseDto {
   @ApiPropertyOptional({ example: 'Colombia' })
   country?: string;
 
+  @ApiPropertyOptional({ example: 6.2442, description: 'Latitud geográfica del alojamiento (-90 a 90) (HU-069)' })
+  latitude?: number;
+
+  @ApiPropertyOptional({ example: -75.5812, description: 'Longitud geográfica del alojamiento (-180 a 180) (HU-069)' })
+  longitude?: number;
+
+  @ApiPropertyOptional({ example: false, description: 'Indica si las coordenadas fueron fijadas manualmente por el anfitrión (HU-069)' })
+  coordinatesManual?: boolean;
+
+  @ApiPropertyOptional({
+    example: 'No fue posible calcular las coordenadas automáticamente para la dirección indicada. Puedes ubicar el punto manualmente en el mapa.',
+    description: 'Aviso cuando falla o no encuentra resultado la geocodificación automática (HU-069 CA3)',
+  })
+  geocodingWarning?: string;
+
   @ApiPropertyOptional({ enum: PropertyType, example: PropertyType.CABANA, description: 'Tipo de alojamiento (HU-010)' })
   propertyType?: PropertyType;
 

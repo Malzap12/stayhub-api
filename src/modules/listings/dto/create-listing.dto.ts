@@ -9,6 +9,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -53,6 +54,20 @@ export class CreateListingDto {
   @IsOptional()
   @IsString({ message: 'El país debe ser un texto' })
   country?: string;
+
+  @ApiPropertyOptional({ example: 6.2442, description: 'Latitud geográfica (-90 a 90) (HU-069)', minimum: -90, maximum: 90 })
+  @IsOptional()
+  @IsNumber({}, { message: 'La latitud debe ser un número válido' })
+  @Min(-90, { message: 'La latitud debe estar entre -90 y 90' })
+  @Max(90, { message: 'La latitud debe estar entre -90 y 90' })
+  latitude?: number | null;
+
+  @ApiPropertyOptional({ example: -75.5812, description: 'Longitud geográfica (-180 a 180) (HU-069)', minimum: -180, maximum: 180 })
+  @IsOptional()
+  @IsNumber({}, { message: 'La longitud debe ser un número válido' })
+  @Min(-180, { message: 'La longitud debe estar entre -180 y 180' })
+  @Max(180, { message: 'La longitud debe estar entre -180 y 180' })
+  longitude?: number | null;
 
   @ApiPropertyOptional({ enum: PropertyType, example: PropertyType.CABANA, description: 'Tipo de alojamiento' })
   @IsOptional()

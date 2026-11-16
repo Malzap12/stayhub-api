@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Put, Patch, Delete, Body, Query, Param, Headers } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Query, Param, Headers, UseInterceptors } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { ListingsService } from './listings.service';
+import { GeocodingInterceptor } from './geocoding.interceptor';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
 import { SearchListingsDto } from './dto/search-listings.dto';
@@ -49,6 +50,7 @@ export class ListingsController {
   }
 
   @Post()
+  @UseInterceptors(GeocodingInterceptor)
   // RN-001/RN-002: solo un ANFITRIÓN crea publicaciones y queda como su dueño; el ADMINISTRADOR modera (RN-003) pero nunca es dueño.
   @Roles(Role.ANFITRION)
   @ApiBearerAuth()
@@ -664,6 +666,7 @@ export class ListingsController {
   }
 
   @Patch(':id')
+  @UseInterceptors(GeocodingInterceptor)
   @Roles(Role.ANFITRION)
   @ApiBearerAuth()
   @ApiOperation({
@@ -686,6 +689,7 @@ export class ListingsController {
   }
 
   @Put(':id')
+  @UseInterceptors(GeocodingInterceptor)
   @Roles(Role.ANFITRION)
   @ApiBearerAuth()
   @ApiOperation({
