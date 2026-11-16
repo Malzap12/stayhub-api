@@ -1370,4 +1370,34 @@ export class BookingsService implements OnModuleInit, OnApplicationBootstrap, On
       })
       .sort((a, b) => a.checkIn.localeCompare(b.checkIn));
   }
+
+  /** HU-070 CA2: verifica si un huésped tiene al menos una reserva en una publicación. */
+  hasGuestBookingWithHostListing(
+    listingId: string,
+    guestIdentifier: { userId?: string; email?: string },
+  ): boolean {
+    const email = guestIdentifier.email?.trim().toLowerCase();
+    const userId = guestIdentifier.userId?.trim().toLowerCase();
+    return this.bookingsStore.some((booking) => {
+      if (booking.listingId !== listingId) {
+        return false;
+      }
+      const bookingGuest = booking.guestId?.trim().toLowerCase();
+      return (Boolean(email) && bookingGuest === email) || (Boolean(userId) && bookingGuest === userId);
+    });
+  }
+
+  /** HU-070 CA2: datos mínimos de una reserva para abrir o enviar mensajes en su conversación. */
+  getBookingForMessaging(bookingId: string): { id: string; listingId: string; guestId: string; status: BookingStatus } | undefined {
+    const booking = this.bookingsStore.find((item) => item.id === bookingId);
+    if (!booking) {
+      return undefined;
+    }
+    return {
+      id: booking.id,
+      listingId: booking.listingId,
+      guestId: booking.guestId,
+      status: booking.status,
+    };
+  }
 }

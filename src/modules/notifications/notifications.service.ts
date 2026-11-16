@@ -303,6 +303,22 @@ export class NotificationsService implements OnModuleInit {
     });
   }
 
+  /** HU-070 CA5: nuevo mensaje en una conversación sin mensajes pendientes para el destinatario. */
+  messageReceived(notice: {
+    conversationId: string;
+    listingTitle: string;
+    senderName: string;
+    recipient: NotificationRecipient;
+  }): NotificationDto | undefined {
+    return this.notify({
+      recipient: notice.recipient,
+      type: 'MENSAJE_NUEVO',
+      message: `Nuevo mensaje de ${notice.senderName} sobre "${notice.listingTitle}".`,
+      entity: 'Conversation',
+      entityId: notice.conversationId,
+    });
+  }
+
   /** Notificaciones del usuario de la sesión, de la más reciente a la más antigua. */
   findMine(user: NotificationRecipient, onlyUnread = false): NotificationDto[] {
     return this.notifications

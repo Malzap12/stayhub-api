@@ -4,6 +4,7 @@ import { CrearEsquemaStayhub1729640000000 } from '../../migrations/1729640000000
 import { ConfiguracionPlataforma1729640001000 } from '../../migrations/1729640001000-configuracion-plataforma';
 import { Notificaciones1729640002000 } from '../../migrations/1729640002000-notificaciones';
 import { Resenas1729640003000 } from '../../migrations/1729640003000-resenas';
+import { ConversacionesMensajes1729640005000 } from '../../migrations/1729640005000-conversaciones-mensajes';
 
 // Parser para DATE (OID 1082) -> string 'AAAA-MM-DD'
 types.setTypeParser(1082, (val: string) => val);
@@ -47,7 +48,13 @@ export function createDataSourceOptions(customSchema?: string): DataSourceOption
     ssl,
     synchronize: false,
     migrationsTableName: 'migraciones',
-    migrations: [CrearEsquemaStayhub1729640000000, ConfiguracionPlataforma1729640001000, Notificaciones1729640002000, Resenas1729640003000],
+    migrations: [
+      CrearEsquemaStayhub1729640000000,
+      ConfiguracionPlataforma1729640001000,
+      Notificaciones1729640002000,
+      Resenas1729640003000,
+      ConversacionesMensajes1729640005000,
+    ],
   };
 }
 
