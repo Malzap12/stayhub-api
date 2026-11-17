@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, OnModuleInit, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
+import { isProduction } from '../../config/env.validation';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { AuthService } from './auth.service';
@@ -143,6 +144,11 @@ export class PasswordRecoveryService implements OnModuleInit {
     this.tokens.set(PasswordRecoveryService.hash(token), { email: account.email, expiresAt, used: false });
 
     if (this.mailService.delivery === 'SIMULATED') {
+      if (isProduction()) {
+        // Sin SMTP en producción no se guarda el token en ningún buzón legible.
+        this.recordRequest(account.email, AuditResult.FALLIDO, 'SMTP no configurado', account.id);
+        return response;
+      }
       this.mailbox.push({
         id: randomUUID(),
         to: account.email,
@@ -174,6 +180,10 @@ export class PasswordRecoveryService implements OnModuleInit {
 
   /** Buzón simulado: solo disponible sin SMTP, para no exponer enlaces de correos reales. */
   getMailbox(rawEmail: string): SimulatedMailDto[] {
+    // El buzón expone el token en claro: en producción no existe, aunque falte la configuración SMTP.
+    if (isProduction()) {
+      throw new NotFoundException();
+    }
     if (this.mailService.delivery !== 'SIMULATED') {
       return [];
     }

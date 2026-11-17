@@ -70,7 +70,10 @@ export class AuthService implements OnModuleInit {
 
   onModuleInit(): void {
     this.persistence?.register('auth', {
-      dump: () => ({ users: [...this.users.entries()], sessions: [...this.activeSessions.entries()] }),
+      dump: () => {
+        this.purgeExpiredSessions();
+        return { users: [...this.users.entries()], sessions: [...this.activeSessions.entries()] };
+      },
       restore: (data) => {
         this.users.clear();
         this.activeSessions.clear();
@@ -81,6 +84,16 @@ export class AuthService implements OnModuleInit {
       },
     });
     this.seedInitialAdmin();
+  }
+
+  /** Elimina las sesiones vencidas para que la tabla `sesiones` no crezca sin límite. */
+  private purgeExpiredSessions(): void {
+    const now = Date.now();
+    for (const [token, session] of this.activeSessions.entries()) {
+      if (now > session.expiresAt) {
+        this.activeSessions.delete(token);
+      }
+    }
   }
 
   private recordAudit(
@@ -371,7 +384,8 @@ export class AuthService implements OnModuleInit {
         60,
     );
 
-    const token = `jwt-${existing.id}-${existing.role}-${randomBytes(8).toString('hex')}`;
+    // Token opaco de 256 bits: no expone el id ni el rol del usuario.
+    const token = `jwt-${randomBytes(32).toString('hex')}`;
     this.activeSessions.set(token, {
       token,
       userId: existing.id,
