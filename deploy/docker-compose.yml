@@ -1,0 +1,81 @@
+# Entorno de DESARROLLO local: api + web + postgres + mailpit (buzón de correo de pruebas).
+# Uso: docker compose up -d --build
+#   Web:      http://localhost:4200
+#   API:      http://localhost:3000/api  (Swagger en /api/docs)
+#   Mailpit:  http://localhost:8025
+# Los puertos se publican solo en 127.0.0.1. Para producción usa docker-compose.prod.yml.
+
+name: inversiones-lr-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-lr_user}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-lr_password123}
+      POSTGRES_DB: ${DATABASE_NAME:-inversiones_lr_db}
+    ports:
+      - "127.0.0.1:${DATABASE_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
+  api:
+    build:
+      context: ..
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${DATABASE_USER:-lr_user}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:-lr_password123}
+      DATABASE_NAME: ${DATABASE_NAME:-inversiones_lr_db}
+      DATABASE_SCHEMA: ${DATABASE_SCHEMA:-stayhub}
+      ADMIN_INITIAL_NAME: ${ADMIN_INITIAL_NAME:-Administrador Inversiones LR}
+      ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL:-admin@inversioneslr.com}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-AdminLr2026!}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:4200}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4200}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      MAIL_FROM: ${MAIL_FROM:-Inversiones LR <no-reply@inversioneslr.com>}
+      ENABLE_SWAGGER: "true"
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      PAYMENT_MODE: test
+    volumes:
+      - api_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  web:
+    build:
+      context: ../../inversiones-lr-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4200:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  api_uploads:

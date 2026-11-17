@@ -1,0 +1,111 @@
+# Despliegue de producción en un VPS: Caddy (HTTPS) → web (nginx + Angular) → api (NestJS) → postgres.
+# Solo Caddy publica puertos (80/443). La API se ejecuta como UNA sola instancia:
+# mantiene el estado en memoria y lo vuelca a PostgreSQL, así que nunca debe escalarse a varias réplicas.
+#
+# Uso:  docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+
+name: inversiones-lr
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:?Define DATABASE_USER en .env}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Define DATABASE_PASSWORD en .env}
+      POSTGRES_DB: ${DATABASE_NAME:?Define DATABASE_NAME en .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend
+
+  api:
+    build:
+      context: ..
+    image: inversiones-lr-api:latest
+    restart: unless-stopped
+    # Al actualizar, Compose detiene el contenedor viejo antes de iniciar el nuevo (una sola instancia).
+    stop_grace_period: 30s
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_SCHEMA: ${DATABASE_SCHEMA:-stayhub}
+      CORS_ORIGINS: https://${DOMAIN:?Define DOMAIN en .env}
+      APP_BASE_URL: https://${DOMAIN}
+      ADMIN_INITIAL_NAME: ${ADMIN_INITIAL_NAME:-Administrador Inversiones LR}
+      ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL:?Define ADMIN_INITIAL_EMAIL en .env}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:?Define ADMIN_INITIAL_PASSWORD en .env}
+      SESSION_TIMEOUT_MINUTES: ${SESSION_TIMEOUT_MINUTES:-60}
+      PASSWORD_RESET_TOKEN_MINUTES: ${PASSWORD_RESET_TOKEN_MINUTES:-30}
+      PASSWORD_RECOVERY_MAX_REQUESTS: ${PASSWORD_RECOVERY_MAX_REQUESTS:-3}
+      SMTP_HOST: ${SMTP_HOST:?Define SMTP_HOST en .env}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:?Define MAIL_FROM en .env}
+      GEOCODING_USER_AGENT: ${GEOCODING_USER_AGENT:-}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-300}
+      ENABLE_SWAGGER: ${ENABLE_SWAGGER:-false}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
+      BOOKING_DAILY_CLOSURE: ${BOOKING_DAILY_CLOSURE:-true}
+      PAYMENT_MODE: test
+      UPLOADS_DIR: /app/uploads
+    volumes:
+      - api_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend
+
+  web:
+    build:
+      context: ../../inversiones-lr-web
+    image: inversiones-lr-web:latest
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - backend
+      - frontend
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Define ACME_EMAIL en .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    networks:
+      - frontend
+
+volumes:
+  postgres_data:
+  api_uploads:
+  caddy_data:
+  caddy_config:
+
+networks:
+  backend:
+  frontend:
