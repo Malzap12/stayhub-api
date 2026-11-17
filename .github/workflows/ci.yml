@@ -34,7 +34,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
         run: npm ci
@@ -50,6 +50,9 @@ jobs:
           TEST_DATABASE_USER: lr_user
           TEST_DATABASE_PASSWORD: lr_password123
           TEST_DATABASE_NAME: inversiones_lr_db
+
+      - name: Build Docker image
+        run: docker build -t stayhub-api:ci .
 
       - name: SonarCloud Scan (HU-065)
         uses: SonarSource/sonarqube-scan-action@v5.0.0

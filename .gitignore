@@ -22,3 +22,4 @@ coverage
 # Imágenes subidas por los anfitriones (HU-010)
 /uploads
 
+*.tsbuildinfo
