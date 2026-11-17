@@ -4,6 +4,7 @@
 # Uso (como root o con sudo), desde tu equipo:
 #   scp deploy/scripts/setup-vps.sh root@IP_DEL_VPS:/root/
 #   ssh -t root@IP_DEL_VPS 'bash /root/setup-vps.sh'
+#   (Oracle Cloud: usuario ubuntu → scp a ubuntu@IP:~ y ssh -t ubuntu@IP "sudo bash ~/setup-vps.sh")
 #
 # Pide los datos que falten. También se pueden pasar como variables de entorno
 # (útil para repetir la instalación sin preguntas):
@@ -68,6 +69,16 @@ ufw allow OpenSSH >/dev/null
 ufw allow 80/tcp >/dev/null
 ufw allow 443 >/dev/null
 ufw --force enable >/dev/null
+
+# Oracle Cloud: sus imágenes de Ubuntu traen reglas iptables propias que rechazan todo salvo SSH.
+if [ -f /etc/iptables/rules.v4 ] && grep -q "icmp-host-prohibited" /etc/iptables/rules.v4; then
+  log "Oracle Cloud detectado: abriendo 80/443 en iptables"
+  for port in 80 443; do
+    iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null \
+      || iptables -I INPUT 1 -p tcp --dport "$port" -j ACCEPT
+  done
+  command -v netfilter-persistent >/dev/null && netfilter-persistent save >/dev/null
+fi
 
 log "Código fuente en $APP_DIR (rama $BRANCH)"
 mkdir -p "$APP_DIR"
