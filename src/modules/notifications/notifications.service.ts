@@ -321,8 +321,11 @@ export class NotificationsService implements OnModuleInit {
 
   /** Notificaciones del usuario de la sesión, de la más reciente a la más antigua. */
   findMine(user: NotificationRecipient, onlyUnread = false): NotificationDto[] {
+    // Se invierte antes de ordenar: si dos notificaciones comparten el mismo milisegundo,
+    // el orden estable deja primero la última creada.
     return this.notifications
       .filter((item) => this.belongsTo(item, user) && (!onlyUnread || !item.read))
+      .reverse()
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 

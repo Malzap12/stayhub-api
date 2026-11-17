@@ -36,6 +36,7 @@ import { AuditService } from '../audit/audit.service';
 import { StatePersistenceService } from '../persistence/state-persistence.service';
 import { AuditAction, AuditResult } from '../../common/enums/audit.enum';
 import { DEMO_AVAILABILITY_PERIODS, DEMO_LISTINGS } from './listings.seed';
+import { isDemoDataEnabled } from '../../config/env.validation';
 import { CancellationPolicyDto, ListingDetailDto, UpdateCancellationPolicyDto } from './dto/listing-detail.dto';
 import { CalendarDayStatus, CalendarMonthDto, ListingCalendarDto } from './dto/calendar.dto';
 import { CANCELLATION_POLICIES, DEFAULT_CANCELLATION_POLICY, getCancellationPoliciesCatalog, type CancellationPolicyCode } from './cancellation-policies';
@@ -397,6 +398,11 @@ export class ListingsService implements OnModuleInit {
     @Optional() private readonly notificationsService?: NotificationsService,
     @Optional() private readonly geocodingService?: GeocodingService,
   ) {
+    if (!isDemoDataEnabled()) {
+      // Producción: sin publicaciones ni periodos de ejemplo de anfitriones inexistentes.
+      this.listingsStore = [];
+      this.availabilityPeriodsStore = [];
+    }
     this.seedListings = structuredClone(this.listingsStore);
     this.seedAvailabilityPeriods = structuredClone(this.availabilityPeriodsStore);
   }

@@ -54,6 +54,22 @@ export class StatePersistenceService
     }
   }
 
+  /** Estado para el endpoint de salud: sin persistencia siempre está listo; con ella, PostgreSQL debe responder. */
+  async isHealthy(): Promise<boolean> {
+    if (!this.enabled) {
+      return true;
+    }
+    if (!this.dataSource?.isInitialized) {
+      return false;
+    }
+    try {
+      await this.dataSource.query('SELECT 1;');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /** Registra los datos de un servicio. Solo guarda la referencia de la fuente. */
   register(key: string, source: PersistedSource): void {
     this.sources.set(key, source);
@@ -244,7 +260,9 @@ export class StatePersistenceService
     }
 
     const conflictTarget = def.primaryKey.map((k) => `"${k}"`).join(', ');
-    const updateClause = updates.length > 0
+    // Las tablas de solo inserción (bitácora de auditoría) tienen un trigger que rechaza UPDATE:
+    // un upsert sobre una fila existente abortaría toda la transacción de persistencia.
+    const updateClause = updates.length > 0 && !def.insertOnly
       ? `DO UPDATE SET ${updates.join(', ')}`
       : 'DO NOTHING';
 

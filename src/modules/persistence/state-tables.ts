@@ -9,6 +9,8 @@ export interface TableDefinition {
   columns: string[];
   jsonbColumns?: string[];
   arrayColumns?: string[];
+  /** Tabla de solo inserción: una fila existente nunca se actualiza (ON CONFLICT DO NOTHING). */
+  insertOnly?: boolean;
 }
 
 export const TABLE_DEFINITIONS: Record<string, TableDefinition> = {
@@ -29,6 +31,7 @@ export const TABLE_DEFINITIONS: Record<string, TableDefinition> = {
     primaryKey: ['id'],
     columns: ['id', 'orden', 'actor', 'accion', 'entidad', 'entidad_id', 'ocurrido_en', 'resultado', 'detalle', 'extra'],
     jsonbColumns: ['extra'],
+    insertOnly: true,
   },
   tokens_recuperacion: {
     tableName: 'tokens_recuperacion',

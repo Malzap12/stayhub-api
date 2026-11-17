@@ -1,0 +1,4 @@
+.env
+backups/
+*.log
+CREDENCIALES_ADMIN.md
