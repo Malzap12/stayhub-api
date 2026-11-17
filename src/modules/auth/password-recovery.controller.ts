@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { PasswordRecoveryService } from './password-recovery.service';
 import {
   MessageResponseDto,
@@ -13,6 +14,7 @@ import { Public } from '../../common/decorators/roles.decorator';
 
 @ApiTags('Autenticación (Auth)')
 @Public()
+@Throttle({ default: { limit: 20, ttl: 60_000 } })
 @Controller('auth/password-recovery')
 export class PasswordRecoveryController {
   constructor(private readonly passwordRecoveryService: PasswordRecoveryService) {}

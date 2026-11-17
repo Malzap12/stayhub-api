@@ -1,6 +1,9 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { validateEnv } from './config/env.validation';
+import { HealthController } from './health.controller';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ListingsModule } from './modules/listings/listings.module';
@@ -22,7 +25,14 @@ import { GlobalExceptionsFilter } from './common/filters/global-exceptions.filte
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    // Límite general por IP; login y recuperación de contraseña usan uno más estricto (@Throttle).
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: Number.parseInt(process.env.RATE_LIMIT_PER_MINUTE ?? '300', 10),
+      },
+    ]),
     PersistenceModule,
     NotificationsModule,
     AuthModule,
@@ -38,7 +48,12 @@ import { GlobalExceptionsFilter } from './common/filters/global-exceptions.filte
     MessagesModule,
     FavoritesModule,
   ],
+  controllers: [HealthController],
   providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
