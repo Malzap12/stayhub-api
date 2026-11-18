@@ -21,6 +21,24 @@ Internet ──443──▶ caddy ──▶ web (nginx + Angular) ──/api/─
 - **El esquema de base de datos lo crean las migraciones de la API** en el esquema `stayhub`, al arrancar. Los scripts SQL de `BaseDeDatos-IngSoft1` no se usan en el despliegue.
 - **`NODE_ENV=production` es estricto.** La API no arranca si falta SMTP, `APP_BASE_URL` o `CORS_ORIGINS`, ni si se usan las contraseñas de ejemplo. El buzón simulado de recuperación de contraseña queda desactivado.
 
+## Instalación rápida (script)
+
+`scripts/setup-vps.sh` hace en un solo paso las secciones 1 a 3 y el respaldo diario:
+
+- instala Docker y el firewall, y agrega swap si hay poca RAM;
+- clona los repositorios;
+- genera el `.env` con contraseñas aleatorias, preguntando el dominio y la cuenta SMTP;
+- levanta el stack y verifica `/api/health` por HTTPS.
+
+Por defecto usa Gmail SMTP con una contraseña de aplicación. Si no tienes dominio, propone `<ip-con-guiones>.sslip.io`.
+
+```bash
+scp deploy/scripts/setup-vps.sh root@IP_DEL_VPS:/root/
+ssh -t root@IP_DEL_VPS 'bash /root/setup-vps.sh'
+```
+
+Al terminar, el script muestra la URL y la contraseña del administrador, que solo se muestra esa vez. Puedes volver a ejecutarlo para actualizar: si ya existe un `.env`, lo conserva.
+
 ## 1. Preparar el VPS (Ubuntu 24.04, mínimo 2 GB RAM)
 
 ```bash
